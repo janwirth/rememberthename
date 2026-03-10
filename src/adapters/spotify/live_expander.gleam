@@ -35,13 +35,10 @@ import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
+import dot_env as dot
+import dot_env/env
+import simplifile
 import adapters/core
-
-@external(erlang, "spotify_http", "read_access_token_file")
-pub fn read_access_token_file(session_file: String) -> String
-
-@external(erlang, "spotify_http", "read_env_value")
-pub fn read_env_value(file_path: String, key: String) -> String
 
 @external(erlang, "spotify_http", "liked_tracks_json")
 fn liked_tracks_json(token: String, offset: Int) -> String
@@ -51,6 +48,22 @@ fn tracks_tsv(json: String) -> String
 
 @external(erlang, "spotify_http", "tracks_next_offset")
 fn tracks_next_offset(json: String) -> String
+
+pub fn read_access_token_file(session_file: String) -> String {
+  case simplifile.read(from: session_file) {
+    Ok(body) ->
+      case string.trim(extract_access_token(body)) {
+        "" -> string.trim(body)
+        token -> token
+      }
+    Error(_) -> ""
+  }
+}
+
+pub fn read_env_value(file_path: String, key: String) -> String {
+  let _ = dot.new() |> dot.set_path(file_path) |> dot.set_debug(False) |> dot.load
+  env.get_string_or(key, "")
+}
 
 pub opaque type SpotifyUserProfile {
   SpotifyUserProfile(profile_url: String)
@@ -331,4 +344,23 @@ fn normalize(value: String) -> String {
   |> string.replace("  ", " ")
 }
 
+fn extract_access_token(body: String) -> String {
+  let compact = string.replace(body, " ", "")
+  let exact = extract_between(compact, "\"access_token\":\"", "\"")
+  case exact {
+    "" -> extract_between(body, "\"access_token\":\"", "\"")
+    token -> token
+  }
+}
+
+fn extract_between(body: String, start: String, ending: String) -> String {
+  case string.split(body, start) {
+    [_, tail, ..] ->
+      case string.split(tail, ending) {
+        [value, ..] -> value
+        _ -> ""
+      }
+    _ -> ""
+  }
+}
 

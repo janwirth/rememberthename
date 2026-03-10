@@ -1,51 +1,10 @@
 -module(spotify_http).
 %% Spotify public user/profile HTTP helpers.
 -export([
-    read_access_token_file/1,
-    read_env_value/2,
     liked_tracks_json/2,
     tracks_tsv/1,
     tracks_next_offset/1
 ]).
-
-read_access_token_file(SessionFile) ->
-    try
-        case file:read_file(SessionFile) of
-            {ok, Body} when byte_size(Body) > 0 ->
-                Token = extract_access_token_json(Body),
-                case Token of
-                    <<>> -> trim(Body);
-                    _ -> Token
-                end;
-            _ ->
-                <<>>
-        end
-    catch
-        _:_ -> <<>>
-    end.
-
-extract_access_token_json(Body) ->
-    case re:run(Body, <<"\"access_token\"\\s*:\\s*\"([^\"]+)\"">>, [{capture, [1], binary}]) of
-        {match, [Token]} -> trim(Token);
-        _ -> trim(extract_between(Body, <<"\"access_token\":\"">>, <<"\"">>))
-    end.
-
-read_env_value(FilePath, Key) ->
-    try
-        case file:read_file(FilePath) of
-            {ok, Body} when byte_size(Body) > 0 ->
-                KeyBin = iolist_to_binary(Key),
-                Pattern = <<"(?:^|\\n)", KeyBin/binary, "=([^\\n\\r]*)">>,
-                case re:run(Body, Pattern, [{capture, [1], binary}]) of
-                    {match, [Value]} -> trim(Value);
-                    _ -> <<>>
-                end;
-            _ ->
-                <<>>
-        end
-    catch
-        _:_ -> <<>>
-    end.
 
 liked_tracks_json(Token, Offset) ->
     Url = <<
@@ -132,17 +91,6 @@ fetch(Url) when is_binary(Url) ->
     end;
 fetch(Url) ->
     fetch(iolist_to_binary(Url)).
-
-extract_between(Body, Start, Ending) ->
-    case binary:split(Body, Start) of
-        [_Before, Tail] ->
-            case binary:split(Tail, Ending) of
-                [Value | _] -> Value;
-                _ -> <<>>
-            end;
-        _ ->
-            <<>>
-    end.
 
 cache_path(Blob) ->
     Hash = integer_to_list(erlang:phash2(Blob)),
