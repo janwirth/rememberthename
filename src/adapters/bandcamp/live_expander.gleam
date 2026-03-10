@@ -59,9 +59,23 @@ pub fn resolve_profile(
   depth: core.DepthMode,
   use_cache: Bool,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug(profile, depth, use_cache, fn(_) { Nil })
+}
+
+pub fn resolve_profile_with_debug(
+  profile: BandcampProfile,
+  depth: core.DepthMode,
+  use_cache: Bool,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   // Keep entry point specific: BandcampProfile -> profile_url traversal root.
   let BandcampProfile(profile_url) = profile
-  core.resolve_profile_url(profile_url, depth, fn(node) { expand(node, use_cache) })
+  core.resolve_profile_url_with_debug(
+    profile_url,
+    depth,
+    fn(node) { expand(node, use_cache) },
+    on_debug,
+  )
 }
 
 pub fn expand(node: core.AdapterNode, use_cache: Bool) -> core.ExpandResult {

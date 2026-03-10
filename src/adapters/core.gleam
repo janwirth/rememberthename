@@ -30,7 +30,6 @@
 //// - No duplicate canonical nodes in final output.
 //// - Unresolved traversal nodes are surfaced for diagnostics/tests.
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/result
 import gleam/set
@@ -100,6 +99,15 @@ pub fn resolve_profile_url(
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
 ) -> ResolveResult {
+  resolve_profile_url_with_debug(profile_url, depth, expand, fn(_) { Nil })
+}
+
+pub fn resolve_profile_url_with_debug(
+  profile_url: String,
+  depth: DepthMode,
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> ResolveResult {
   // Start traversal exactly once from the profile entry root.
   loop(
     [#(ProfileEntry(profile_url), 0)],
@@ -111,6 +119,7 @@ pub fn resolve_profile_url(
     [],
     depth,
     expand,
+    on_debug,
   )
 }
 
@@ -124,6 +133,7 @@ fn loop(
   unresolved: List(AdapterNode),
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
   // Tail-recursive resolver with:
   // - queue for deterministic traversal order
@@ -138,7 +148,18 @@ fn loop(
       let key = node_key(node)
       case set.contains(visited, key) {
         True -> {
-          loop(rest, visited, item_seen, list_seen, items, lists, unresolved, depth, expand)
+          loop(
+            rest,
+            visited,
+            item_seen,
+            list_seen,
+            items,
+            lists,
+            unresolved,
+            depth,
+            expand,
+            on_debug,
+          )
         }
         False -> {
           let visited = set.insert(visited, key)
@@ -154,17 +175,15 @@ fn loop(
                 unresolved,
                 depth,
                 expand,
+                on_debug,
               )
             }
             True -> {
-              io.println(
-                "[fetch] node="
-                <> node_key(node)
-                <> " level="
-                <> int.to_string(level),
-              )
+              emit_debug(depth, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
               let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = expand(node)
-              io.println(
+              emit_debug(
+                depth,
+                on_debug,
                 "[fetched] node="
                 <> node_key(node)
                 <> " items="
@@ -178,12 +197,30 @@ fn loop(
               let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)
-              loop(queue, visited, item_seen, list_seen, items, lists, unresolved, depth, expand)
+              loop(
+                queue,
+                visited,
+                item_seen,
+                list_seen,
+                items,
+                lists,
+                unresolved,
+                depth,
+                expand,
+                on_debug,
+              )
             }
           }
         }
       }
     }
+  }
+}
+
+fn emit_debug(depth: DepthMode, on_debug: fn(String) -> Nil, line: String) {
+  case depth {
+    All -> on_debug(line)
+    _ -> Nil
   }
 }
 

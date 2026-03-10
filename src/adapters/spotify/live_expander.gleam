@@ -103,10 +103,23 @@ pub fn resolve_profile(
   config: SpotifyConfig,
   use_cache: Bool,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug(profile, depth, config, use_cache, fn(_) { Nil })
+}
+
+pub fn resolve_profile_with_debug(
+  profile: SpotifyUserProfile,
+  depth: core.DepthMode,
+  config: SpotifyConfig,
+  use_cache: Bool,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   let SpotifyUserProfile(profile_url) = profile
-  core.resolve_profile_url(profile_url, depth, fn(node) {
-    expand(node, config, use_cache)
-  })
+  core.resolve_profile_url_with_debug(
+    profile_url,
+    depth,
+    fn(node) { expand(node, config, use_cache) },
+    on_debug,
+  )
 }
 
 pub fn expand(
