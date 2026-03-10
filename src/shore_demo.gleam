@@ -16,6 +16,7 @@ import shore/layout
 import shore/style
 import shore/ui
 import shore_demo/helpers
+import source_specs
 
 const track_viewport_size = 18
 
@@ -390,12 +391,12 @@ fn view(model: Model) -> shore.Node(Msg) {
   let sidebar = ui.box(sidebar_children, Some("Sidebar"))
 
   let #(title, body) = selected
-  let validation_checks = list.map(validation_checklist_lines(model), ui.text)
+  let validation_nodes = validation_view_nodes(model)
   let depth_nodes = depth_nodes(model)
   let main_content =
     ui.box(
-      [ui.text(title), ui.hr(), validation_node(model)]
-        |> list.append(validation_checks)
+      [ui.text(title), ui.hr()]
+        |> list.append(validation_nodes)
         |> list.append([
           ui.text_wrapped(body),
           ui.br(),
@@ -747,40 +748,19 @@ fn option_with_default(value: Option(a), fallback: a) -> a {
   }
 }
 
-fn validation_node(model: Model) -> shore.Node(Msg) {
+fn validation_view_nodes(model: Model) -> List(shore.Node(Msg)) {
   case selected_source(model.selected_index) {
-    None -> ui.text_styled("validation: n/a", Some(style.White), None)
+    None -> helpers.validation_unavailable_nodes()
     Some(source) -> {
-      let helpers.ValidationView(label, color, _) =
-        helpers.build_validation(
-          source.min_depth_1_items,
-          source.min_full_items,
-          source.first_items_to_preserve,
-          source.anchor_fragments,
-          result_option(model.current_fetch.depth_1),
-          result_option(model.current_fetch.depth_3),
-          result_option(model.current_fetch.depth_all),
-        )
-      ui.text_styled("validation: " <> label, Some(color), None)
-    }
-  }
-}
-
-fn validation_checklist_lines(model: Model) -> List(String) {
-  case selected_source(model.selected_index) {
-    None -> ["[-] no source selected"]
-    Some(source) -> {
-      let helpers.ValidationView(_, _, checks) =
-        helpers.build_validation(
-          source.min_depth_1_items,
-          source.min_full_items,
-          source.first_items_to_preserve,
-          source.anchor_fragments,
-          result_option(model.current_fetch.depth_1),
-          result_option(model.current_fetch.depth_3),
-          result_option(model.current_fetch.depth_all),
-        )
-      checks
+      helpers.validation_nodes(
+        source.min_depth_1_items,
+        source.min_full_items,
+        source.first_items_to_preserve,
+        source.anchor_fragments,
+        result_option(model.current_fetch.depth_1),
+        result_option(model.current_fetch.depth_3),
+        result_option(model.current_fetch.depth_all),
+      )
     }
   }
 }
@@ -877,57 +857,25 @@ fn source_at(
 }
 
 fn source_entries() -> List(SourceEntry) {
-  [
-    SourceEntry(
-      key: "bandcamp",
-      name: "Bandcamp",
-      entry_point: "https://bandcamp.com/janwirth",
-      min_depth_1_items: 1,
-      min_full_items: 700,
-      first_items_to_preserve: 3,
-      anchor_fragments: [
-        "PUT THE NEEDLE ON THE RECORD",
-        "Look Alive",
-        "Manifest Content",
-      ],
-    ),
-    SourceEntry(
-      key: "soundcloud",
-      name: "Soundcloud",
-      entry_point: "https://soundcloud.com/tungstenselects",
-      min_depth_1_items: 10,
-      min_full_items: 1000,
-      first_items_to_preserve: 3,
-      anchor_fragments: [
-        "A Horse with no Name (Edit)",
-        "Nyxtape: Vol.12 - Harley D",
-        "PREMIERE| Rebecca Delle Piane - Genomica [FIDESX4]",
-        "Premiere: KAIPE - Batie",
-      ],
-    ),
-    SourceEntry(
-      key: "spotify",
-      name: "Spotify",
-      entry_point: "https://open.spotify.com/user/franzskuffka",
-      min_depth_1_items: 50,
-      min_full_items: 1000,
-      first_items_to_preserve: 3,
-      anchor_fragments: ["Blask", "SOLD MY SOUL"],
-    ),
-    SourceEntry(
-      key: "youtube",
-      name: "Youtube",
-      entry_point: "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
-      min_depth_1_items: 5,
-      min_full_items: 1000,
-      first_items_to_preserve: 3,
-      anchor_fragments: [
-        "Angine de poitrine - Sahardnieh",
-        "Nimo - BITTER",
-        "Vengaboys - Up & Down",
-        "Dendemann - Wo ich wech bin",
-        "BHZ - SCHLIESSE DIE AUGEN",
-      ],
-    ),
-  ]
+  list.map(source_specs.all(), source_entry_from_spec)
+}
+
+fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
+  let source_specs.SourceSpec(key, name, entry_point, assert_spec) = spec
+  let source_specs.SourceAssertSpec(
+    min_depth_1_items,
+    min_full_items,
+    first_items_to_preserve,
+    anchor_fragments,
+    _,
+  ) = assert_spec
+  SourceEntry(
+    key: key,
+    name: name,
+    entry_point: entry_point,
+    min_depth_1_items: min_depth_1_items,
+    min_full_items: min_full_items,
+    first_items_to_preserve: first_items_to_preserve,
+    anchor_fragments: anchor_fragments,
+  )
 }

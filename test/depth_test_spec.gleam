@@ -16,6 +16,7 @@ pub type DepthAssertSpec {
     min_full_items: Int,
     first_items_to_preserve: Int,
     anchor_fragments: List(String),
+    required_full_fragments: List(String),
   )
 }
 
@@ -32,7 +33,13 @@ pub fn resolve_standard_depths(
 }
 
 pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpec) {
-  let DepthAssertSpec(min_depth_1_items, min_full_items, first_items_to_preserve, anchor_fragments) =
+  let DepthAssertSpec(
+    min_depth_1_items,
+    min_full_items,
+    first_items_to_preserve,
+    anchor_fragments,
+    required_full_fragments,
+  ) =
     spec
   let DepthResults(d1, d2, all) = results
   let #(i1, l1, u1) = counts(d1)
@@ -62,6 +69,11 @@ pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpe
   list.each(anchor_fragments, fn(fragment) {
     assert has_title_fragment(items_1, fragment) || has_title_fragment(items_2, fragment)
     assert has_title_fragment(items_all, fragment)
+  })
+
+  // Optional extra full-result expectations should come from source specs.
+  list.each(required_full_fragments, fn(fragment) {
+    assert has_title_fragment_ci(items_all, fragment)
   })
 }
 
@@ -113,4 +125,12 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
 fn string_contains(haystack: String, needle: String) -> Bool {
   // Keep helper local so callers can rely on this module only.
   string.contains(haystack, needle)
+}
+
+fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
+  let wanted_lc = string.lowercase(wanted)
+  list.any(items, fn(item) {
+    let core.UnifiedItem(_, title, _, _, _, _) = item
+    string.contains(string.lowercase(title), wanted_lc)
+  })
 }

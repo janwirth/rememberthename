@@ -112,6 +112,36 @@ pub fn build_validation(
   }
 }
 
+pub fn validation_nodes(
+  min_depth_1_items: Int,
+  min_full_items: Int,
+  first_items_to_preserve: Int,
+  anchor_fragments: List(String),
+  depth_1: Option(core.ResolveResult),
+  depth_3: Option(core.ResolveResult),
+  depth_all: Option(core.ResolveResult),
+) -> List(shore.Node(msg)) {
+  let ValidationView(label, color, checks) =
+    build_validation(
+      min_depth_1_items,
+      min_full_items,
+      first_items_to_preserve,
+      anchor_fragments,
+      depth_1,
+      depth_3,
+      depth_all,
+    )
+  [ui.text_styled("validation: " <> label, Some(color), None)]
+  |> list.append(list.map(checks, ui.text))
+}
+
+pub fn validation_unavailable_nodes() -> List(shore.Node(msg)) {
+  [
+    ui.text_styled("validation: n/a", Some(style.White), None),
+    ui.text("[-] no source selected"),
+  ]
+}
+
 fn checkbox(passed: Bool) -> String {
   case passed {
     True -> "[x]"
