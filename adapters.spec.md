@@ -11,8 +11,8 @@ Just profiles that give you track, artist and a backlink
 ## 1) Scope
 
 Each provider runs as an independent long-running adapter:
-- `bandcamp_adapter`
-- `soundcloud_adapter`
+- `bandcamp_live_expander`
+- `soundcloud_live_expander`
 - `youtube_adapter`
 - `spotify_adapter`
 
@@ -20,14 +20,10 @@ Adapters resolve only their own provider data and publish progress updates while
 
 ## 2) Input
 
-- Only service-specific collection-level `SourceIdentity` inputs are accepted.
+- Only service-specific profile constructors are accepted as entry input.
 - Track URLs are not valid inputs.
-- `SourceIdentity` is defined in `SPEC.md` and used unchanged here:
-  - `service`
-  - `source_type`
-  - `source_id`
 - accepted source shapes are defined per service in `SPEC.md`:
-  - bandcamp album source
+  - bandcamp profile source
   - soundcloud profile source
   - youtube playlist source
   - spotify collection sources (`collection/tracks`, `collection/albums`)
@@ -48,7 +44,9 @@ Required output detail:
 
 Each adapter module must expose:
 - an internal traversal union type (module-owned)
-- a profile entry constructor for traversal start
+- a public opaque profile type
+- a public constructor function for profile creation
+- a `resolve_profile(profile, depth)` API
 - an expand function that maps one traversal node to emitted payload + child nodes
 
 Reference shape (spec-level):
@@ -56,7 +54,7 @@ Reference shape (spec-level):
 - internal union:
   - `AdapterNode`
   - constructors must include at least:
-    - `ProfileEntry(SourceIdentity)` (entry point)
+    - `ProfileEntry(profile_url)` (entry point)
     - additional internal constructors as needed (`CategoryNode`, `ListNode`, `PageNode`, ...)
 - higher-kinded/effect shape:
   - `expand: AdapterNode -> m(ExpandResult)`
@@ -68,8 +66,8 @@ Reference shape (spec-level):
   - `unresolved: List(UnresolvedNode)` (optional incremental unresolved emission)
 
 Design rules:
-- `AdapterNode` is internal to each adapter module (not shared globally).
-- callers can only construct traversal via `ProfileEntry(...)`.
+- traversal nodes are shared through `adapter_core.AdapterNode`; adapter-specific profile types stay opaque.
+- callers can only construct traversal roots via adapter constructor functions.
 - node identity key must be deterministic for visited-set dedupe.
 - emitted `next_nodes` must preserve deterministic order.
 - partial list state is internal only; externally emitted lists must be complete.
@@ -86,7 +84,7 @@ Per-job event stream is minimal and ordered:
 Structural recursion, in-order, no parallelism beyond adapter level.
 
 Recursive runtime model:
-- `resolve_profile(profile)` initializes queue with `ProfileEntry(profile)`.
+- `resolve_profile(profile)` unwraps profile URL and initializes queue with `ProfileEntry(profile_url)`.
 - `loop(queue, visited, acc, ...)` is tail-recursive.
 - loop terminates only when queue is empty.
 
@@ -97,4 +95,4 @@ Build resolution methods on top of test harness.
 
 Test data required before starting:
 
-- input source: URL/profile mapped to service-specific collection `SourceIdentity`
+- input source: URL/profile mapped to a service-specific opaque profile value via constructor function

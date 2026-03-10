@@ -23,12 +23,10 @@ Out of scope for Bandcamp input:
 
 ## 2) Source Contract
 
-- `service`: `bandcamp`
-- `source_type`: `collection` for profile roots, `item | collection` for resolved entries
-- contract type: `SourceIdentity` from `SPEC.md`
-
-Accepted profile shape:
-- `SourceIdentity { service: bandcamp, source_type: collection, source_id: <profile_url> }`
+- Entry type: `BandcampProfile` (opaque)
+- Public constructor: `bandcamp_profile(profile_url: String) -> BandcampProfile`
+- Resolver API: `resolve_profile(profile: BandcampProfile, depth: DepthMode) -> ResolveResult`
+- Internal traversal start node uses `ProfileEntry(profile_url)`
 
 ## 3) URL Parsing Rules
 
@@ -38,9 +36,7 @@ Accepted:
 - Optional query params allowed and ignored for canonicalization.
 
 Canonical parse result:
-- `service = bandcamp`
-- `source_type = collection`
-- `source_id = <normalized_profile_url>`
+- constructor stores normalized `profile_url`
 
 Rejected as parse failures:
 - `https://<artist>.bandcamp.com/track/<track_slug>`
@@ -50,12 +46,20 @@ Rejected as parse failures:
 
 ## 4) Intermediary Model
 
-Bandcamp-specific intermediary models and mapping follow the same adapter and resolver contracts defined in `SPEC.md` and `adapters.spec.md`, aligned with the factored structure used in `SOUNDCLOUD_SPEC.md`.
+Bandcamp-specific intermediary models and mapping follow the same adapter and resolver contracts defined in `SPEC.md` and `adapters.spec.md`.
 
 Minimal profile traversal model:
 - profile result
 - album/list result
 - track result
+
+Current implementation details:
+- profile page bootstrap extracts `fan_id`, `collection` token, `wishlist` token
+- API pagination endpoints:
+  - `/api/fancollection/1/collection_items`
+  - `/api/fancollection/1/wishlist_items`
+- category pagination follows `more_available` + `last_token`
+- normalized output items keep canonical fields: `service`, `source_type`, `source_id`
 
 Example depth expectations for integration fixtures:
 - depth 1 from `https://bandcamp.com/janwirth` includes track `Babylon 47`

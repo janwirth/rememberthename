@@ -11,7 +11,7 @@ It ingests collection profiles from multiple services and exposes a unified API.
 Adapter-process details are defined in `adapters.spec.md`.
 
 Primary objective:
-- Accept source identities (URL or structured input).
+- Accept profile URLs via adapter-specific constructors.
 - Resolve recursively across collection nodes.
 - Normalize into one canonical cross-service data model.
 
@@ -42,14 +42,10 @@ Primary objective:
 
 - `Service`: `bandcamp | soundcloud | youtube | spotify`
 - `SourceType`: `item | collection`
-- `SourceIdentity` (explicit type):
-  - `service: Service`
-  - `source_type: SourceType`
-  - `source_id: String`
-  - constraints:
-    - `source_id` must be non-empty after trim
-    - key is deterministic: `service + ":" + source_type + ":" + source_id`
-    - for ingestion, `source_type` must be `collection`
+- Ingestion entry points are adapter-specific opaque types with constructors:
+  - `SoundcloudProfile` from `soundcloud_live_expander.soundcloud_profile(profile_url)`
+  - `BandcampProfile` from `bandcamp_live_expander.bandcamp_profile(profile_url)`
+  - types are not exposed directly; callers use constructor functions only
 - `UnifiedItem`:
   - `id` (stable canonical ID)
   - `title`
@@ -60,7 +56,6 @@ Primary objective:
 - `UnifiedCollection`:
   - `id` (stable canonical ID)
   - `title`
-  - `entries` (`List(SourceIdentity)` for child collections/items)
   - `track_ids` (`List(String)`, optional service-emitted list view)
   - `list_ids` (`List(String)`, optional service-emitted nested list references)
   - `service`
@@ -124,22 +119,20 @@ Mapping:
 
 ## 6) Input + Parsing Rules
 
-Two accepted input forms:
-1. Structured row: `title`, `artist`, `source_id`, `service`, `source_type`
-2. URL input: parser derives `service`, `source_id`, `source_type`
+Accepted input form:
+1. URL profile input per adapter; constructor maps URL into an adapter-specific opaque profile type.
 
-Accepted `SourceIdentity` shape per service:
+Accepted profile shape per service:
 - Bandcamp:
-  - `{ service: bandcamp, source_type: collection, source_id: <profile_url> }`
+  - `bandcamp_profile(<profile_url>) -> BandcampProfile`
 - SoundCloud:
-  - `{ service: soundcloud, source_type: collection, source_id: <profile_url> }`
+  - `soundcloud_profile(<profile_url>) -> SoundcloudProfile`
   - full parsing/mapping rules in `SOUNDCLOUD_SPEC.md`
 - YouTube:
-  - `{ service: youtube, source_type: collection, source_id: <playlist_id> }`
+  - adapter-specific playlist/profile constructor (to be implemented)
   - playlist URLs (`list=...`) are accepted.
 - Spotify:
-  - `{ service: spotify, source_type: collection, source_id: "collection/tracks" }`
-  - `{ service: spotify, source_type: collection, source_id: "collection/albums" }`
+  - adapter-specific constructor forms for `collection/tracks` and `collection/albums` (to be implemented)
 
 Rejected as invalid input:
 - Bandcamp `/track/...`
@@ -153,8 +146,8 @@ Invalid/unsupported input:
 ## 7) Recursive Resolution Semantics
 
 Resolver contract:
-- Input: one or more profile `SourceIdentity` values.
-- Adapter lookup fetches `UnifiedNode` for each source.
+- Input: one or more adapter-specific profile values created via constructor functions.
+- Adapter lookup expands traversal from profile URL roots.
 - `item` nodes are collected.
 - `collection` nodes enqueue child entries.
 - `list_ids` represent nested lists and must be expanded recursively as child collections.
@@ -163,7 +156,7 @@ Resolver contract:
 - Output:
   - ordered list of resolved unique `UnifiedItem`s
   - list of resolved full `UnifiedCollection` values
-  - list of unresolved `SourceIdentity` values
+  - list of unresolved adapter traversal nodes
 
 Required behavior:
 - Deterministic traversal order.
@@ -190,7 +183,7 @@ Recursive step:
 - append emitted child nodes to queue
 - recurse with updated state
 
-This model is mandatory for:
+This model is implemented by `adapter_core.resolve_profile_url(...)` and is mandatory for:
 - nested list traversal
 - profile-category traversal
 - page `2..n` traversal via emitted page/list nodes
@@ -240,8 +233,8 @@ Definition of done:
 ## 10) Tech Stack (Barebones)
 
 - Language/runtime: Gleam.
-- HTTP client (all external fetches): Gleam HTTP only.
-- Bandcamp/SoundCloud/YouTube ingestion: HTTP fetch + deterministic parser/scraper logic.
+- HTTP transport (current implementation): Erlang external shell calls via `curl` and `jq`, wrapped from Gleam.
+- Bandcamp/SoundCloud/YouTube ingestion: deterministic parser/scraper/API logic on top of cached fetch helpers.
 - Spotify ingestion: HTTP requests to Spotify Web API only.
 - Dependencies: keep minimal, only add packages required by failing tests.
 

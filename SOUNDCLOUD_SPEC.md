@@ -32,12 +32,10 @@ Out of scope for SoundCloud input:
 
 ## 2) Source Contract
 
-- `service`: `soundcloud`
-- `source_type`: `collection` for profile roots, `item | collection` for resolved entries
-- contract type: `SourceIdentity` from `SPEC.md`
-
-Accepted profile shape:
-- `SourceIdentity { service: soundcloud, source_type: collection, source_id: <profile_url> }`
+- Entry type: `SoundcloudProfile` (opaque)
+- Public constructor: `soundcloud_profile(profile_url: String) -> SoundcloudProfile`
+- Resolver API: `resolve_profile(profile: SoundcloudProfile, depth: DepthMode) -> ResolveResult`
+- Internal traversal start node uses `ProfileEntry(profile_url)`
 
 ## 3) URL Parsing Rules
 
@@ -47,9 +45,7 @@ Accepted:
 - Optional query params allowed and ignored for canonicalization.
 
 Canonical parse result:
-- `service = soundcloud`
-- `source_type = collection`
-- `source_id = <normalized_profile_url>`
+- constructor stores normalized `profile_url`
 
 Rejected as parse failures:
 - `https://soundcloud.com/<artist>/<track>`
@@ -62,6 +58,12 @@ profileResult
 trackResult...
 
 {likedTracks, reposts, likedLists}
+
+Current implementation details:
+- profile expansion extracts `client_id` and `user_id`
+- paginated categories: likes and reposts
+- list traversal: playlist IDs are collected and expanded after category pagination
+- normalized output items keep canonical fields: `service`, `source_type`, `source_id`
 
 
 

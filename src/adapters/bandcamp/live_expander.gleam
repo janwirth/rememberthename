@@ -1,23 +1,44 @@
 import gleam/int
 import gleam/list
 import gleam/string
-import soundcloud_adapter
+import adapters/core
 
+// Spec integration:
+// - BANDCAMP_SPEC.md source contract: opaque BandcampProfile + constructor.
+// - adapters.spec.md contract: one-node expansion into items/lists/next/unresolved.
+// - SPEC.md recursion/dedupe behavior is delegated to adapters/core.
 @external(erlang, "soundcloud_http", "fetch")
 fn fetch(url: String) -> String
 @external(erlang, "soundcloud_http", "post_json")
 fn post_json(url: String, body: String) -> String
 
-pub fn expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.ExpandResult {
+pub opaque type BandcampProfile {
+  BandcampProfile(profile_url: String)
+}
+
+pub fn bandcamp_profile(profile_url: String) -> BandcampProfile {
+  BandcampProfile(profile_url: profile_url)
+}
+
+pub fn resolve_profile(
+  profile: BandcampProfile,
+  depth: core.DepthMode,
+) -> core.ResolveResult {
+  // Keep entry point specific: BandcampProfile -> profile_url traversal root.
+  let BandcampProfile(profile_url) = profile
+  core.resolve_profile_url(profile_url, depth, expand)
+}
+
+pub fn expand(node: core.AdapterNode) -> core.ExpandResult {
   case node {
-    soundcloud_adapter.ProfileEntry(source) -> expand_profile(source)
-    soundcloud_adapter.CategoryNode(ctx) -> expand_category(ctx)
-    _ -> soundcloud_adapter.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url)
+    core.CategoryNode(ctx) -> expand_category(ctx)
+    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapter.ExpandResult {
-  let soundcloud_adapter.SourceIdentity(_, _, profile_url) = source
+fn expand_profile(profile_url: String) -> core.ExpandResult {
+  // Bootstrap fan_id and tokens from profile page, then traverse collection/wishlist.
   let html = fetch(profile_url)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
   let collection_token = extract_between(html, "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;", "&quot;")
@@ -25,18 +46,18 @@ fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapt
 
   case fan_id == "" || collection_token == "" || wishlist_token == "" {
     True ->
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [],
         next_nodes: [],
-        unresolved: [soundcloud_adapter.ProfileEntry(source)],
+        unresolved: [core.ProfileEntry(profile_url)],
       )
     False -> {
       let collection = fetch_category_page("collection", fan_id, collection_token)
       let wishlist = fetch_category_page("wishlist", fan_id, wishlist_token)
-      let soundcloud_adapter.ExpandResult(c_items, _, c_next, _) = collection
-      let soundcloud_adapter.ExpandResult(w_items, _, w_next, _) = wishlist
-      soundcloud_adapter.ExpandResult(
+      let core.ExpandResult(c_items, _, c_next, _) = collection
+      let core.ExpandResult(w_items, _, w_next, _) = wishlist
+      core.ExpandResult(
         items: list.append(c_items, w_items),
         lists: [],
         next_nodes: list.append(c_next, w_next),
@@ -46,21 +67,22 @@ fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapt
   }
 }
 
-fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
+fn expand_category(ctx: String) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token)
     _ ->
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [],
         next_nodes: [],
-        unresolved: [soundcloud_adapter.CategoryNode(ctx)],
+        unresolved: [core.CategoryNode(ctx)],
       )
   }
 }
 
-fn fetch_category_page(kind: String, fan_id: String, token: String) -> soundcloud_adapter.ExpandResult {
+fn fetch_category_page(kind: String, fan_id: String, token: String) -> core.ExpandResult {
+  // Pagination follows Bandcamp API `more_available` + `last_token`.
   let endpoint =
     case kind {
       "collection" -> "https://bandcamp.com/api/fancollection/1/collection_items"
@@ -81,11 +103,11 @@ fn fetch_category_page(kind: String, fan_id: String, token: String) -> soundclou
 
   let next_nodes =
     case more && next != "" {
-      True -> [soundcloud_adapter.CategoryNode(kind <> "|" <> fan_id <> "|" <> next)]
+      True -> [core.CategoryNode(kind <> "|" <> fan_id <> "|" <> next)]
       False -> []
     }
 
-  soundcloud_adapter.ExpandResult(
+  core.ExpandResult(
     items: items,
     lists: [],
     next_nodes: next_nodes,
@@ -93,7 +115,7 @@ fn fetch_category_page(kind: String, fan_id: String, token: String) -> soundclou
   )
 }
 
-fn parse_items(json: String, kind: String) -> List(soundcloud_adapter.UnifiedItem) {
+fn parse_items(json: String, kind: String) -> List(core.UnifiedItem) {
   let parts = string.split(json, "\"item_id\":")
   case parts {
     [] -> []
@@ -104,8 +126,8 @@ fn parse_items(json: String, kind: String) -> List(soundcloud_adapter.UnifiedIte
 fn parse_item_parts(
   parts: List(String),
   kind: String,
-  acc: List(soundcloud_adapter.UnifiedItem),
-) -> List(soundcloud_adapter.UnifiedItem) {
+  acc: List(core.UnifiedItem),
+) -> List(core.UnifiedItem) {
   case parts {
     [] -> list.reverse(acc)
     [part, ..rest] -> {
@@ -118,7 +140,7 @@ fn parse_item_parts(
         False -> {
           let source = kind <> ":" <> item_type <> ":" <> id
           let item =
-            soundcloud_adapter.UnifiedItem(
+            core.UnifiedItem(
               id: source,
               title: decode(title),
               artist: decode(default_if_empty(artist, "unknown")),

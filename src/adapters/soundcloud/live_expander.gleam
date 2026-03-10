@@ -1,8 +1,12 @@
 import gleam/int
 import gleam/list
 import gleam/string
-import soundcloud_adapter
+import adapters/core
 
+// Spec integration:
+// - SOUNDCLOUD_SPEC.md source contract: opaque SoundcloudProfile + constructor.
+// - adapters.spec.md contract: expand one node into items/lists/next/unresolved.
+// - SPEC.md recursion semantics are executed by adapters/core.resolve_profile_url.
 @external(erlang, "soundcloud_http", "fetch")
 fn fetch_profile_body(url: String) -> String
 @external(erlang, "soundcloud_http", "json_next_href")
@@ -16,38 +20,55 @@ fn json_title(url: String) -> String
 @external(erlang, "soundcloud_http", "json_track_ids")
 fn json_track_ids(url: String) -> String
 
-pub fn expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.ExpandResult {
+pub opaque type SoundcloudProfile {
+  SoundcloudProfile(profile_url: String)
+}
+
+pub fn soundcloud_profile(profile_url: String) -> SoundcloudProfile {
+  SoundcloudProfile(profile_url: profile_url)
+}
+
+pub fn resolve_profile(
+  profile: SoundcloudProfile,
+  depth: core.DepthMode,
+) -> core.ResolveResult {
+  // Keep entry point specific: SoundcloudProfile -> profile_url traversal root.
+  let SoundcloudProfile(profile_url) = profile
+  core.resolve_profile_url(profile_url, depth, expand)
+}
+
+pub fn expand(node: core.AdapterNode) -> core.ExpandResult {
   case node {
-    soundcloud_adapter.ProfileEntry(source) -> expand_profile(source)
-    soundcloud_adapter.CategoryNode(ctx) -> expand_category(ctx)
-    soundcloud_adapter.ListNode(ctx) -> expand_playlist(ctx)
-    soundcloud_adapter.PageNode(_) ->
-      soundcloud_adapter.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url)
+    core.CategoryNode(ctx) -> expand_category(ctx)
+    core.ListNode(ctx) -> expand_playlist(ctx)
+    core.PageNode(_) ->
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapter.ExpandResult {
-  let soundcloud_adapter.SourceIdentity(_, _, profile_url) = source
+fn expand_profile(profile_url: String) -> core.ExpandResult {
+  // Bootstrap from profile HTML, then start category traversal (likes + reposts).
   let html = fetch_profile_body(profile_url)
   let client_id = extract_between(html, "\"id\":\"", "\"")
   let user_id = resolve_user_id(profile_url, client_id)
   case client_id == "" || user_id == "" {
     True ->
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [],
         next_nodes: [],
-        unresolved: [soundcloud_adapter.ProfileEntry(source)],
+        unresolved: [core.ProfileEntry(profile_url)],
       )
     False -> {
       let likes_page = likes_start_url(user_id, client_id)
       let reposts_page = reposts_start_url(user_id, client_id)
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: parse_tracks(likes_page, "likes"),
         lists: [],
         next_nodes: [
-          soundcloud_adapter.CategoryNode("likes|" <> likes_page <> "|" <> client_id <> "|"),
-          soundcloud_adapter.CategoryNode("reposts|" <> reposts_page <> "|" <> client_id <> "|"),
+          core.CategoryNode("likes|" <> likes_page <> "|" <> client_id <> "|"),
+          core.CategoryNode("reposts|" <> reposts_page <> "|" <> client_id <> "|"),
         ],
         unresolved: [],
       )
@@ -55,7 +76,8 @@ fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapt
   }
 }
 
-fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
+fn expand_category(ctx: String) -> core.ExpandResult {
+  // Exhaust category pagination first; only then enqueue playlist nodes.
   let parts = string.split(ctx, "|")
   case parts {
     [kind, url, client_id, acc_ids] -> {
@@ -65,7 +87,7 @@ fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
       let next_href = trim(json_next_href(url))
       case next_href == "" {
         True ->
-          soundcloud_adapter.ExpandResult(
+          core.ExpandResult(
             items: items,
             lists: [],
             next_nodes: playlist_nodes(merged_playlist_ids, client_id),
@@ -73,11 +95,11 @@ fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
           )
         False -> {
           let next = ensure_client_id(next_href, client_id)
-          soundcloud_adapter.ExpandResult(
+          core.ExpandResult(
             items: items,
             lists: [],
             next_nodes: [
-              soundcloud_adapter.CategoryNode(
+              core.CategoryNode(
                 kind <> "|" <> next <> "|" <> client_id <> "|" <> csv(merged_playlist_ids),
               ),
             ],
@@ -87,26 +109,27 @@ fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
       }
     }
     _ ->
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [],
         next_nodes: [],
-        unresolved: [soundcloud_adapter.CategoryNode(ctx)],
+        unresolved: [core.CategoryNode(ctx)],
       )
   }
 }
 
-fn expand_playlist(ctx: String) -> soundcloud_adapter.ExpandResult {
+fn expand_playlist(ctx: String) -> core.ExpandResult {
+  // Emit only fully-resolved list payloads for playlists.
   let parts = string.split(ctx, "|")
   case parts {
     ["playlist", playlist_id, client_id] -> {
       let url = playlist_url(playlist_id, client_id)
       let title = trim(json_title(url))
       let track_ids = parse_lines(json_track_ids(url))
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [
-          soundcloud_adapter.UnifiedCollection(
+          core.UnifiedCollection(
             id: "playlist:" <> playlist_id,
             title: title,
             track_ids: track_ids,
@@ -121,11 +144,11 @@ fn expand_playlist(ctx: String) -> soundcloud_adapter.ExpandResult {
       )
     }
     _ ->
-      soundcloud_adapter.ExpandResult(
+      core.ExpandResult(
         items: [],
         lists: [],
         next_nodes: [],
-        unresolved: [soundcloud_adapter.ListNode(ctx)],
+        unresolved: [core.ListNode(ctx)],
       )
   }
 }
@@ -152,7 +175,7 @@ fn resolve_user_id(profile_url: String, client_id: String) -> String {
   }
 }
 
-fn parse_tracks(url: String, kind: String) -> List(soundcloud_adapter.UnifiedItem) {
+fn parse_tracks(url: String, kind: String) -> List(core.UnifiedItem) {
   let lines = parse_lines(json_tracks_tsv(url))
   list.index_map(lines, fn(line, idx) {
     let cols = string.split(line, "\t")
@@ -163,7 +186,7 @@ fn parse_tracks(url: String, kind: String) -> List(soundcloud_adapter.UnifiedIte
         [id] -> #(id, "untitled", "unknown")
         _ -> #(kind <> ":" <> int.to_string(idx + 1), "untitled", "unknown")
       }
-    soundcloud_adapter.UnifiedItem(
+    core.UnifiedItem(
       id: kind <> ":" <> id,
       title: title,
       artist: artist,
@@ -235,8 +258,8 @@ fn dedupe(values: List(String), acc: List(String)) -> List(String) {
   }
 }
 
-fn playlist_nodes(ids: List(String), client_id: String) -> List(soundcloud_adapter.AdapterNode) {
-  list.map(ids, fn(id) { soundcloud_adapter.ListNode("playlist|" <> id <> "|" <> client_id) })
+fn playlist_nodes(ids: List(String), client_id: String) -> List(core.AdapterNode) {
+  list.map(ids, fn(id) { core.ListNode("playlist|" <> id <> "|" <> client_id) })
 }
 
 fn trim(value: String) -> String {

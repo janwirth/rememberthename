@@ -1,9 +1,9 @@
 import gleam/int
 import gleam/io
 import gleam/list
-import bandcamp_live_expander
-import soundcloud_adapter
-import soundcloud_live_expander
+import adapters/core
+import adapters/bandcamp/live_expander as bandcamp_live_expander
+import adapters/soundcloud/live_expander as soundcloud_live_expander
 
 pub fn main() {
   io.println("rememberthename demo")
@@ -15,15 +15,9 @@ fn run_all_soundcloud(profile_url: String) -> Nil {
   io.println("== soundcloud all ==")
   io.println("profile: " <> profile_url)
 
-  let profile =
-    soundcloud_adapter.SourceIdentity(
-      service: "soundcloud",
-      source_type: "collection",
-      source_id: profile_url,
-    )
-
-  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, soundcloud_live_expander.expand)
-  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+  let profile = soundcloud_live_expander.soundcloud_profile(profile_url)
+  let result = soundcloud_live_expander.resolve_profile(profile, core.All)
+  let core.ResolveResult(items, lists, unresolved) = result
 
   io.println("items: " <> int.to_string(list.length(items)))
   io.println("lists: " <> int.to_string(list.length(lists)))
@@ -39,15 +33,9 @@ fn run_all_bandcamp(profile_url: String) -> Nil {
   io.println("== bandcamp all ==")
   io.println("profile: " <> profile_url)
 
-  let profile =
-    soundcloud_adapter.SourceIdentity(
-      service: "bandcamp",
-      source_type: "collection",
-      source_id: profile_url,
-    )
-
-  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, bandcamp_live_expander.expand)
-  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+  let profile = bandcamp_live_expander.bandcamp_profile(profile_url)
+  let result = bandcamp_live_expander.resolve_profile(profile, core.All)
+  let core.ResolveResult(items, lists, unresolved) = result
 
   io.println("items: " <> int.to_string(list.length(items)))
   io.println("lists: " <> int.to_string(list.length(lists)))
@@ -59,7 +47,7 @@ fn run_all_bandcamp(profile_url: String) -> Nil {
   io.println("")
 }
 
-fn print_item_titles(items: List(soundcloud_adapter.UnifiedItem)) {
+fn print_item_titles(items: List(core.UnifiedItem)) {
   let count = list.length(items)
   case count == 0 {
     True -> io.println("  - (none)")
@@ -77,12 +65,12 @@ fn print_item_titles(items: List(soundcloud_adapter.UnifiedItem)) {
   }
 }
 
-fn print_list_titles(lists: List(soundcloud_adapter.UnifiedCollection)) {
+fn print_list_titles(lists: List(core.UnifiedCollection)) {
   case lists {
     [] -> io.println("  - (none)")
     _ ->
       list.each(lists, fn(collection) {
-        let soundcloud_adapter.UnifiedCollection(_, title, track_ids, list_ids, _, _, _) = collection
+        let core.UnifiedCollection(_, title, track_ids, list_ids, _, _, _) = collection
         io.println(
           "  - "
           <> title
@@ -95,9 +83,9 @@ fn print_list_titles(lists: List(soundcloud_adapter.UnifiedCollection)) {
   }
 }
 
-fn print_items(items: List(soundcloud_adapter.UnifiedItem)) {
+fn print_items(items: List(core.UnifiedItem)) {
   list.each(items, fn(item) {
-    let soundcloud_adapter.UnifiedItem(_, title, artist, _, _, _) = item
+    let core.UnifiedItem(_, title, artist, _, _, _) = item
     io.println("  - " <> title <> " | " <> artist)
   })
 }

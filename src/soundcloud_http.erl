@@ -1,4 +1,7 @@
 -module(soundcloud_http).
+% Spec integration:
+% - Transport helper for adapter implementation (SPEC.md tech stack section).
+% - Provides cached GET/POST fetch and jq extractors used by SoundCloud/Bandcamp expanders.
 -export([
     fetch/1,
     post_json/2,

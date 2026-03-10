@@ -1,9 +1,13 @@
 import gleam/int
-import gleam/list
 import gleam/io
+import gleam/list
 import gleam/result
 import gleam/set
 
+// Spec integration:
+// - Implements SPEC.md section 7.1 recursive queue model.
+// - Shared canonical model and traversal contracts from adapters.spec.md.
+// - Entry node is a profile URL root; adapters provide service-specific constructors.
 pub type DepthMode {
   Depth1
   Depth2
@@ -13,12 +17,8 @@ pub type DepthMode {
   All
 }
 
-pub type SourceIdentity {
-  SourceIdentity(service: String, source_type: String, source_id: String)
-}
-
 pub type AdapterNode {
-  ProfileEntry(SourceIdentity)
+  ProfileEntry(String)
   CategoryNode(String)
   ListNode(String)
   PageNode(String)
@@ -64,13 +64,14 @@ pub type ResolveResult {
   )
 }
 
-pub fn resolve_profile(
-  profile: SourceIdentity,
+pub fn resolve_profile_url(
+  profile_url: String,
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
 ) -> ResolveResult {
+  // Start traversal exactly once from the profile entry root.
   loop(
-    [#(ProfileEntry(profile), 0)],
+    [#(ProfileEntry(profile_url), 0)],
     set.new(),
     set.new(),
     set.new(),
@@ -93,6 +94,10 @@ fn loop(
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
 ) -> ResolveResult {
+  // Tail-recursive resolver with:
+  // - queue for deterministic traversal order
+  // - visited set for cycle safety
+  // - item/list seen sets for deduplication
   case queue == [] {
     True -> ResolveResult(items, lists, unresolved)
     False -> {
@@ -152,6 +157,7 @@ fn loop(
 }
 
 fn can_expand(level: Int, depth: DepthMode) -> Bool {
+  // Depth semantics are recursion-hop limits.
   case depth {
     Depth1 -> level < 1
     Depth2 -> level < 2
@@ -216,9 +222,7 @@ fn collection_key(collection: UnifiedCollection) -> String {
 
 fn node_key(node: AdapterNode) -> String {
   case node {
-    ProfileEntry(SourceIdentity(service, source_type, source_id)) -> {
-      "profile:" <> service <> ":" <> source_type <> ":" <> source_id
-    }
+    ProfileEntry(profile_url) -> "profile:" <> profile_url
     CategoryNode(id) -> "category:" <> id
     ListNode(id) -> "list:" <> id
     PageNode(id) -> "page:" <> id
