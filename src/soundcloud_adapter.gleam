@@ -9,6 +9,7 @@ pub type DepthMode {
   Depth2
   Depth3
   Depth10
+  Depth20
   All
 }
 
@@ -156,6 +157,7 @@ fn can_expand(level: Int, depth: DepthMode) -> Bool {
     Depth2 -> level < 2
     Depth3 -> level < 3
     Depth10 -> level < 10
+    Depth20 -> level < 20
     All -> True
   }
 }

@@ -5,23 +5,33 @@ import soundcloud_adapter
 
 @external(erlang, "soundcloud_http", "fetch")
 fn fetch_profile_body(url: String) -> String
+@external(erlang, "soundcloud_http", "json_next_href")
+fn json_next_href(url: String) -> String
+@external(erlang, "soundcloud_http", "json_tracks_tsv")
+fn json_tracks_tsv(url: String) -> String
+@external(erlang, "soundcloud_http", "json_playlist_ids")
+fn json_playlist_ids(url: String) -> String
+@external(erlang, "soundcloud_http", "json_title")
+fn json_title(url: String) -> String
+@external(erlang, "soundcloud_http", "json_track_ids")
+fn json_track_ids(url: String) -> String
 
 pub fn expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.ExpandResult {
   case node {
     soundcloud_adapter.ProfileEntry(source) -> expand_profile(source)
-    soundcloud_adapter.CategoryNode(url) -> expand_category(url)
-    soundcloud_adapter.PageNode(url) -> expand_page(url)
-    soundcloud_adapter.ListNode(_) ->
+    soundcloud_adapter.CategoryNode(ctx) -> expand_category(ctx)
+    soundcloud_adapter.ListNode(ctx) -> expand_playlist(ctx)
+    soundcloud_adapter.PageNode(_) ->
       soundcloud_adapter.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(
-  source: soundcloud_adapter.SourceIdentity,
-) -> soundcloud_adapter.ExpandResult {
+fn expand_profile(source: soundcloud_adapter.SourceIdentity) -> soundcloud_adapter.ExpandResult {
   let soundcloud_adapter.SourceIdentity(_, _, profile_url) = source
-  let likes_json = fetch_likes_payload(profile_url)
-  case likes_json == "" {
+  let html = fetch_profile_body(profile_url)
+  let client_id = extract_between(html, "\"id\":\"", "\"")
+  let user_id = resolve_user_id(profile_url, client_id)
+  case client_id == "" || user_id == "" {
     True ->
       soundcloud_adapter.ExpandResult(
         items: [],
@@ -29,127 +39,208 @@ fn expand_profile(
         next_nodes: [],
         unresolved: [soundcloud_adapter.ProfileEntry(source)],
       )
-    False ->
+    False -> {
+      let likes_page = likes_start_url(user_id, client_id)
+      let reposts_page = reposts_start_url(user_id, client_id)
       soundcloud_adapter.ExpandResult(
-        items: shallow_items(likes_json),
+        items: parse_tracks(likes_page, "likes"),
         lists: [],
-        next_nodes: [soundcloud_adapter.CategoryNode(profile_url)],
+        next_nodes: [
+          soundcloud_adapter.CategoryNode("likes|" <> likes_page <> "|" <> client_id <> "|"),
+          soundcloud_adapter.CategoryNode("reposts|" <> reposts_page <> "|" <> client_id <> "|"),
+        ],
         unresolved: [],
+      )
+    }
+  }
+}
+
+fn expand_category(ctx: String) -> soundcloud_adapter.ExpandResult {
+  let parts = string.split(ctx, "|")
+  case parts {
+    [kind, url, client_id, acc_ids] -> {
+      let items = parse_tracks(url, kind)
+      let page_playlist_ids = parse_lines(json_playlist_ids(url))
+      let merged_playlist_ids = merge_ids(parse_csv(acc_ids), page_playlist_ids)
+      let next_href = trim(json_next_href(url))
+      case next_href == "" {
+        True ->
+          soundcloud_adapter.ExpandResult(
+            items: items,
+            lists: [],
+            next_nodes: playlist_nodes(merged_playlist_ids, client_id),
+            unresolved: [],
+          )
+        False -> {
+          let next = ensure_client_id(next_href, client_id)
+          soundcloud_adapter.ExpandResult(
+            items: items,
+            lists: [],
+            next_nodes: [
+              soundcloud_adapter.CategoryNode(
+                kind <> "|" <> next <> "|" <> client_id <> "|" <> csv(merged_playlist_ids),
+              ),
+            ],
+            unresolved: [],
+          )
+        }
+      }
+    }
+    _ ->
+      soundcloud_adapter.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [soundcloud_adapter.CategoryNode(ctx)],
       )
   }
 }
 
-fn expand_category(url: String) -> soundcloud_adapter.ExpandResult {
-  let likes_json = fetch_likes_payload(url)
-  soundcloud_adapter.ExpandResult(
-    items: deeper_items(likes_json),
-    lists: [],
-    next_nodes: [soundcloud_adapter.PageNode(url)],
-    unresolved: [],
-  )
-}
-
-fn expand_page(url: String) -> soundcloud_adapter.ExpandResult {
-  let likes_json = fetch_likes_payload(url)
-  soundcloud_adapter.ExpandResult(
-    items: [],
-    lists: full_lists(likes_json),
-    next_nodes: [],
-    unresolved: [],
-  )
+fn expand_playlist(ctx: String) -> soundcloud_adapter.ExpandResult {
+  let parts = string.split(ctx, "|")
+  case parts {
+    ["playlist", playlist_id, client_id] -> {
+      let url = playlist_url(playlist_id, client_id)
+      let title = trim(json_title(url))
+      let track_ids = parse_lines(json_track_ids(url))
+      soundcloud_adapter.ExpandResult(
+        items: [],
+        lists: [
+          soundcloud_adapter.UnifiedCollection(
+            id: "playlist:" <> playlist_id,
+            title: title,
+            track_ids: track_ids,
+            list_ids: [],
+            service: "soundcloud",
+            source_type: "collection",
+            source_id: "playlist:" <> playlist_id,
+          ),
+        ],
+        next_nodes: [],
+        unresolved: [],
+      )
+    }
+    _ ->
+      soundcloud_adapter.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [soundcloud_adapter.ListNode(ctx)],
+      )
+  }
 }
 
 pub fn fetch_likes_payload(profile_url: String) -> String {
   let html = fetch_profile_body(profile_url)
   let client_id = extract_between(html, "\"id\":\"", "\"")
-  let resolve_url =
-    "https://api-v2.soundcloud.com/resolve?url=" <> profile_url <> "&client_id=" <> client_id
-  let resolve_json = fetch_profile_body(resolve_url)
-  let user_id = extract_between(resolve_json, "\"urn\":\"soundcloud:users:", "\"")
+  let user_id = resolve_user_id(profile_url, client_id)
   case client_id == "" || user_id == "" {
     True -> ""
-    False -> fetch_profile_body(likes_url(user_id, client_id))
+    False -> fetch_profile_body(likes_start_url(user_id, client_id))
   }
 }
 
-fn shallow_items(body: String) -> List(soundcloud_adapter.UnifiedItem) {
-  make_items_from_titles(extract_json_titles(body, 10), "depth1")
-}
-
-fn deeper_items(body: String) -> List(soundcloud_adapter.UnifiedItem) {
-  make_items_from_titles(extract_json_titles(body, 30), "depth2")
-}
-
-fn full_lists(body: String) -> List(soundcloud_adapter.UnifiedCollection) {
-  case string.contains(body, "Mahal") {
-    True ->
-      [
-        soundcloud_adapter.UnifiedCollection(
-          id: "full:mahal",
-          title: "Mahal",
-          track_ids: tracks_for_list(body),
-          list_ids: [],
-          service: "soundcloud",
-          source_type: "collection",
-          source_id: "full:mahal",
-        ),
-      ]
-    False -> []
+fn resolve_user_id(profile_url: String, client_id: String) -> String {
+  case client_id == "" {
+    True -> ""
+    False -> {
+      let resolve_url =
+        "https://api-v2.soundcloud.com/resolve?url=" <> profile_url <> "&client_id=" <> client_id
+      let resolve_json = fetch_profile_body(resolve_url)
+      extract_between(resolve_json, "\"urn\":\"soundcloud:users:", "\"")
+    }
   }
 }
 
-fn tracks_for_list(body: String) -> List(String) {
-  case string.contains(body, "Glass Beams") {
-    True -> ["Glass Beams"]
-    False -> []
-  }
-}
-
-fn make_items_from_titles(titles: List(String), prefix: String) -> List(soundcloud_adapter.UnifiedItem) {
-  list.index_map(titles, fn(title, idx) {
-    let n = int.to_string(idx + 1)
-    let id = prefix <> ":" <> n
+fn parse_tracks(url: String, kind: String) -> List(soundcloud_adapter.UnifiedItem) {
+  let lines = parse_lines(json_tracks_tsv(url))
+  list.index_map(lines, fn(line, idx) {
+    let cols = string.split(line, "\t")
+    let #(id, title, artist) =
+      case cols {
+        [id, title, artist] -> #(id, title, artist)
+        [id, title] -> #(id, title, "unknown")
+        [id] -> #(id, "untitled", "unknown")
+        _ -> #(kind <> ":" <> int.to_string(idx + 1), "untitled", "unknown")
+      }
     soundcloud_adapter.UnifiedItem(
-      id: id,
+      id: kind <> ":" <> id,
       title: title,
-      artist: "unknown",
+      artist: artist,
       service: "soundcloud",
       source_type: "item",
-      source_id: id,
+      source_id: kind <> ":" <> id,
     )
   })
 }
 
-fn extract_json_titles(body: String, limit: Int) -> List(String) {
-  let parts = string.split(body, "\"title\":\"")
-  case parts {
-    [] -> []
-    [_, ..rest] -> extract_title_parts(rest, limit, [])
+fn likes_start_url(user_id: String, client_id: String) -> String {
+  "https://api-v2.soundcloud.com/users/"
+  <> user_id
+  <> "/likes?client_id="
+  <> client_id
+  <> "&limit=50&offset=0&linked_partitioning=1&app_version=1772785214&app_locale=en"
+}
+
+fn reposts_start_url(user_id: String, client_id: String) -> String {
+  "https://api-v2.soundcloud.com/stream/users/"
+  <> user_id
+  <> "/reposts?client_id="
+  <> client_id
+  <> "&limit=50&offset=0&linked_partitioning=1&app_version=1772785214&app_locale=en"
+}
+
+fn playlist_url(playlist_id: String, client_id: String) -> String {
+  "https://api-v2.soundcloud.com/playlists/" <> playlist_id <> "?client_id=" <> client_id
+}
+
+fn ensure_client_id(url: String, client_id: String) -> String {
+  case string.contains(url, "client_id=") {
+    True -> url
+    False -> url <> "&client_id=" <> client_id
   }
 }
 
-fn extract_title_parts(parts: List(String), limit: Int, acc: List(String)) -> List(String) {
-  case list.length(acc) >= limit {
-    True -> list.reverse(acc)
-    False ->
-      case parts {
-        [] -> list.reverse(acc)
-        [part, ..rest] -> {
-          let title = first_segment(part, "\"")
-          case title {
-            "" -> extract_title_parts(rest, limit, acc)
-            _ -> extract_title_parts(rest, limit, [title, ..acc])
-          }
-        }
+fn parse_lines(raw: String) -> List(String) {
+  let value = trim(raw)
+  case value {
+    "" -> []
+    _ -> list.filter(string.split(value, "\n"), fn(line) { line != "" })
+  }
+}
+
+fn parse_csv(value: String) -> List(String) {
+  case trim(value) {
+    "" -> []
+    _ -> list.filter(string.split(value, ","), fn(part) { part != "" })
+  }
+}
+
+fn csv(values: List(String)) -> String {
+  string.join(values, ",")
+}
+
+fn merge_ids(a: List(String), b: List(String)) -> List(String) {
+  dedupe(list.append(a, b), [])
+}
+
+fn dedupe(values: List(String), acc: List(String)) -> List(String) {
+  case values {
+    [] -> list.reverse(acc)
+    [first, ..rest] ->
+      case list.contains(acc, first) {
+        True -> dedupe(rest, acc)
+        False -> dedupe(rest, [first, ..acc])
       }
   }
 }
 
-fn likes_url(user_id: String, client_id: String) -> String {
-  "https://api-v2.soundcloud.com/users/"
-  <> user_id
-  <> "/likes?limit=200&client_id="
-  <> client_id
+fn playlist_nodes(ids: List(String), client_id: String) -> List(soundcloud_adapter.AdapterNode) {
+  list.map(ids, fn(id) { soundcloud_adapter.ListNode("playlist|" <> id <> "|" <> client_id) })
+}
+
+fn trim(value: String) -> String {
+  string.trim(value)
 }
 
 fn extract_between(body: String, start: String, ending: String) -> String {
@@ -162,14 +253,6 @@ fn extract_between(body: String, start: String, ending: String) -> String {
         _ -> ""
       }
     }
-    _ -> ""
-  }
-}
-
-fn first_segment(value: String, separator: String) -> String {
-  let parts = string.split(value, separator)
-  case parts {
-    [first, ..] -> first
     _ -> ""
   }
 }

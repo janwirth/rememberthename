@@ -8,11 +8,8 @@ pub fn main() {
   let profile_url = "https://soundcloud.com/tungstenselects"
   io.println("rememberthename demo")
   io.println("profile: " <> profile_url)
-  run_depth("depth-1", soundcloud_adapter.Depth1, profile_url)
-  run_depth("depth-2", soundcloud_adapter.Depth2, profile_url)
-  run_depth("depth-3", soundcloud_adapter.Depth3, profile_url)
-  io.println("")
   run_depth("depth-10", soundcloud_adapter.Depth10, profile_url)
+  run_depth("depth-20", soundcloud_adapter.Depth20, profile_url)
   run_depth("all", soundcloud_adapter.All, profile_url)
 }
 

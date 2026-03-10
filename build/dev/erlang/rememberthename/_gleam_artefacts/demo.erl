@@ -3,7 +3,7 @@
 -define(FILEPATH, "src/demo.gleam").
 -export([main/0]).
 
--file("src/demo.gleam", 64).
+-file("src/demo.gleam", 61).
 -spec print_list_titles(list(soundcloud_adapter:unified_collection())) -> nil.
 print_list_titles(Lists) ->
     case Lists of
@@ -28,7 +28,7 @@ print_list_titles(Lists) ->
             )
     end.
 
--file("src/demo.gleam", 82).
+-file("src/demo.gleam", 79).
 -spec print_items(list(soundcloud_adapter:unified_item())) -> nil.
 print_items(Items) ->
     gleam@list:each(
@@ -42,7 +42,7 @@ print_items(Items) ->
         end
     ).
 
--file("src/demo.gleam", 46).
+-file("src/demo.gleam", 43).
 -spec print_item_titles(list(soundcloud_adapter:unified_item())) -> nil.
 print_item_titles(Items) ->
     Count = erlang:length(Items),
@@ -64,7 +64,7 @@ print_item_titles(Items) ->
             end
     end.
 
--file("src/demo.gleam", 19).
+-file("src/demo.gleam", 16).
 -spec run_depth(binary(), soundcloud_adapter:depth_mode(), binary()) -> nil.
 run_depth(Label, Depth, Profile_url) ->
     gleam_stdlib:println(<<<<"== "/utf8, Label/binary>>/binary, " =="/utf8>>),
@@ -102,9 +102,6 @@ main() ->
     Profile_url = <<"https://soundcloud.com/tungstenselects"/utf8>>,
     gleam_stdlib:println(<<"rememberthename demo"/utf8>>),
     gleam_stdlib:println(<<"profile: "/utf8, Profile_url/binary>>),
-    run_depth(<<"depth-1"/utf8>>, depth1, Profile_url),
-    run_depth(<<"depth-2"/utf8>>, depth2, Profile_url),
-    run_depth(<<"depth-3"/utf8>>, depth3, Profile_url),
-    gleam_stdlib:println(<<""/utf8>>),
     run_depth(<<"depth-10"/utf8>>, depth10, Profile_url),
+    run_depth(<<"depth-20"/utf8>>, depth20, Profile_url),
     run_depth(<<"all"/utf8>>, all, Profile_url).

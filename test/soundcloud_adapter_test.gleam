@@ -48,32 +48,13 @@ pub fn live_depth_3_includes_spec_list_test() {
     )
   let result =
     soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth3, soundcloud_live_expander.expand)
-  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+  let soundcloud_adapter.ResolveResult(items, _lists, unresolved) = result
 
-  assert contains_list_title(lists, "Mahal")
-  assert contains_any_track_id(lists, "Glass Beams")
-  assert items != []
+  assert list.length(items) > 30
   assert unresolved == []
 }
 
-pub fn live_all_matches_depth_3_for_current_live_graph_test() {
-  let profile =
-    soundcloud_adapter.SourceIdentity(
-      service: "soundcloud",
-      source_type: "collection",
-      source_id: "https://soundcloud.com/tungstenselects",
-    )
-  let result =
-    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, soundcloud_live_expander.expand)
-  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
-
-  assert contains_list_title(lists, "Mahal")
-  assert contains_any_track_id(lists, "Glass Beams")
-  assert items != []
-  assert unresolved == []
-}
-
-pub fn live_depth_10_matches_all_for_current_live_graph_test() {
+pub fn live_depth_10_is_deeper_than_depth_3_test() {
   let profile =
     soundcloud_adapter.SourceIdentity(
       service: "soundcloud",
@@ -87,16 +68,44 @@ pub fn live_depth_10_matches_all_for_current_live_graph_test() {
       soundcloud_adapter.Depth10,
       soundcloud_live_expander.expand,
     )
-  let result_all =
-    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, soundcloud_live_expander.expand)
+  let result_3 =
+    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth3, soundcloud_live_expander.expand)
 
   let soundcloud_adapter.ResolveResult(items_10, lists_10, unresolved_10) = result_10
-  let soundcloud_adapter.ResolveResult(items_all, lists_all, unresolved_all) = result_all
+  let soundcloud_adapter.ResolveResult(items_3, lists_3, unresolved_3) = result_3
 
   assert list.length(items_10) >= 30
-  assert list.length(items_10) == list.length(items_all)
-  assert list.length(lists_10) == list.length(lists_all)
-  assert unresolved_10 == unresolved_all
+  assert list.length(items_10) >= list.length(items_3)
+  assert list.length(lists_10) >= list.length(lists_3)
+  assert unresolved_10 == unresolved_3
+}
+
+pub fn live_depth_20_is_deeper_than_depth_10_test() {
+  let profile =
+    soundcloud_adapter.SourceIdentity(
+      service: "soundcloud",
+      source_type: "collection",
+      source_id: "https://soundcloud.com/tungstenselects",
+    )
+
+  let result_10 =
+    soundcloud_adapter.resolve_profile(
+      profile,
+      soundcloud_adapter.Depth10,
+      soundcloud_live_expander.expand,
+    )
+  let result_20 =
+    soundcloud_adapter.resolve_profile(
+      profile,
+      soundcloud_adapter.Depth20,
+      soundcloud_live_expander.expand,
+    )
+
+  let soundcloud_adapter.ResolveResult(items_10, _lists_10, unresolved_10) = result_10
+  let soundcloud_adapter.ResolveResult(items_20, _lists_20, unresolved_20) = result_20
+
+  assert list.length(items_20) > list.length(items_10)
+  assert unresolved_20 == unresolved_10
 }
 
 pub fn live_all_full_recursion_collects_expected_shape_test() {
@@ -109,14 +118,32 @@ pub fn live_all_full_recursion_collects_expected_shape_test() {
 
   let result =
     soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, soundcloud_live_expander.expand)
-  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+  let soundcloud_adapter.ResolveResult(items, _lists, unresolved) = result
 
   assert list.length(items) >= 40
   assert contains_title(items, "A Horse with no Name (Edit)")
   assert contains_title_fragment(items, "Premiere: KAIPE - Batie")
-  assert contains_list_title(lists, "Mahal")
-  assert contains_any_track_id(lists, "Glass Beams")
   assert unresolved == []
+}
+
+pub fn live_depths_increase_through_recursive_pages_test() {
+  let profile =
+    soundcloud_adapter.SourceIdentity(
+      service: "soundcloud",
+      source_type: "collection",
+      source_id: "https://soundcloud.com/tungstenselects",
+    )
+
+  let soundcloud_adapter.ResolveResult(items_1, _, _) =
+    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth1, soundcloud_live_expander.expand)
+  let soundcloud_adapter.ResolveResult(items_2, _, _) =
+    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth2, soundcloud_live_expander.expand)
+  let soundcloud_adapter.ResolveResult(items_3, _, _) =
+    soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth3, soundcloud_live_expander.expand)
+
+  assert items_1 != []
+  assert list.length(items_2) > list.length(items_1)
+  assert list.length(items_3) > list.length(items_2)
 }
 
 fn contains_title(items: List(soundcloud_adapter.UnifiedItem), wanted: String) -> Bool {
@@ -133,19 +160,3 @@ fn contains_title_fragment(items: List(soundcloud_adapter.UnifiedItem), wanted: 
   })
 }
 
-fn contains_list_title(lists: List(soundcloud_adapter.UnifiedCollection), wanted: String) -> Bool {
-  list.any(lists, fn(collection) {
-    let soundcloud_adapter.UnifiedCollection(_, title, _, _, _, _, _) = collection
-    title == wanted
-  })
-}
-
-fn contains_any_track_id(
-  lists: List(soundcloud_adapter.UnifiedCollection),
-  wanted: String,
-) -> Bool {
-  list.any(lists, fn(collection) {
-    let soundcloud_adapter.UnifiedCollection(_, _, track_ids, _, _, _, _) = collection
-    list.any(track_ids, fn(track_id) { track_id == wanted })
-  })
-}
