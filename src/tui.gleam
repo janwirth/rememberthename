@@ -1,13 +1,18 @@
 import adapters/bandcamp/live_expander as bandcamp_live_expander
+import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/int
 import gleam/io
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import output/visual_output
 import shore
@@ -15,10 +20,13 @@ import shore/key
 import shore/layout
 import shore/style
 import shore/ui
+import simplifile
 import tui/helpers
-import source_specs
+import tui/navigation as nav
 
 const track_viewport_size = 18
+
+const state_file_path = "tui.state.json"
 
 pub fn main() {
   case otp_supported() {
@@ -71,8 +79,7 @@ fn start_tui() {
     |> shore.start
   {
     Ok(_actor) -> exit |> process.receive_forever
-    Error(_) ->
-      io.println("tui failed to start")
+    Error(_) -> io.println("tui failed to start")
   }
 }
 
@@ -86,6 +93,7 @@ type Model {
     current_track_lines: List(String),
     current_debug_lines: List(String),
     current_fetch: FetchBundle,
+    cache_mode: cache.CacheMode,
     exit_subject: process.Subject(Nil),
   )
 }
@@ -117,28 +125,9 @@ type FetchBundle {
   )
 }
 
-type SourceEntry {
-  SourceEntry(
-    key: String,
-    name: String,
-    entry_point: String,
-    use_cache: Bool,
-    min_depth_1_items: Int,
-    min_full_items: Int,
-    first_items_to_preserve: Int,
-    anchor_fragments: List(String),
-  )
-}
-
-type MenuItem {
-  RunAllSourcesItem
-  SourceItem(SourceEntry)
-  ExitItem
-}
-
 type SourceRun {
   SourceRun(
-    source: SourceEntry,
+    source: nav.SourceEntry,
     depth_1: core.ResolveResult,
     depth_3: core.ResolveResult,
     depth_all: core.ResolveResult,
@@ -154,29 +143,19 @@ type Msg {
   EscPressed
   ExitPressed
   FetchCompleted(String, DepthKind, DepthStatus, List(String), List(String))
-  FetchAllCompleted(FetchBundle, List(String), List(String))
+  FetchAllStepCompleted(List(SourceRun), List(nav.SourceEntry), List(String))
+  CacheUpsertSelected
+  CacheIgnoreSelected
+  CacheOverrideSelected
   Noop
 }
 
 fn init(exit_subject: process.Subject(Nil)) -> #(Model, List(fn() -> Msg)) {
-  #(
-    Model(
-      selected_index: 0,
-      focus: SidebarPane,
-      esc_armed: False,
-      depth_selected_index: 0,
-      track_selected_index: 0,
-      current_track_lines: [],
-      current_debug_lines: [],
-      current_fetch: empty_fetch_bundle(),
-      exit_subject: exit_subject,
-    ),
-    [],
-  )
+  #(load_model(exit_subject), [])
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
-  case msg {
+  let #(next_model, effects) = case msg {
     MoveUp ->
       case model.focus {
         SidebarPane -> #(
@@ -188,12 +167,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
           [],
         )
         DetailPane -> #(
-          Model(
-            ..model,
-            depth_selected_index: previous_depth_index(
-              model.depth_selected_index,
-            ),
-          ),
+          model,
           [],
         )
         TracksPane -> #(
@@ -218,10 +192,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
           [],
         )
         DetailPane -> #(
-          Model(
-            ..model,
-            depth_selected_index: next_depth_index(model.depth_selected_index),
-          ),
+          model,
           [],
         )
         TracksPane -> #(
@@ -239,30 +210,41 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
       case model.focus {
         TracksPane -> #(model, [])
         DetailPane ->
-          case model.current_track_lines != [] {
-            True -> #(Model(..model, focus: TracksPane), [])
-            False -> #(model, [])
+          case selected_view_type(model.selected_index) {
+            nav.Source(_, _) ->
+              case model.current_track_lines != [] {
+                True -> #(Model(..model, focus: TracksPane), [])
+                False -> #(model, [])
+              }
+            _ -> #(model, [])
           }
-        SidebarPane -> focus_selected_detail(model)
+        SidebarPane -> focus_selected_right(model)
       }
     MoveLeft ->
       case model.focus {
         SidebarPane -> #(model, [])
         DetailPane -> #(Model(..model, focus: SidebarPane), [])
-        TracksPane -> #(Model(..model, focus: DetailPane), [])
+        TracksPane ->
+          case selected_view_type(model.selected_index) {
+            nav.Source(_, _) -> #(Model(..model, focus: SidebarPane), [])
+            _ -> #(Model(..model, focus: DetailPane), [])
+          }
       }
     ActivateSelected ->
       case model.focus {
         SidebarPane ->
-          case is_exit_selected(model.selected_index) {
-            True -> request_exit(model)
-            False -> focus_selected_detail(model)
+          case selected_view_type(model.selected_index) {
+            nav.Exit(_) -> request_exit(model)
+            nav.RunAll(_) -> fetch_all_sources(model)
+            nav.Source(source, _) -> fetch_selected_full(model, source)
+            nav.ToggleCache(_) -> toggle_cache_mode_all(model)
           }
         DetailPane ->
-          case selected_menu_item(model.selected_index) {
-            RunAllSourcesItem -> fetch_all_sources(model)
-            SourceItem(source) -> fetch_selected_depth(model, source)
-            ExitItem -> #(model, [])
+          case selected_view_type(model.selected_index) {
+            nav.RunAll(_) -> fetch_all_sources(model)
+            nav.Source(source, _) -> fetch_selected_full(model, source)
+            nav.Exit(_) -> #(model, [])
+            nav.ToggleCache(_) -> toggle_cache_mode_all(model)
           }
         TracksPane -> #(model, [])
       }
@@ -299,18 +281,439 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         )
       }
     }
-    FetchAllCompleted(bundle, track_lines, debug_lines) -> #(
-      Model(
-        ..model,
-        current_fetch: bundle,
-        track_selected_index: 0,
-        current_track_lines: track_lines,
-        current_debug_lines: debug_lines,
-      ),
+    FetchAllStepCompleted(completed_rev, remaining, step_debug_lines) -> {
+      let completed = list.reverse(completed_rev)
+      let track_lines = validation_lines_from_runs(completed)
+      let done = section_count() - list.length(remaining)
+      let total = section_count()
+      let progress_line =
+        "Progress: "
+        <> int.to_string(done)
+        <> "/"
+        <> int.to_string(total)
+        <> " sources complete"
+      let debug_lines =
+        model.current_debug_lines
+        |> list.append([progress_line])
+        |> list.append(step_debug_lines)
+      case remaining {
+        [] -> #(
+          Model(
+            ..model,
+            current_fetch: bundle_from_runs(completed),
+            track_selected_index: 0,
+            current_track_lines: track_lines,
+            current_debug_lines: debug_lines,
+          ),
+          [],
+        )
+        _ -> #(
+          Model(
+            ..model,
+            current_fetch: FetchBundle(Fetching, Fetching, Fetching),
+            track_selected_index: 0,
+            current_track_lines: track_lines,
+            current_debug_lines: debug_lines,
+          ),
+          [
+            fn() {
+              fetch_all_next_step(completed_rev, remaining, model.cache_mode)
+            },
+          ],
+        )
+      }
+    }
+    CacheUpsertSelected -> #(Model(..model, cache_mode: cache.CacheUpsert), [])
+    CacheIgnoreSelected -> #(Model(..model, cache_mode: cache.CacheIgnore), [])
+    CacheOverrideSelected -> #(
+      Model(..model, cache_mode: cache.CacheOverride),
       [],
     )
     Noop -> #(model, [])
   }
+  #(persist_model(next_model), effects)
+}
+
+fn default_model(exit_subject: process.Subject(Nil)) -> Model {
+  Model(
+    selected_index: 0,
+    focus: SidebarPane,
+    esc_armed: False,
+    depth_selected_index: 0,
+    track_selected_index: 0,
+    current_track_lines: [],
+    current_debug_lines: [],
+    current_fetch: empty_fetch_bundle(),
+    cache_mode: cache.CacheUpsert,
+    exit_subject: exit_subject,
+  )
+}
+
+fn load_model(exit_subject: process.Subject(Nil)) -> Model {
+  let fallback = default_model(exit_subject)
+  case simplifile.read(from: state_file_path) {
+    Ok(raw) ->
+      case decode_saved_model(raw, exit_subject) {
+        Ok(decoded) -> sanitize_model(decoded)
+        Error(_) -> fallback
+      }
+    Error(_) -> fallback
+  }
+}
+
+fn persist_model(model: Model) -> Model {
+  let _ = simplifile.write(encode_model(model), to: state_file_path)
+  model
+}
+
+fn sanitize_model(model: Model) -> Model {
+  let selected_index = case
+    model.selected_index < 0 || model.selected_index >= menu_count()
+  {
+    True -> 0
+    False -> model.selected_index
+  }
+  let depth_selected_index = case
+    model.depth_selected_index < 0 || model.depth_selected_index > 2
+  {
+    True -> 0
+    False -> model.depth_selected_index
+  }
+  let track_count = list.length(model.current_track_lines)
+  let track_selected_index = case track_count <= 0 {
+    True -> 0
+    False ->
+      case
+        model.track_selected_index < 0
+        || model.track_selected_index >= track_count
+      {
+        True -> 0
+        False -> model.track_selected_index
+      }
+  }
+  let focus = case model.focus {
+    TracksPane if track_count <= 0 -> DetailPane
+    _ -> model.focus
+  }
+  Model(
+    ..model,
+    selected_index: selected_index,
+    focus: focus,
+    depth_selected_index: depth_selected_index,
+    track_selected_index: track_selected_index,
+  )
+}
+
+fn decode_saved_model(
+  raw: String,
+  exit_subject: process.Subject(Nil),
+) -> Result(Model, Nil) {
+  case json.parse(raw, decode.dynamic) {
+    Error(_) -> Error(Nil)
+    Ok(data) ->
+      Ok(Model(
+        selected_index: decode_path_or(data, ["selected_index"], 0, decode.int),
+        focus: decode_focus(data),
+        esc_armed: decode_path_or(data, ["esc_armed"], False, decode.bool),
+        depth_selected_index: decode_path_or(
+          data,
+          ["depth_selected_index"],
+          0,
+          decode.int,
+        ),
+        track_selected_index: decode_path_or(
+          data,
+          ["track_selected_index"],
+          0,
+          decode.int,
+        ),
+        current_track_lines: decode_path_or(
+          data,
+          ["current_track_lines"],
+          [],
+          decode.list(of: decode.string),
+        ),
+        current_debug_lines: decode_path_or(
+          data,
+          ["current_debug_lines"],
+          [],
+          decode.list(of: decode.string),
+        ),
+        current_fetch: decode_fetch_bundle(decode_path_or(
+          data,
+          ["current_fetch"],
+          dynamic.nil(),
+          decode.dynamic,
+        )),
+        cache_mode: decode_cache_mode(data),
+        exit_subject: exit_subject,
+      ))
+  }
+}
+
+fn encode_model(model: Model) -> String {
+  json.object([
+    #("selected_index", json.int(model.selected_index)),
+    #("focus", json.string(encode_focus(model.focus))),
+    #("view", encode_view(model)),
+    #("esc_armed", json.bool(model.esc_armed)),
+    #("depth_selected_index", json.int(model.depth_selected_index)),
+    #("track_selected_index", json.int(model.track_selected_index)),
+    #(
+      "current_track_lines",
+      json.array(model.current_track_lines, of: json.string),
+    ),
+    #(
+      "current_debug_lines",
+      json.array(model.current_debug_lines, of: json.string),
+    ),
+    #("current_fetch", encode_fetch_bundle(model.current_fetch)),
+    #("cache_mode", json.string(encode_cache_mode(model.cache_mode))),
+  ])
+  |> json.to_string
+}
+
+fn encode_view(model: Model) {
+  let kind = case selected_view_type(model.selected_index) {
+    nav.RunAll(_) -> "run_all"
+    nav.Exit(_) -> "exit"
+    nav.Source(_, _) -> "source"
+    nav.ToggleCache(_) -> "toggle_cache"
+  }
+  let source_key = case selected_source(model.selected_index) {
+    Some(source) -> source.key
+    None -> ""
+  }
+  json.object([
+    #("kind", json.string(kind)),
+    #("source_key", json.string(source_key)),
+  ])
+}
+
+fn decode_focus(data: dynamic.Dynamic) -> FocusPane {
+  case decode_path_or(data, ["focus"], "sidebar", decode.string) {
+    "detail" -> DetailPane
+    "tracks" -> TracksPane
+    _ -> SidebarPane
+  }
+}
+
+fn encode_focus(focus: FocusPane) -> String {
+  case focus {
+    SidebarPane -> "sidebar"
+    DetailPane -> "detail"
+    TracksPane -> "tracks"
+  }
+}
+
+fn decode_cache_mode(data: dynamic.Dynamic) -> cache.CacheMode {
+  case decode_path_or(data, ["cache_mode"], "upsert", decode.string) {
+    "ignore" -> cache.CacheIgnore
+    "override" -> cache.CacheOverride
+    _ -> cache.CacheUpsert
+  }
+}
+
+fn encode_cache_mode(mode: cache.CacheMode) -> String {
+  case mode {
+    cache.CacheUpsert -> "upsert"
+    cache.CacheIgnore -> "ignore"
+    cache.CacheOverride -> "override"
+  }
+}
+
+fn decode_fetch_bundle(data: dynamic.Dynamic) -> FetchBundle {
+  FetchBundle(
+    depth_1: decode_depth_status(decode_path_or(
+      data,
+      ["depth_1"],
+      dynamic.nil(),
+      decode.dynamic,
+    )),
+    depth_3: decode_depth_status(decode_path_or(
+      data,
+      ["depth_3"],
+      dynamic.nil(),
+      decode.dynamic,
+    )),
+    depth_all: decode_depth_status(decode_path_or(
+      data,
+      ["depth_all"],
+      dynamic.nil(),
+      decode.dynamic,
+    )),
+  )
+}
+
+fn encode_fetch_bundle(bundle: FetchBundle) {
+  json.object([
+    #("depth_1", encode_depth_status(bundle.depth_1)),
+    #("depth_3", encode_depth_status(bundle.depth_3)),
+    #("depth_all", encode_depth_status(bundle.depth_all)),
+  ])
+}
+
+fn decode_depth_status(data: dynamic.Dynamic) -> DepthStatus {
+  case decode_path_or(data, ["tag"], "", decode.string) {
+    "fetching" -> Fetching
+    "fetch_failed" ->
+      FetchFailed(decode_path_or(data, ["reason"], "unknown", decode.string))
+    "fetched" ->
+      Fetched(
+        decode_path_or(data, ["summary"], "", decode.string),
+        decode_path_or(data, ["details"], "", decode.string),
+        decode_resolve_result(decode_path_or(
+          data,
+          ["result"],
+          dynamic.nil(),
+          decode.dynamic,
+        )),
+      )
+    _ -> NotFetched
+  }
+}
+
+fn encode_depth_status(status: DepthStatus) {
+  case status {
+    NotFetched -> json.object([#("tag", json.string("not_fetched"))])
+    Fetching -> json.object([#("tag", json.string("fetching"))])
+    FetchFailed(reason) ->
+      json.object([
+        #("tag", json.string("fetch_failed")),
+        #("reason", json.string(reason)),
+      ])
+    Fetched(summary, details, result) ->
+      json.object([
+        #("tag", json.string("fetched")),
+        #("summary", json.string(summary)),
+        #("details", json.string(details)),
+        #("result", encode_resolve_result(result)),
+      ])
+  }
+}
+
+fn decode_resolve_result(data: dynamic.Dynamic) -> core.ResolveResult {
+  let item_data =
+    decode_path_or(data, ["items"], [], decode.list(of: decode.dynamic))
+  let list_data =
+    decode_path_or(data, ["lists"], [], decode.list(of: decode.dynamic))
+  let unresolved_data =
+    decode_path_or(data, ["unresolved"], [], decode.list(of: decode.dynamic))
+  core.ResolveResult(
+    items: list.map(item_data, decode_unified_item),
+    lists: list.map(list_data, decode_unified_collection),
+    unresolved: list.map(unresolved_data, decode_adapter_node),
+  )
+}
+
+fn encode_resolve_result(result: core.ResolveResult) {
+  let core.ResolveResult(items, lists, unresolved) = result
+  json.object([
+    #("items", json.array(items, of: encode_unified_item)),
+    #("lists", json.array(lists, of: encode_unified_collection)),
+    #("unresolved", json.array(unresolved, of: encode_adapter_node)),
+  ])
+}
+
+fn decode_unified_item(data: dynamic.Dynamic) -> core.UnifiedItem {
+  core.UnifiedItem(
+    id: decode_path_or(data, ["id"], "", decode.string),
+    title: decode_path_or(data, ["title"], "", decode.string),
+    artist: decode_path_or(data, ["artist"], "", decode.string),
+    service: decode_path_or(data, ["service"], "", decode.string),
+    source_type: decode_path_or(data, ["source_type"], "", decode.string),
+    source_id: decode_path_or(data, ["source_id"], "", decode.string),
+  )
+}
+
+fn encode_unified_item(item: core.UnifiedItem) {
+  let core.UnifiedItem(id, title, artist, service, source_type, source_id) =
+    item
+  json.object([
+    #("id", json.string(id)),
+    #("title", json.string(title)),
+    #("artist", json.string(artist)),
+    #("service", json.string(service)),
+    #("source_type", json.string(source_type)),
+    #("source_id", json.string(source_id)),
+  ])
+}
+
+fn decode_unified_collection(data: dynamic.Dynamic) -> core.UnifiedCollection {
+  core.UnifiedCollection(
+    id: decode_path_or(data, ["id"], "", decode.string),
+    title: decode_path_or(data, ["title"], "", decode.string),
+    track_ids: decode_path_or(
+      data,
+      ["track_ids"],
+      [],
+      decode.list(of: decode.string),
+    ),
+    list_ids: decode_path_or(
+      data,
+      ["list_ids"],
+      [],
+      decode.list(of: decode.string),
+    ),
+    service: decode_path_or(data, ["service"], "", decode.string),
+    source_type: decode_path_or(data, ["source_type"], "", decode.string),
+    source_id: decode_path_or(data, ["source_id"], "", decode.string),
+  )
+}
+
+fn encode_unified_collection(collection: core.UnifiedCollection) {
+  let core.UnifiedCollection(
+    id,
+    title,
+    track_ids,
+    list_ids,
+    service,
+    source_type,
+    source_id,
+  ) = collection
+  json.object([
+    #("id", json.string(id)),
+    #("title", json.string(title)),
+    #("track_ids", json.array(track_ids, of: json.string)),
+    #("list_ids", json.array(list_ids, of: json.string)),
+    #("service", json.string(service)),
+    #("source_type", json.string(source_type)),
+    #("source_id", json.string(source_id)),
+  ])
+}
+
+fn decode_adapter_node(data: dynamic.Dynamic) -> core.AdapterNode {
+  let kind = decode_path_or(data, ["tag"], "page", decode.string)
+  let value = decode_path_or(data, ["value"], "", decode.string)
+  case kind {
+    "profile" -> core.ProfileEntry(value)
+    "category" -> core.CategoryNode(value)
+    "list" -> core.ListNode(value)
+    _ -> core.PageNode(value)
+  }
+}
+
+fn encode_adapter_node(node: core.AdapterNode) {
+  let #(tag, value) = case node {
+    core.ProfileEntry(v) -> #("profile", v)
+    core.CategoryNode(v) -> #("category", v)
+    core.ListNode(v) -> #("list", v)
+    core.PageNode(v) -> #("page", v)
+  }
+  json.object([
+    #("tag", json.string(tag)),
+    #("value", json.string(value)),
+  ])
+}
+
+fn decode_path_or(
+  data: dynamic.Dynamic,
+  path: List(String),
+  fallback: a,
+  decoder: decode.Decoder(a),
+) -> a {
+  decode.run(data, decode.optionally_at(path, fallback, decoder))
+  |> result.unwrap(fallback)
 }
 
 fn request_exit(model: Model) -> #(Model, List(fn() -> Msg)) {
@@ -322,25 +725,29 @@ fn request_exit(model: Model) -> #(Model, List(fn() -> Msg)) {
   ])
 }
 
-fn focus_detail(
-  model: Model,
-  _source: SourceEntry,
-) -> #(Model, List(fn() -> Msg)) {
+fn toggle_cache_mode_all(model: Model) -> #(Model, List(fn() -> Msg)) {
+  let next_mode = case model.cache_mode {
+    cache.CacheUpsert -> cache.CacheIgnore
+    cache.CacheIgnore -> cache.CacheOverride
+    cache.CacheOverride -> cache.CacheUpsert
+  }
   #(
     Model(
       ..model,
-      focus: DetailPane,
-      esc_armed: False,
-      current_fetch: empty_fetch_bundle(),
-      current_debug_lines: [],
+      cache_mode: next_mode,
+      current_debug_lines:
+        list.append(
+          model.current_debug_lines,
+          ["cache mode switched to " <> cache_mode_text(next_mode)],
+        ),
     ),
     [],
   )
 }
 
-fn focus_selected_detail(model: Model) -> #(Model, List(fn() -> Msg)) {
-  case selected_menu_item(model.selected_index) {
-    RunAllSourcesItem -> #(
+fn focus_selected_right(model: Model) -> #(Model, List(fn() -> Msg)) {
+  case selected_view_type(model.selected_index) {
+    nav.RunAll(_) -> #(
       Model(
         ..model,
         focus: DetailPane,
@@ -350,16 +757,26 @@ fn focus_selected_detail(model: Model) -> #(Model, List(fn() -> Msg)) {
       ),
       [],
     )
-    SourceItem(source) -> focus_detail(model, source)
-    ExitItem -> #(model, [])
+    nav.Source(source, _) ->
+      #(
+        Model(
+          ..model,
+          focus: TracksPane,
+          esc_armed: False,
+          cache_mode: source.cache_mode,
+        ),
+        [],
+      )
+    nav.ToggleCache(_) -> #(Model(..model, focus: DetailPane, esc_armed: False), [])
+    nav.Exit(_) -> #(Model(..model, focus: DetailPane, esc_armed: False), [])
   }
 }
 
-fn fetch_selected_depth(
+fn fetch_selected_full(
   model: Model,
-  source: SourceEntry,
+  source: nav.SourceEntry,
 ) -> #(Model, List(fn() -> Msg)) {
-  let depth_kind = selected_depth_kind(model.depth_selected_index)
+  let depth_kind = DepthAllKind
   let staged = set_depth_status(model.current_fetch, depth_kind, Fetching)
   #(Model(..model, current_fetch: staged), [
     fn() {
@@ -367,12 +784,8 @@ fn fetch_selected_depth(
       let result =
         resolve_source(
           source,
-          case depth_kind {
-            Depth1Kind -> core.Depth1
-            Depth3Kind -> core.Depth3
-            DepthAllKind -> core.All
-          },
-          source.use_cache,
+          core.All,
+          model.cache_mode,
           fn(line) { process.send(debug_subject, line) },
         )
       let status = fetched_status(result)
@@ -389,25 +802,32 @@ fn fetch_selected_depth(
 }
 
 fn fetch_all_sources(model: Model) -> #(Model, List(fn() -> Msg)) {
-  let staged = FetchBundle(Fetching, Fetching, Fetching)
-  #(Model(..model, current_fetch: staged), [
-    fn() {
-      let debug_subject = process.new_subject()
-      let runs = run_all_source_tests(source_entries(), debug_subject)
-      let bundle = bundle_from_runs(runs)
-      let track_lines = validation_lines_from_runs(runs)
-      let debug_lines =
-        list.append(track_lines, collect_debug_lines(debug_subject, []))
-      FetchAllCompleted(bundle, track_lines, debug_lines)
-    },
-  ])
+  let total = section_count()
+  #(
+    Model(
+      ..model,
+      current_fetch: FetchBundle(Fetching, Fetching, Fetching),
+      track_selected_index: 0,
+      current_track_lines: [],
+      current_debug_lines: [
+        "Progress: 0/" <> int.to_string(total) <> " sources complete",
+      ],
+    ),
+    [fn() { fetch_all_next_step([], nav.source_entries(), model.cache_mode) }],
+  )
 }
 
 fn view(model: Model) -> shore.Node(Msg) {
-  let sidebar_items = sidebar_item_nodes(model.selected_index, model.focus)
+  let current_view =
+    nav.view_for_index(model.selected_index, model.focus != SidebarPane)
+  let sidebar_items =
+    sidebar_item_nodes(model.selected_index, model.focus, model.cache_mode)
+  let sidebar_context = sidebar_context_nodes(current_view)
   let sidebar_children =
     []
     |> list.append(sidebar_items)
+    |> list.append([ui.br(), ui.hr(), ui.br()])
+    |> list.append(sidebar_context)
     |> list.append([
       ui.keybind(key.Up, MoveUp),
       ui.keybind(key.Down, MoveDown),
@@ -418,105 +838,81 @@ fn view(model: Model) -> shore.Node(Msg) {
       ui.keybind(key.Enter, ActivateSelected),
       ui.keybind(key.Esc, EscPressed),
       ui.keybind(key.Char("x"), ExitPressed),
+      ui.keybind(key.Char("u"), CacheUpsertSelected),
+      ui.keybind(key.Char("i"), CacheIgnoreSelected),
+      ui.keybind(key.Char("o"), CacheOverrideSelected),
     ])
 
   let sidebar = ui.box(sidebar_children, Some("Sources"))
-
-  let main_children = {
-    let #(_, body) = selected_content(model.selected_index)
-    validation_view_nodes(model)
-    |> list.append([
-      ui.text(body),
-      ui.br(),
-      ui.hr(),
-      ui.text("Depth results"),
-    ])
-    |> list.append(depth_nodes(model))
-    |> list.append([
-      ui.br(),
-      ui.text(selected_depth_details(model)),
-      ui.br(),
-      ui.text("Debug"),
-      ui.hr(),
-    ])
-    |> list.append(debug_nodes(model.current_debug_lines))
+  let right_content = case current_view {
+    nav.RunAll(_) ->
+      ui.box(
+        run_all_main_nodes(model),
+        Some("Selected view: " <> nav.title(current_view)),
+      )
+    nav.Source(_, _) -> {
+      let tracks_nodes =
+        helpers.track_panel_nodes(
+          model.current_track_lines,
+          model.track_selected_index,
+          model.focus == TracksPane,
+          track_viewport_size,
+        )
+      ui.box(
+        tracks_nodes,
+        Some("Tracks (" <> int.to_string(list.length(model.current_track_lines)) <> ")"),
+      )
+    }
+    nav.Exit(_) ->
+      ui.box(
+        exit_main_nodes(model),
+        Some("Selected view: " <> nav.title(current_view)),
+      )
+    nav.ToggleCache(_) ->
+      ui.box(
+        toggle_cache_main_nodes(model),
+        Some("Selected view: " <> nav.title(current_view)),
+      )
   }
-  let selected_title = menu_item_title(model.selected_index)
-  let main_content =
-    ui.box(
-      main_children,
-      Some("Selected view: " <> selected_title),
-    )
-
-  let tracks_content =
-    ui.box(
-      track_panel_nodes(model),
-      Some("Tracks (" <> int.to_string(list.length(model.current_track_lines)) <> ")"),
-    )
 
   layout.grid(
     gap: 1,
     rows: [style.Fill],
-    cols: [style.Pct(28), style.Pct(36), style.Fill],
+    cols: [style.Pct(30), style.Fill],
     cells: [
       layout.cell(content: sidebar, row: #(0, 0), col: #(0, 0)),
-      layout.cell(content: main_content, row: #(0, 0), col: #(1, 1)),
-      layout.cell(content: tracks_content, row: #(0, 0), col: #(2, 2)),
+      layout.cell(content: right_content, row: #(0, 0), col: #(1, 1)),
     ],
   )
 }
 
 fn section_count() -> Int {
-  list.length(source_entries())
+  nav.section_count()
 }
 
 fn menu_count() -> Int {
-  section_count() + 2
+  nav.menu_count()
 }
 
 fn previous_index(index: Int) -> Int {
-  case index <= 0 {
-    True -> menu_count() - 1
-    False -> index - 1
-  }
+  nav.previous_index(index)
 }
 
 fn next_index(index: Int) -> Int {
-  case index >= menu_count() - 1 {
-    True -> 0
-    False -> index + 1
-  }
+  nav.next_index(index)
 }
 
-fn is_exit_selected(index: Int) -> Bool {
-  index == section_count() + 1
+fn selected_view_type(index: Int) -> nav.View {
+  nav.view_for_index(index, False)
 }
 
-fn selected_menu_item(index: Int) -> MenuItem {
-  case index {
-    0 -> RunAllSourcesItem
-    _ ->
-      case is_exit_selected(index) {
-        True -> ExitItem
-        False ->
-          case source_at(source_entries(), index - 1, 0) {
-            Some(source) -> SourceItem(source)
-            None -> ExitItem
-          }
-      }
-  }
-}
-
-fn selected_source(index: Int) -> Option(SourceEntry) {
-  case selected_menu_item(index) {
-    SourceItem(source) -> Some(source)
-    _ -> None
-  }
+fn selected_source(index: Int) -> Option(nav.SourceEntry) {
+  nav.source_from_view(selected_view_type(index))
 }
 
 fn section_at(index: Int) -> #(String, String) {
-  case selected_menu_item(index) {
-    SourceItem(source) -> #(source.name, source_info_details(source))
+  case selected_view_type(index) {
+    nav.Source(source, _) -> #(source.name, source_info_details(source))
     _ -> #("Unknown Source", "No source found at this index.")
   }
 }
@@ -524,22 +920,26 @@ fn section_at(index: Int) -> #(String, String) {
 fn sidebar_item_nodes(
   selected_index: Int,
   focus: FocusPane,
+  cache_mode: cache.CacheMode,
 ) -> List(shore.Node(Msg)) {
-  let run_all_node = sidebar_node_for_index(0, selected_index, focus)
+  let run_all_node = sidebar_node_for_index(0, selected_index, focus, cache_mode)
   let sources =
-    source_sidebar_nodes_loop(selected_index, focus, 0, section_count(), [])
+    source_sidebar_nodes_loop(selected_index, focus, cache_mode, 0, section_count(), [])
     |> list.reverse
-  let exit_node = sidebar_node_for_index(menu_count() - 1, selected_index, focus)
+  let toggle_cache_node =
+    sidebar_node_for_index(section_count() + 1, selected_index, focus, cache_mode)
+  let exit_node =
+    sidebar_node_for_index(menu_count() - 1, selected_index, focus, cache_mode)
   [run_all_node, ui.br()]
   |> list.append(sources)
-  |> list.append([ui.br(), exit_node])
+  |> list.append([ui.br(), toggle_cache_node, ui.br(), exit_node])
 }
 
-fn menu_item_title(index: Int) -> String {
-  case selected_menu_item(index) {
-    RunAllSourcesItem -> "Run all sources"
-    ExitItem -> "Exit"
-    SourceItem(source) -> source.name
+fn menu_item_title(index: Int, cache_mode: cache.CacheMode) -> String {
+  case selected_view_type(index) {
+    nav.ToggleCache(_) ->
+      "Toggle cache mode (" <> cache_mode_text(cache_mode) <> ")"
+    _ -> nav.title(selected_view_type(index))
   }
 }
 
@@ -547,8 +947,9 @@ fn sidebar_node_for_index(
   menu_index: Int,
   selected_index: Int,
   focus: FocusPane,
+  cache_mode: cache.CacheMode,
 ) -> shore.Node(Msg) {
-  let title = menu_item_title(menu_index)
+  let title = menu_item_title(menu_index, cache_mode)
   let is_selected = menu_index == selected_index
   helpers.sidebar_item_node(title, is_selected, focus == SidebarPane)
 }
@@ -556,6 +957,7 @@ fn sidebar_node_for_index(
 fn source_sidebar_nodes_loop(
   selected_index: Int,
   focus: FocusPane,
+  cache_mode: cache.CacheMode,
   source_index: Int,
   source_count: Int,
   items: List(shore.Node(Msg)),
@@ -563,10 +965,17 @@ fn source_sidebar_nodes_loop(
   case source_index >= source_count {
     True -> items
     False -> {
-      let node = sidebar_node_for_index(source_index + 1, selected_index, focus)
+      let node =
+        sidebar_node_for_index(
+          source_index + 1,
+          selected_index,
+          focus,
+          cache_mode,
+        )
       source_sidebar_nodes_loop(
         selected_index,
         focus,
+        cache_mode,
         source_index + 1,
         source_count,
         [node, ..items],
@@ -576,20 +985,25 @@ fn source_sidebar_nodes_loop(
 }
 
 fn selected_content(index: Int) -> #(String, String) {
-  case selected_menu_item(index) {
-    RunAllSourcesItem ->
-      #(
-        "Run all source tests",
-        "Press Enter in this panel to run depth 1/3/all for every source.",
-      )
-    ExitItem -> #("Exit", "Press Enter to gracefully close the Shore demo.")
-    SourceItem(_) -> section_at(index)
+  case selected_view_type(index) {
+    nav.RunAll(_) -> #(
+      "Run all source tests",
+      "Press Enter in this panel to run depth 1/3/all for every source.",
+    )
+    nav.Exit(_) -> #("Exit", "Press Enter to gracefully close the Shore demo.")
+    nav.ToggleCache(_) -> #(
+      "Toggle cache mode",
+      "Press Enter to cycle cache mode for all sources: upsert -> ignore -> override.",
+    )
+    nav.Source(_, _) -> section_at(index)
   }
 }
 
-fn source_info_details(source: SourceEntry) -> String {
+fn source_info_details(source: nav.SourceEntry) -> String {
   "Entry point: "
   <> source.entry_point
+  <> "\nCache(default): "
+  <> cache_mode_text(source.cache_mode)
   <> "\n\nDepth assert spec:"
   <> "\n- min_depth_1_items: "
   <> int.to_string(source.min_depth_1_items)
@@ -601,83 +1015,22 @@ fn source_info_details(source: SourceEntry) -> String {
   <> string.join(source.anchor_fragments, ", ")
 }
 
-fn depth_line(model: Model, kind: DepthKind) -> String {
-  let is_selected =
-    depth_index(kind) == model.depth_selected_index && model.focus == DetailPane
-  let marker = case is_selected {
-    True -> "● "
-    False -> "  "
-  }
-  let label = case kind {
-    Depth1Kind -> "Depth 1"
-    Depth3Kind -> "Depth 3"
-    DepthAllKind -> "Depth All"
-  }
-  let status = depth_status_text(model.current_fetch, kind)
-  marker <> label <> ": " <> status
-}
-
-fn depth_nodes(model: Model) -> List(shore.Node(Msg)) {
-  [
-    depth_node(model, Depth1Kind),
-    depth_node(model, Depth3Kind),
-    depth_node(model, DepthAllKind),
-  ]
-}
-
-fn depth_node(model: Model, kind: DepthKind) -> shore.Node(Msg) {
-  let selected =
-    depth_index(kind) == model.depth_selected_index && model.focus == DetailPane
-  let text = depth_line(model, kind)
-  helpers.red_dot_node(text, selected)
-}
-
-fn depth_status_text(bundle: FetchBundle, kind: DepthKind) -> String {
-  let status = case kind {
-    Depth1Kind -> bundle.depth_1
-    Depth3Kind -> bundle.depth_3
-    DepthAllKind -> bundle.depth_all
-  }
-  case status {
-    NotFetched -> "not fetched"
-    Fetching -> "fetching..."
-    Fetched(summary, _, _) -> summary
-    FetchFailed(text) -> "failed: " <> text
-  }
-}
-
-fn depth_index(kind: DepthKind) -> Int {
-  case kind {
-    Depth1Kind -> 0
-    Depth3Kind -> 1
-    DepthAllKind -> 2
-  }
-}
-
-fn previous_depth_index(index: Int) -> Int {
-  case index <= 0 {
-    True -> 2
-    False -> index - 1
-  }
-}
-
-fn next_depth_index(index: Int) -> Int {
-  case index >= 2 {
-    True -> 0
-    False -> index + 1
+fn sidebar_context_nodes(view: nav.View) -> List(shore.Node(Msg)) {
+  case view {
+    nav.Source(source, _) -> [
+      ui.text_styled("focused source", Some(style.White), None),
+      ui.text(source.name),
+      ui.br(),
+      ui.text(source_info_details(source)),
+    ]
+    _ -> [
+      ui.text("Select a source to inspect metadata."),
+    ]
   }
 }
 
 fn empty_fetch_bundle() -> FetchBundle {
   FetchBundle(NotFetched, NotFetched, NotFetched)
-}
-
-fn selected_depth_kind(index: Int) -> DepthKind {
-  case index {
-    0 -> Depth1Kind
-    1 -> Depth3Kind
-    _ -> DepthAllKind
-  }
 }
 
 fn set_depth_status(
@@ -740,13 +1093,79 @@ fn track_lines_from_result(result: core.ResolveResult) -> List(String) {
   })
 }
 
-fn track_panel_nodes(model: Model) -> List(shore.Node(Msg)) {
-  helpers.track_panel_nodes(
-    model.current_track_lines,
-    model.track_selected_index,
-    model.focus == TracksPane,
-    track_viewport_size,
-  )
+fn run_all_main_nodes(model: Model) -> List(shore.Node(Msg)) {
+  let #(_, body) = selected_content(model.selected_index)
+  let button_label = case model.focus == DetailPane {
+    True -> "● [ RUN ALL ] (press Enter)"
+    False -> "  [ RUN ALL ] (press Right then Enter)"
+  }
+  [
+    ui.text_styled("validation", Some(style.White), None),
+    ui.text("[-] aggregate mode"),
+    ui.text(body),
+    ui.br(),
+    ui.hr(),
+    ui.text("Run all"),
+    ui.text(button_label),
+    ui.br(),
+    ui.text(selected_depth_details(model)),
+    ui.br(),
+    ui.text("Results"),
+    ui.hr(),
+  ]
+  |> list.append(run_all_result_nodes(model.current_track_lines))
+  |> list.append([
+    ui.br(),
+    ui.text("Debug"),
+    ui.hr(),
+  ])
+  |> list.append(debug_nodes(model.current_debug_lines))
+}
+
+fn toggle_cache_main_nodes(model: Model) -> List(shore.Node(Msg)) {
+  let #(_, body) = selected_content(model.selected_index)
+  let button_label = case model.focus == DetailPane {
+    True ->
+      "● [ TOGGLE CACHE MODE ] current="
+      <> cache_mode_text(model.cache_mode)
+      <> " (press Enter)"
+    False ->
+      "  [ TOGGLE CACHE MODE ] current="
+      <> cache_mode_text(model.cache_mode)
+      <> " (press Right then Enter)"
+  }
+  [
+    ui.text_styled("cache", Some(style.White), None),
+    ui.text(body),
+    ui.br(),
+    ui.hr(),
+    ui.text(button_label),
+    ui.br(),
+    ui.text("Applies globally to all source fetches."),
+  ]
+}
+
+fn exit_main_nodes(model: Model) -> List(shore.Node(Msg)) {
+  let #(_, body) = selected_content(model.selected_index)
+  [
+    ui.text_styled("validation", Some(style.White), None),
+    ui.text("[-] no source selected"),
+    ui.text(body),
+    ui.br(),
+    ui.hr(),
+    ui.text("No actions available."),
+    ui.br(),
+    ui.text("Debug"),
+    ui.hr(),
+  ]
+  |> list.append(debug_nodes(model.current_debug_lines))
+}
+
+fn run_all_result_nodes(lines: List(String)) -> List(shore.Node(Msg)) {
+  case lines {
+    [] -> [ui.text("(no results yet)")]
+    _ -> list.map(lines, ui.text)
+  }
 }
 
 fn previous_track_index(current: Int, lines: List(String)) -> Int {
@@ -795,61 +1214,28 @@ fn track_view_by_id(
 }
 
 fn selected_depth_details(model: Model) -> String {
-  let depth_kind = selected_depth_kind(model.depth_selected_index)
-  let status = case depth_kind {
-    Depth1Kind -> model.current_fetch.depth_1
-    Depth3Kind -> model.current_fetch.depth_3
-    DepthAllKind -> model.current_fetch.depth_all
-  }
+  let status = model.current_fetch.depth_all
   case status {
     Fetched(_, details, _) -> details
     Fetching ->
-      case selected_menu_item(model.selected_index) {
-        RunAllSourcesItem -> "Running all source tests..."
-        _ -> "Fetching selected depth..."
+      case selected_view_type(model.selected_index) {
+        nav.RunAll(_) -> "Running all source tests..."
+        _ -> "Fetching full depth..."
       }
     NotFetched ->
-      case selected_menu_item(model.selected_index) {
-        RunAllSourcesItem ->
+      case selected_view_type(model.selected_index) {
+        nav.RunAll(_) ->
           "Press Enter to run depth 1/3/all test suite for every source."
-        _ -> "Press Enter to fetch selected depth."
+        _ -> "Press Enter to fetch full depth."
       }
     FetchFailed(reason) -> "Fetch failed: " <> reason
   }
 }
 
-fn validation_view_nodes(model: Model) -> List(shore.Node(Msg)) {
-  case selected_menu_item(model.selected_index) {
-    RunAllSourcesItem -> [
-      ui.text_styled("validation: aggregate mode", Some(style.White), None),
-      ui.text("[-] run and inspect right panel for per-source pass/fail"),
-    ]
-    ExitItem -> helpers.validation_unavailable_nodes()
-    SourceItem(source) -> {
-      helpers.validation_nodes(
-        source.min_depth_1_items,
-        source.min_full_items,
-        source.first_items_to_preserve,
-        source.anchor_fragments,
-        result_option(model.current_fetch.depth_1),
-        result_option(model.current_fetch.depth_3),
-        result_option(model.current_fetch.depth_all),
-      )
-    }
-  }
-}
-
-fn result_option(status: DepthStatus) -> Option(core.ResolveResult) {
-  case status {
-    Fetched(_, _, result) -> Some(result)
-    _ -> None
-  }
-}
-
 fn resolve_source(
-  source: SourceEntry,
+  source: nav.SourceEntry,
   depth: core.DepthMode,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case source.key {
@@ -858,7 +1244,7 @@ fn resolve_source(
       bandcamp_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -868,7 +1254,7 @@ fn resolve_source(
       soundcloud_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -897,7 +1283,7 @@ fn resolve_source(
         profile,
         depth,
         config,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -906,60 +1292,49 @@ fn resolve_source(
       youtube_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
   }
 }
 
-fn run_all_source_tests(
-  sources: List(SourceEntry),
-  debug_subject: process.Subject(String),
-) -> List(SourceRun) {
-  run_all_source_tests_loop(sources, debug_subject, [])
-}
-
-fn run_all_source_tests_loop(
-  sources: List(SourceEntry),
-  debug_subject: process.Subject(String),
-  acc: List(SourceRun),
-) -> List(SourceRun) {
-  case sources {
-    [] -> list.reverse(acc)
+fn fetch_all_next_step(
+  completed_rev: List(SourceRun),
+  remaining: List(nav.SourceEntry),
+  cache_mode: cache.CacheMode,
+) -> Msg {
+  case remaining {
+    [] -> FetchAllStepCompleted(completed_rev, [], [])
     [source, ..rest] -> {
+      let debug_subject = process.new_subject()
       let depth_1 =
-        resolve_source(
-          source,
-          core.Depth1,
-          source.use_cache,
-          fn(line) {
-            process.send(debug_subject, "[" <> source.name <> "][depth1] " <> line)
-          },
-        )
+        resolve_source(source, core.Depth1, cache_mode, fn(line) {
+          process.send(
+            debug_subject,
+            "[" <> source.name <> "][depth1] " <> line,
+          )
+        })
       let depth_3 =
-        resolve_source(
-          source,
-          core.Depth3,
-          source.use_cache,
-          fn(line) {
-            process.send(debug_subject, "[" <> source.name <> "][depth3] " <> line)
-          },
-        )
+        resolve_source(source, core.Depth3, cache_mode, fn(line) {
+          process.send(
+            debug_subject,
+            "[" <> source.name <> "][depth3] " <> line,
+          )
+        })
       let depth_all =
-        resolve_source(
-          source,
-          core.All,
-          source.use_cache,
-          fn(line) {
-            process.send(debug_subject, "[" <> source.name <> "][depth-all] " <> line)
-          },
-        )
-      run_all_source_tests_loop(
-        rest,
-        debug_subject,
-        [SourceRun(source, depth_1, depth_3, depth_all), ..acc],
-      )
+        resolve_source(source, core.All, cache_mode, fn(line) {
+          process.send(
+            debug_subject,
+            "[" <> source.name <> "][depth-all] " <> line,
+          )
+        })
+      let run = SourceRun(source, depth_1, depth_3, depth_all)
+      let step_header = "Completed: " <> validation_line_from_run(run)
+      let debug_lines =
+        [step_header]
+        |> list.append(collect_debug_lines(debug_subject, []))
+      FetchAllStepCompleted([run, ..completed_rev], rest, debug_lines)
     }
   }
 }
@@ -979,7 +1354,8 @@ fn depth_status_from_runs(runs: List(SourceRun), kind: DepthKind) -> DepthStatus
 }
 
 fn summarize_depth_runs(runs: List(SourceRun), kind: DepthKind) -> String {
-  let #(items, lists, unresolved) = depth_totals_from_runs(runs, kind, #(0, 0, 0))
+  let #(items, lists, unresolved) =
+    depth_totals_from_runs(runs, kind, #(0, 0, 0))
   "sources="
   <> int.to_string(list.length(runs))
   <> " items="
@@ -1001,15 +1377,11 @@ fn depth_totals_from_runs(
       let #(items_acc, lists_acc, unresolved_acc) = acc
       let result = depth_result_for_run(run, kind)
       let core.ResolveResult(items, lists, unresolved) = result
-      depth_totals_from_runs(
-        rest,
-        kind,
-        #(
-          items_acc + list.length(items),
-          lists_acc + list.length(lists),
-          unresolved_acc + list.length(unresolved),
-        ),
-      )
+      depth_totals_from_runs(rest, kind, #(
+        items_acc + list.length(items),
+        lists_acc + list.length(lists),
+        unresolved_acc + list.length(unresolved),
+      ))
     }
   }
 }
@@ -1025,31 +1397,33 @@ fn depth_details_from_runs(runs: List(SourceRun), kind: DepthKind) -> String {
 }
 
 fn validation_lines_from_runs(runs: List(SourceRun)) -> List(String) {
-  list.map(runs, fn(run) {
-    let SourceRun(source, depth_1, depth_3, depth_all) = run
-    let helpers.ValidationView(label, _, checks) =
-      helpers.build_validation(
-        source.min_depth_1_items,
-        source.min_full_items,
-        source.first_items_to_preserve,
-        source.anchor_fragments,
-        Some(depth_1),
-        Some(depth_3),
-        Some(depth_all),
-      )
-    let failed_checks =
-      list.filter(checks, fn(check) {
-        string.starts_with(check, "[ ]") || string.starts_with(check, "  -")
-      })
-    case label {
-      "PASS" -> source.name <> ": PASS"
-      _ ->
-        case failed_checks {
-          [] -> source.name <> ": FAIL"
-          _ -> source.name <> ": FAIL | " <> string.join(failed_checks, " | ")
-        }
-    }
-  })
+  list.map(runs, validation_line_from_run)
+}
+
+fn validation_line_from_run(run: SourceRun) -> String {
+  let SourceRun(source, depth_1, depth_3, depth_all) = run
+  let helpers.ValidationView(label, _, checks) =
+    helpers.build_validation(
+      source.min_depth_1_items,
+      source.min_full_items,
+      source.first_items_to_preserve,
+      source.anchor_fragments,
+      Some(depth_1),
+      Some(depth_3),
+      Some(depth_all),
+    )
+  let failed_checks =
+    list.filter(checks, fn(check) {
+      string.starts_with(check, "[ ]") || string.starts_with(check, "  -")
+    })
+  case label {
+    "PASS" -> source.name <> ": PASS"
+    _ ->
+      case failed_checks {
+        [] -> source.name <> ": FAIL"
+        _ -> source.name <> ": FAIL | " <> string.join(failed_checks, " | ")
+      }
+  }
 }
 
 fn depth_result_for_run(run: SourceRun, kind: DepthKind) -> core.ResolveResult {
@@ -1083,42 +1457,10 @@ fn debug_nodes(lines: List(String)) -> List(shore.Node(Msg)) {
   }
 }
 
-fn source_at(
-  sources: List(SourceEntry),
-  wanted: Int,
-  current: Int,
-) -> Option(SourceEntry) {
-  case sources {
-    [] -> None
-    [source, ..rest] ->
-      case current == wanted {
-        True -> Some(source)
-        False -> source_at(rest, wanted, current + 1)
-      }
+fn cache_mode_text(value: cache.CacheMode) -> String {
+  case value {
+    cache.CacheUpsert -> "upsert"
+    cache.CacheIgnore -> "ignore"
+    cache.CacheOverride -> "override"
   }
-}
-
-fn source_entries() -> List(SourceEntry) {
-  list.map(source_specs.all(), source_entry_from_spec)
-}
-
-fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
-  let source_specs.SourceSpec(key, name, entry_point, use_cache, assert_spec) = spec
-  let source_specs.SourceAssertSpec(
-    min_depth_1_items,
-    min_full_items,
-    first_items_to_preserve,
-    anchor_fragments,
-    _,
-  ) = assert_spec
-  SourceEntry(
-    key: key,
-    name: name,
-    entry_point: entry_point,
-    use_cache: use_cache,
-    min_depth_1_items: min_depth_1_items,
-    min_full_items: min_full_items,
-    first_items_to_preserve: first_items_to_preserve,
-    anchor_fragments: anchor_fragments,
-  )
 }

@@ -1,17 +1,38 @@
 import simplifile
 
+//// Adapter cache helper with explicit runtime modes.
+////
+//// Contract used by all live expanders:
+//// - deterministic cache key: `namespace + phash(key)`
+//// - file-backed cache under `/tmp`
+//// - empty fetch results are not persisted
+////
+//// Cache modes:
+//// - `CacheUpsert`: read existing cache, fetch+store on miss/empty
+//// - `CacheIgnore`: bypass cache, always fetch live
+//// - `CacheOverride`: always fetch live and overwrite cache
 @external(erlang, "cache_hash", "phash")
 fn phash(value: String) -> String
+
+pub type CacheMode {
+  CacheUpsert
+  CacheIgnore
+  CacheOverride
+}
 
 pub fn read_or_fetch(
   namespace: String,
   key: String,
-  use_cache: Bool,
+  cache_mode: CacheMode,
   fetch: fn() -> String,
 ) -> String {
-  case use_cache {
-    False -> fetch()
-    True -> {
+  case cache_mode {
+    CacheIgnore -> fetch()
+    CacheOverride -> {
+      let path = cache_path(namespace, key)
+      compute_and_store(path, fetch)
+    }
+    CacheUpsert -> {
       let path = cache_path(namespace, key)
       case simplifile.read(from: path) {
         Ok(cached) ->

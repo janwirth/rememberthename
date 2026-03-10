@@ -131,23 +131,23 @@ pub fn resolve_profile(
   profile: SpotifyUserProfile,
   depth: core.DepthMode,
   config: SpotifyConfig,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ResolveResult {
-  resolve_profile_with_debug(profile, depth, config, use_cache, fn(_) { Nil })
+  resolve_profile_with_debug(profile, depth, config, cache_mode, fn(_) { Nil })
 }
 
 pub fn resolve_profile_with_debug(
   profile: SpotifyUserProfile,
   depth: core.DepthMode,
   config: SpotifyConfig,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   let SpotifyUserProfile(profile_url) = profile
   core.resolve_profile_url_with_debug(
     profile_url,
     depth,
-    fn(node) { expand(node, config, use_cache) },
+    fn(node) { expand(node, config, cache_mode) },
     on_debug,
   )
 }
@@ -155,20 +155,20 @@ pub fn resolve_profile_with_debug(
 pub fn expand(
   node: core.AdapterNode,
   config: SpotifyConfig,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url, config, use_cache)
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url, config, cache_mode)
     core.CategoryNode(ctx) -> expand_playlists(ctx)
-    core.ListNode(ctx) -> expand_playlist_tracks(ctx, use_cache)
-    core.PageNode(ctx) -> expand_track_page(ctx, use_cache)
+    core.ListNode(ctx) -> expand_playlist_tracks(ctx, cache_mode)
+    core.PageNode(ctx) -> expand_track_page(ctx, cache_mode)
   }
 }
 
 fn expand_profile(
   profile_url: String,
   config: SpotifyConfig,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   let user_id = parse_user_id(profile_url)
   let SpotifyConfig(
@@ -198,7 +198,7 @@ fn expand_profile(
         unresolved: [core.ProfileEntry(profile_url)],
       )
     False ->
-      emit_liked_tracks(token, 0, use_cache)
+      emit_liked_tracks(token, 0, cache_mode)
   }
 }
 
@@ -315,11 +315,11 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn expand_playlist_tracks(ctx: String, use_cache: Bool) -> core.ExpandResult {
+fn expand_playlist_tracks(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str), use_cache)
+      emit_liked_tracks(token, to_int(offset_str), cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -330,11 +330,11 @@ fn expand_playlist_tracks(ctx: String, use_cache: Bool) -> core.ExpandResult {
   }
 }
 
-fn expand_track_page(ctx: String, use_cache: Bool) -> core.ExpandResult {
+fn expand_track_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes_page", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str), use_cache)
+      emit_liked_tracks(token, to_int(offset_str), cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -348,10 +348,10 @@ fn expand_track_page(ctx: String, use_cache: Bool) -> core.ExpandResult {
 fn emit_liked_tracks(
   token: String,
   offset: Int,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
-  let json = cached_liked_tracks_json(token, offset, use_cache)
-  let items = parse_track_items(cached_tracks_tsv(json, use_cache))
+  let json = cached_liked_tracks_json(token, offset, cache_mode)
+  let items = parse_track_items(cached_tracks_tsv(json, cache_mode))
   let collection =
     core.UnifiedCollection(
       id: "spotify:collection:likes",
@@ -380,20 +380,24 @@ fn emit_liked_tracks(
   )
 }
 
-fn cached_liked_tracks_json(token: String, offset: Int, use_cache: Bool) -> String {
+fn cached_liked_tracks_json(
+  token: String,
+  offset: Int,
+  cache_mode: cache.CacheMode,
+) -> String {
   cache.read_or_fetch(
     "spotify_liked_tracks_json",
     token <> "|" <> int.to_string(offset),
-    use_cache,
+    cache_mode,
     fn() { liked_tracks_json(token, offset) },
   )
 }
 
-fn cached_tracks_tsv(json: String, use_cache: Bool) -> String {
+fn cached_tracks_tsv(json: String, cache_mode: cache.CacheMode) -> String {
   cache.read_or_fetch(
     "spotify_tracks_tsv",
     json,
-    use_cache,
+    cache_mode,
     fn() { tracks_tsv(json) },
   )
 }

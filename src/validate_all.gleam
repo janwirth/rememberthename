@@ -1,4 +1,5 @@
 import adapters/bandcamp/live_expander as bandcamp_live_expander
+import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
@@ -52,24 +53,24 @@ fn validate_sources(
 }
 
 fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
-  let source_specs.SourceSpec(key, name, entry_point, use_cache, assert_spec) = spec
+  let source_specs.SourceSpec(key, name, entry_point, cache_mode, assert_spec) = spec
   io.println("")
   io.println("== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==")
   io.println("entry: " <> entry_point)
-  io.println("cache: " <> bool_text(use_cache))
+  io.println("cache: " <> cache_mode_text(cache_mode))
 
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
-    resolve_source(key, entry_point, core.All, use_cache, fn(line) {
+    resolve_source(key, entry_point, core.All, cache_mode, fn(line) {
       io.println("[warmup] " <> line)
     })
 
   let depth_1 =
-    resolve_source(key, entry_point, core.Depth1, use_cache, fn(_line) { Nil })
+    resolve_source(key, entry_point, core.Depth1, cache_mode, fn(_line) { Nil })
   let depth_2 =
-    resolve_source(key, entry_point, core.Depth2, use_cache, fn(_line) { Nil })
+    resolve_source(key, entry_point, core.Depth2, cache_mode, fn(_line) { Nil })
   let depth_all =
-    resolve_source(key, entry_point, core.All, use_cache, fn(line) {
+    resolve_source(key, entry_point, core.All, cache_mode, fn(line) {
       io.println("[full] " <> line)
     })
 
@@ -88,7 +89,7 @@ fn resolve_source(
   key: String,
   entry_point: String,
   depth: core.DepthMode,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case key {
@@ -97,7 +98,7 @@ fn resolve_source(
       bandcamp_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -106,7 +107,7 @@ fn resolve_source(
       soundcloud_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -130,7 +131,7 @@ fn resolve_source(
         profile,
         depth,
         config,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -139,7 +140,7 @@ fn resolve_source(
       youtube_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -267,9 +268,10 @@ fn check(ok: Bool) -> String {
   }
 }
 
-fn bool_text(value: Bool) -> String {
+fn cache_mode_text(value: cache.CacheMode) -> String {
   case value {
-    True -> "on"
-    False -> "off"
+    cache.CacheUpsert -> "upsert"
+    cache.CacheIgnore -> "ignore"
+    cache.CacheOverride -> "override"
   }
 }

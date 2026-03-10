@@ -1,4 +1,5 @@
 import adapters/bandcamp/live_expander as bandcamp_live_expander
+import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
@@ -6,6 +7,7 @@ import adapters/youtube/live_expander as youtube_live_expander
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import output/csv_writer
 import output/visual_output
@@ -20,7 +22,9 @@ pub fn main() {
   case args {
     ["list"] -> list_sources()
     ["source", "fetch", source_index_text, "depth", depth_text] ->
-      fetch_source(source_index_text, depth_text)
+      fetch_source(source_index_text, depth_text, None)
+    ["source", "fetch", source_index_text, "depth", depth_text, "cache", cache_mode_text] ->
+      fetch_source(source_index_text, depth_text, Some(cache_mode_text))
     _ -> print_usage()
   }
 }
@@ -42,13 +46,13 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   case sources {
     [] -> Nil
     [source, ..rest] -> {
-      let source_specs.SourceSpec(_, name, entry_point, use_cache, _) = source
+      let source_specs.SourceSpec(_, name, entry_point, cache_mode, _) = source
       io.println(
         int.to_string(index)
         <> ". "
         <> name
         <> " | cache="
-        <> bool_text(use_cache)
+        <> cache_mode_text(cache_mode)
         <> " | "
         <> entry_point,
       )
@@ -57,14 +61,26 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   }
 }
 
-fn fetch_source(source_index_text: String, depth_text: String) {
+fn fetch_source(
+  source_index_text: String,
+  depth_text: String,
+  cache_mode_text_arg: Option(String),
+) {
   let source_index = int.parse(source_index_text) |> result.unwrap(or: -1)
   case source_at(source_specs.all(), source_index, 1) {
     Error(_) -> io.println("Invalid source index: " <> source_index_text)
     Ok(source) ->
       case parse_depth(depth_text) {
         Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
-        Ok(depth) -> run_fetch(source, source_index, depth, depth_text)
+        Ok(depth) ->
+          case parse_cache_mode_arg(source, cache_mode_text_arg) {
+            Error(_) ->
+              io.println(
+                "Invalid cache mode (use: upsert | ignore | override)",
+              )
+            Ok(cache_mode) ->
+              run_fetch(source, source_index, depth, depth_text, cache_mode)
+          }
       }
   }
 }
@@ -74,11 +90,12 @@ fn run_fetch(
   source_index: Int,
   depth: core.DepthMode,
   depth_label: String,
+  cache_mode: cache.CacheMode,
 ) {
-  let source_specs.SourceSpec(key, name, entry_point, use_cache, _) = source
+  let source_specs.SourceSpec(key, name, entry_point, _, _) = source
   io.println("Fetching source " <> int.to_string(source_index) <> ": " <> name)
   io.println("Depth: " <> depth_label)
-  io.println("Cache: " <> bool_text(use_cache))
+  io.println("Cache: " <> cache_mode_text(cache_mode))
   io.println("")
 
   let result =
@@ -86,7 +103,7 @@ fn run_fetch(
       key,
       entry_point,
       depth,
-      use_cache,
+      cache_mode,
       fn(line) { io.println(line) },
     )
 
@@ -113,7 +130,7 @@ fn resolve_source(
   key: String,
   entry_point: String,
   depth: core.DepthMode,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case key {
@@ -122,7 +139,7 @@ fn resolve_source(
       bandcamp_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -131,7 +148,7 @@ fn resolve_source(
       soundcloud_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -155,7 +172,7 @@ fn resolve_source(
         profile,
         depth,
         config,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -164,7 +181,7 @@ fn resolve_source(
       youtube_live_expander.resolve_profile_with_debug(
         profile,
         depth,
-        use_cache,
+        cache_mode,
         on_debug,
       )
     }
@@ -207,17 +224,38 @@ fn source_at(
   }
 }
 
-fn bool_text(value: Bool) -> String {
+fn parse_cache_mode_arg(
+  source: source_specs.SourceSpec,
+  maybe_cache_mode: Option(String),
+) -> Result(cache.CacheMode, Nil) {
+  let source_specs.SourceSpec(_, _, _, default_mode, _) = source
+  case maybe_cache_mode {
+    None -> Ok(default_mode)
+    Some(value) -> parse_cache_mode(value)
+  }
+}
+
+fn parse_cache_mode(value: String) -> Result(cache.CacheMode, Nil) {
   case value {
-    True -> "on"
-    False -> "off"
+    "upsert" -> Ok(cache.CacheUpsert)
+    "ignore" -> Ok(cache.CacheIgnore)
+    "override" -> Ok(cache.CacheOverride)
+    _ -> Error(Nil)
+  }
+}
+
+fn cache_mode_text(value: cache.CacheMode) -> String {
+  case value {
+    cache.CacheUpsert -> "upsert"
+    cache.CacheIgnore -> "ignore"
+    cache.CacheOverride -> "override"
   }
 }
 
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
-  io.println("  cli source fetch <index> depth <1|2|full>")
+  io.println("  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>]")
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")

@@ -57,15 +57,15 @@ pub fn bandcamp_profile(profile_url: String) -> BandcampProfile {
 pub fn resolve_profile(
   profile: BandcampProfile,
   depth: core.DepthMode,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ResolveResult {
-  resolve_profile_with_debug(profile, depth, use_cache, fn(_) { Nil })
+  resolve_profile_with_debug(profile, depth, cache_mode, fn(_) { Nil })
 }
 
 pub fn resolve_profile_with_debug(
   profile: BandcampProfile,
   depth: core.DepthMode,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   // Keep entry point specific: BandcampProfile -> profile_url traversal root.
@@ -73,23 +73,23 @@ pub fn resolve_profile_with_debug(
   core.resolve_profile_url_with_debug(
     profile_url,
     depth,
-    fn(node) { expand(node, use_cache) },
+    fn(node) { expand(node, cache_mode) },
     on_debug,
   )
 }
 
-pub fn expand(node: core.AdapterNode, use_cache: Bool) -> core.ExpandResult {
+pub fn expand(node: core.AdapterNode, cache_mode: cache.CacheMode) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url, use_cache)
-    core.CategoryNode(ctx) -> expand_category(ctx, use_cache)
-    core.ListNode(ctx) -> expand_album(ctx, use_cache)
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url, cache_mode)
+    core.CategoryNode(ctx) -> expand_category(ctx, cache_mode)
+    core.ListNode(ctx) -> expand_album(ctx, cache_mode)
     _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(profile_url: String, use_cache: Bool) -> core.ExpandResult {
+fn expand_profile(profile_url: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
-  let html = cached_fetch(profile_url, use_cache)
+  let html = cached_fetch(profile_url, cache_mode)
   let entry_items = parse_entry_items(html)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
   let collection_token = extract_between(html, "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;", "&quot;")
@@ -116,10 +116,10 @@ fn expand_profile(profile_url: String, use_cache: Bool) -> core.ExpandResult {
   }
 }
 
-fn expand_category(ctx: String, use_cache: Bool) -> core.ExpandResult {
+fn expand_category(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token, use_cache)
+    [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token, cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -134,7 +134,7 @@ fn fetch_category_page(
   kind: String,
   fan_id: String,
   token: String,
-  use_cache: Bool,
+  cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   // Pagination follows Bandcamp API `more_available` + `last_token`.
   let endpoint =
@@ -150,7 +150,7 @@ fn fetch_category_page(
     <> token
     <> "\",\"count\":50}"
 
-  let json = cached_post_json(endpoint, body, use_cache)
+  let json = cached_post_json(endpoint, body, cache_mode)
   let #(page_items, album_nodes) = parse_category_payload(json, kind)
   let items = list.append(page_items, parse_tracklist_items(json, kind))
   let next = extract_between(json, "\"last_token\":\"", "\"")
@@ -171,11 +171,11 @@ fn fetch_category_page(
   )
 }
 
-fn expand_album(ctx: String, use_cache: Bool) -> core.ExpandResult {
+fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["album", album_url, album_id] -> {
-      let html = cached_fetch(album_url, use_cache)
+      let html = cached_fetch(album_url, cache_mode)
       core.ExpandResult(
         items: parse_album_tracks(html, album_id),
         lists: [],
@@ -193,20 +193,20 @@ fn expand_album(ctx: String, use_cache: Bool) -> core.ExpandResult {
   }
 }
 
-fn cached_fetch(url: String, use_cache: Bool) -> String {
+fn cached_fetch(url: String, cache_mode: cache.CacheMode) -> String {
   cache.read_or_fetch(
     "bandcamp_fetch",
     url,
-    use_cache,
+    cache_mode,
     fn() { fetch(url) },
   )
 }
 
-fn cached_post_json(url: String, body: String, use_cache: Bool) -> String {
+fn cached_post_json(url: String, body: String, cache_mode: cache.CacheMode) -> String {
   cache.read_or_fetch(
     "bandcamp_post_json",
     url <> "|" <> body,
-    use_cache,
+    cache_mode,
     fn() { post_json(url, body) },
   )
 }

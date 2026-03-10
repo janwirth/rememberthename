@@ -1,10 +1,11 @@
+import adapters/cache
 import depth_test_spec
 import source_specs as canonical_sources
 
 pub type SourceSpec {
   SourceSpec(
     entry_point: String,
-    use_cache: Bool,
+    use_cache: cache.CacheMode,
     depth_assert_spec: depth_test_spec.DepthAssertSpec,
   )
 }
@@ -14,7 +15,7 @@ pub fn entry_point(spec: SourceSpec) -> String {
   entry_point
 }
 
-pub fn use_cache(spec: SourceSpec) -> Bool {
+pub fn use_cache(spec: SourceSpec) -> cache.CacheMode {
   let SourceSpec(_, use_cache, _) = spec
   use_cache
 }

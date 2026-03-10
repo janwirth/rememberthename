@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/io
 import gleam/list
+import adapters/cache
 import adapters/core
 import adapters/spotify/live_expander as spotify_live_expander
 
@@ -25,7 +26,12 @@ pub fn main() {
 
   let profile = spotify_live_expander.spotify_user("https://open.spotify.com/user/franzskuffka")
   let result =
-    spotify_live_expander.resolve_profile(profile, core.Depth3, config, True)
+    spotify_live_expander.resolve_profile(
+      profile,
+      core.Depth3,
+      config,
+      cache.CacheUpsert,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   io.println("depth=3")
