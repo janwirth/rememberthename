@@ -21,6 +21,7 @@ Integration expectation:
 - Depth-1 resolution from the reference playlist MUST include at least the ordered prefix above.
 - Title matching is strict on normalized text (trim/collapse whitespace).
 - Artist/channel matching uses emitted channel/owner text for each video entry.
+- Integration tests use `DepthAssertSpec` (see `test/depth_test_spec.gleam`) with `anchor_fragments` set to the expected track titles above; fragment matching (substring) applies.
 
 ## 1) Scope
 
@@ -83,6 +84,8 @@ Mapping:
 - Deterministic ordering and deduplication rules are inherited from `SPEC.md` recursive resolution semantics.
 
 ## 6) Integration Fixture Inputs (Developer-provided)
+
+The expected tracks (Section "Expected found tracks") serve as `anchor_fragments` in the `DepthAssertSpec` for the reference playlist integration test.
 
 Developer provides stable reference URLs for YouTube playlists that cover:
 - small playlist (single-page videos)

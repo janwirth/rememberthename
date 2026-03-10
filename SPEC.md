@@ -242,18 +242,7 @@ Definition of done:
 
 ## 11) Development Cycle
 
-Iteration protocol:
-- Agent implements strictly from failing tests for the current request.
-- Latest test results are fed back into the next agent iteration.
-- Agent repeats until tests pass for the request scope.
-- No speculative feature work outside active failing tests.
-
-Integration test fixture ownership:
-- Developer provides and maintains:
-  - reference URLs per supported service (Bandcamp/SoundCloud/YouTube)
-  - Spotify profile ID
-  - Spotify API key/credentials for test context
-- These fixtures form the integration test set and must be stable/replayable where possible.
+See `DEVELOPMENT_CYCLE.md`.
 
 ## 12) Explicit Non-Goals Reminder
 
