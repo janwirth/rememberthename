@@ -1,3 +1,35 @@
+//// SoundCloud live adapter.
+////
+//// Entry contract:
+//// - `SoundcloudProfile` is opaque.
+//// - Callers construct roots only via `soundcloud_profile(profile_url)`.
+//// - `resolve_profile` delegates traversal to `adapters/core`.
+////
+//// Accepted root input:
+//// - profile URLs (`https://soundcloud.com/<profile_slug>`)
+//// - Track URLs are out of scope as root inputs.
+////
+//// Traversal plan:
+//// 1) Expand profile root:
+////    - fetch profile html, extract `client_id`
+////    - resolve `user_id` via SoundCloud resolve endpoint
+////    - seed category traversal: likes + reposts
+//// 2) Expand category node:
+////    - fetch page tracks
+////    - collect playlist ids from page
+////    - follow `next_href` until exhausted
+//// 3) After category pagination completes:
+////    - enqueue playlist list nodes
+//// 4) Expand playlist node:
+////    - emit full `UnifiedCollection` with track ids
+////
+//// Normalization:
+//// - Emitted items/lists always include canonical
+////   `service`, `source_type`, `source_id`.
+////
+//// Test coverage:
+//// - `test/soundcloud_adapter_test.gleam`
+//// - `test/soundcloud_adapter_fake_test.gleam`
 import gleam/int
 import gleam/list
 import gleam/string

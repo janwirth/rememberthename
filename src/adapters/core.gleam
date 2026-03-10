@@ -1,3 +1,34 @@
+//// Unified adapter traversal core for rememberthename.
+////
+//// Scope:
+//// - Backend-only recursive resolution for collection/profile roots.
+//// - Deterministic traversal order, deduplication, and cycle safety.
+//// - Canonical normalized output nodes (`UnifiedItem`, `UnifiedCollection`).
+////
+//// Contract:
+//// - Adapters expose service-specific opaque profile entry types and constructor
+////   functions, then delegate recursion here through `resolve_profile_url`.
+//// - Adapters provide an `expand` function:
+////   `AdapterNode -> ExpandResult`.
+////
+//// Recursive queue model (tail-recursive):
+//// - State: `queue`, `visited`, `item_seen`, `list_seen`, accumulators.
+//// - Loop:
+////   1) pop queue head
+////   2) skip if visited
+////   3) expand node if depth allows
+////   4) merge emitted items/lists with deterministic key dedupe
+////   5) append emitted `next_nodes` with incremented level
+////   6) continue until queue empty
+////
+//// Depth semantics:
+//// - `Depth1`, `Depth2`, `Depth3`, `Depth10`, `Depth20`, `All`
+//// - depth is recursion hop count from profile root level 0.
+////
+//// Output guarantees:
+//// - Stable item/list identity key: `service:source_type:source_id`.
+//// - No duplicate canonical nodes in final output.
+//// - Unresolved traversal nodes are surfaced for diagnostics/tests.
 import gleam/int
 import gleam/io
 import gleam/list

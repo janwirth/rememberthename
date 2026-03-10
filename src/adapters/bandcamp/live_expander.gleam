@@ -1,3 +1,35 @@
+//// Bandcamp live adapter.
+////
+//// Entry contract:
+//// - `BandcampProfile` is opaque.
+//// - Callers construct roots only via `bandcamp_profile(profile_url)`.
+//// - `resolve_profile` delegates traversal to `adapters/core`.
+////
+//// Accepted root input:
+//// - profile URLs (`https://bandcamp.com/<profile_slug>`)
+//// - `/track/...` and direct artist album links are out of scope as root inputs.
+////
+//// Traversal plan:
+//// 1) Expand profile root:
+////    - fetch profile html
+////    - extract `fan_id`, collection token, wishlist token
+////    - fetch first collection + wishlist pages
+//// 2) Expand category node (`collection` or `wishlist`):
+////    - call Bandcamp fancollection endpoint
+////    - parse `item_id/item_type/item_title/band_name`
+////    - follow pagination with `more_available` + `last_token`
+////
+//// API endpoints:
+//// - `POST /api/fancollection/1/collection_items`
+//// - `POST /api/fancollection/1/wishlist_items`
+////
+//// Normalization:
+//// - Emitted items carry canonical
+////   `service`, `source_type`, `source_id`.
+//// - Lists are not emitted by current Bandcamp implementation.
+////
+//// Test coverage:
+//// - `test/bandcamp_adapter_test.gleam`
 import gleam/int
 import gleam/list
 import gleam/string

@@ -19,8 +19,8 @@ Primary objective:
 
 - Input fields: `title`, `artist`, `source_id`, `service`.
 - Source parsing and import for collection-level inputs only:
-  - Bandcamp profile links (detailed in `BANDCAMP_SPEC.md`)
-  - SoundCloud profile links (detailed in `SOUNDCLOUD_SPEC.md`)
+  - Bandcamp profile links (documented in `src/adapters/bandcamp/live_expander.gleam`)
+  - SoundCloud profile links (documented in `src/adapters/soundcloud/live_expander.gleam`)
   - YouTube playlist URLs
   - Spotify likes (`/collection/tracks`, `/collection/albums`)
 - Recursive resolution:
@@ -73,11 +73,13 @@ Each adapter returns an intermediary payload first, then a mapper transforms it 
 
 ### 5.1 Bandcamp intermediary
 
-Bandcamp-specific models, parsing rules, and depth semantics are factored into `BANDCAMP_SPEC.md`.
+Bandcamp-specific models, parsing rules, and depth semantics are documented in
+`src/adapters/bandcamp/live_expander.gleam`.
 
 ### 5.2 SoundCloud intermediary
 
-SoundCloud-specific models, parsing rules, and tests are factored into `SOUNDCLOUD_SPEC.md`.
+SoundCloud-specific models, parsing rules, and tests are documented in
+`src/adapters/soundcloud/live_expander.gleam` and `test/soundcloud_adapter_test.gleam`.
 
 ### 5.3 YouTube intermediary
 
@@ -127,7 +129,7 @@ Accepted profile shape per service:
   - `bandcamp_profile(<profile_url>) -> BandcampProfile`
 - SoundCloud:
   - `soundcloud_profile(<profile_url>) -> SoundcloudProfile`
-  - full parsing/mapping rules in `SOUNDCLOUD_SPEC.md`
+  - full parsing/mapping rules in `src/adapters/soundcloud/live_expander.gleam`
 - YouTube:
   - adapter-specific playlist/profile constructor (to be implemented)
   - playlist URLs (`list=...`) are accepted.
@@ -136,7 +138,7 @@ Accepted profile shape per service:
 
 Rejected as invalid input:
 - Bandcamp `/track/...`
-- SoundCloud `/artist/track` (see `SOUNDCLOUD_SPEC.md`)
+- SoundCloud `/artist/track` (see `src/adapters/soundcloud/live_expander.gleam`)
 - YouTube non-playlist URLs
 - Any unsupported URL shape
 
