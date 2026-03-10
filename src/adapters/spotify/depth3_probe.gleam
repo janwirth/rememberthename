@@ -20,7 +20,8 @@ pub fn main() {
     )
 
   let profile = spotify_live_expander.spotify_user("https://open.spotify.com/user/franzskuffka")
-  let result = spotify_live_expander.resolve_profile(profile, core.Depth3, config)
+  let result =
+    spotify_live_expander.resolve_profile(profile, core.Depth3, config, True)
   let core.ResolveResult(items, lists, unresolved) = result
 
   io.println("depth=3")

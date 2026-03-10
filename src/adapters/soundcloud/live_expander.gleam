@@ -31,27 +31,22 @@
 //// - `test/soundcloud_adapter_test.gleam`
 //// - `test/soundcloud_adapter_fake_test.gleam`
 import gleam/int
+import gleam/hackney
+import gleam/http/request
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
+import adapters/cache
 import adapters/core
 
 // Spec integration:
 // - SOUNDCLOUD_SPEC.md source contract: opaque SoundcloudProfile + constructor.
 // - adapters.spec.md contract: expand one node into items/lists/next/unresolved.
 // - SPEC.md recursion semantics are executed by adapters/core.resolve_profile_url.
-@external(erlang, "soundcloud_http", "fetch")
-fn fetch_profile_body(url: String) -> String
-@external(erlang, "soundcloud_http", "json_next_href")
-fn json_next_href(url: String) -> String
-@external(erlang, "soundcloud_http", "json_tracks_tsv")
-fn json_tracks_tsv(url: String) -> String
-@external(erlang, "soundcloud_http", "json_playlist_ids")
-fn json_playlist_ids(url: String) -> String
-@external(erlang, "soundcloud_http", "json_title")
-fn json_title(url: String) -> String
-@external(erlang, "soundcloud_http", "json_track_ids")
-fn json_track_ids(url: String) -> String
-
 pub opaque type SoundcloudProfile {
   SoundcloudProfile(profile_url: String)
 }
@@ -63,27 +58,28 @@ pub fn soundcloud_profile(profile_url: String) -> SoundcloudProfile {
 pub fn resolve_profile(
   profile: SoundcloudProfile,
   depth: core.DepthMode,
+  use_cache: Bool,
 ) -> core.ResolveResult {
   // Keep entry point specific: SoundcloudProfile -> profile_url traversal root.
   let SoundcloudProfile(profile_url) = profile
-  core.resolve_profile_url(profile_url, depth, expand)
+  core.resolve_profile_url(profile_url, depth, fn(node) { expand(node, use_cache) })
 }
 
-pub fn expand(node: core.AdapterNode) -> core.ExpandResult {
+pub fn expand(node: core.AdapterNode, use_cache: Bool) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url)
-    core.CategoryNode(ctx) -> expand_category(ctx)
-    core.ListNode(ctx) -> expand_playlist(ctx)
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url, use_cache)
+    core.CategoryNode(ctx) -> expand_category(ctx, use_cache)
+    core.ListNode(ctx) -> expand_playlist(ctx, use_cache)
     core.PageNode(_) ->
       core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(profile_url: String) -> core.ExpandResult {
+fn expand_profile(profile_url: String, use_cache: Bool) -> core.ExpandResult {
   // Bootstrap from profile HTML, then start category traversal (likes + reposts).
-  let html = fetch_profile_body(profile_url)
+  let html = cached_fetch_profile_body(profile_url, use_cache)
   let client_id = extract_between(html, "\"id\":\"", "\"")
-  let user_id = resolve_user_id(profile_url, client_id)
+  let user_id = resolve_user_id(profile_url, client_id, use_cache)
   case client_id == "" || user_id == "" {
     True ->
       core.ExpandResult(
@@ -96,7 +92,7 @@ fn expand_profile(profile_url: String) -> core.ExpandResult {
       let likes_page = likes_start_url(user_id, client_id)
       let reposts_page = reposts_start_url(user_id, client_id)
       core.ExpandResult(
-        items: parse_tracks(likes_page, "likes"),
+        items: parse_tracks(likes_page, "likes", use_cache),
         lists: [],
         next_nodes: [
           core.CategoryNode("likes|" <> likes_page <> "|" <> client_id <> "|"),
@@ -108,15 +104,16 @@ fn expand_profile(profile_url: String) -> core.ExpandResult {
   }
 }
 
-fn expand_category(ctx: String) -> core.ExpandResult {
+fn expand_category(ctx: String, use_cache: Bool) -> core.ExpandResult {
   // Exhaust category pagination first; only then enqueue playlist nodes.
   let parts = string.split(ctx, "|")
   case parts {
     [kind, url, client_id, acc_ids] -> {
-      let items = parse_tracks(url, kind)
-      let page_playlist_ids = parse_lines(json_playlist_ids(url))
+      let items = parse_tracks(url, kind, use_cache)
+      let page_body = cached_fetch_profile_body(url, use_cache)
+      let page_playlist_ids = parse_lines(cached_json_playlist_ids(page_body, use_cache))
       let merged_playlist_ids = merge_ids(parse_csv(acc_ids), page_playlist_ids)
-      let next_href = trim(json_next_href(url))
+      let next_href = trim(cached_json_next_href(page_body, use_cache))
       case next_href == "" {
         True ->
           core.ExpandResult(
@@ -150,14 +147,15 @@ fn expand_category(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn expand_playlist(ctx: String) -> core.ExpandResult {
+fn expand_playlist(ctx: String, use_cache: Bool) -> core.ExpandResult {
   // Emit only fully-resolved list payloads for playlists.
   let parts = string.split(ctx, "|")
   case parts {
     ["playlist", playlist_id, client_id] -> {
       let url = playlist_url(playlist_id, client_id)
-      let title = trim(json_title(url))
-      let track_ids = parse_lines(json_track_ids(url))
+      let json = cached_fetch_profile_body(url, use_cache)
+      let title = trim(cached_json_title(json, use_cache))
+      let track_ids = parse_lines(cached_json_track_ids(json, use_cache))
       core.ExpandResult(
         items: [],
         lists: [
@@ -186,29 +184,34 @@ fn expand_playlist(ctx: String) -> core.ExpandResult {
 }
 
 pub fn fetch_likes_payload(profile_url: String) -> String {
-  let html = fetch_profile_body(profile_url)
+  let html = cached_fetch_profile_body(profile_url, True)
   let client_id = extract_between(html, "\"id\":\"", "\"")
-  let user_id = resolve_user_id(profile_url, client_id)
+  let user_id = resolve_user_id(profile_url, client_id, True)
   case client_id == "" || user_id == "" {
     True -> ""
-    False -> fetch_profile_body(likes_start_url(user_id, client_id))
+    False -> cached_fetch_profile_body(likes_start_url(user_id, client_id), True)
   }
 }
 
-fn resolve_user_id(profile_url: String, client_id: String) -> String {
+fn resolve_user_id(profile_url: String, client_id: String, use_cache: Bool) -> String {
   case client_id == "" {
     True -> ""
     False -> {
       let resolve_url =
         "https://api-v2.soundcloud.com/resolve?url=" <> profile_url <> "&client_id=" <> client_id
-      let resolve_json = fetch_profile_body(resolve_url)
-      extract_between(resolve_json, "\"urn\":\"soundcloud:users:", "\"")
+      let resolve_json = cached_fetch_profile_body(resolve_url, use_cache)
+      let parsed = decode_json(resolve_json, decode.dynamic) |> result.unwrap(dynamic.nil())
+      case decode_path(parsed, ["id"], id_decoder()) {
+        Some(user_id) -> user_id
+        None -> extract_between(resolve_json, "\"urn\":\"soundcloud:users:", "\"")
+      }
     }
   }
 }
 
-fn parse_tracks(url: String, kind: String) -> List(core.UnifiedItem) {
-  let lines = parse_lines(json_tracks_tsv(url))
+fn parse_tracks(url: String, kind: String, use_cache: Bool) -> List(core.UnifiedItem) {
+  let json = cached_fetch_profile_body(url, use_cache)
+  let lines = parse_lines(cached_json_tracks_tsv(json, use_cache))
   list.index_map(lines, fn(line, idx) {
     let cols = string.split(line, "\t")
     let #(id, title, artist) =
@@ -227,6 +230,219 @@ fn parse_tracks(url: String, kind: String) -> List(core.UnifiedItem) {
       source_id: kind <> ":" <> id,
     )
   })
+}
+
+fn cached_fetch_profile_body(url: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_fetch",
+    url,
+    use_cache,
+    fn() { fetch_profile_body(url) },
+  )
+}
+
+fn cached_json_next_href(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_next_href",
+    json,
+    use_cache,
+    fn() {
+      let parsed = decode_json(json, decode.dynamic) |> result.unwrap(dynamic.nil())
+      decode_path_or(parsed, ["next_href"], "", decode.string)
+    },
+  )
+}
+
+fn cached_json_tracks_tsv(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_tracks_tsv",
+    json,
+    use_cache,
+    fn() { build_tracks_tsv(json) },
+  )
+}
+
+fn cached_json_playlist_ids(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_playlist_ids",
+    json,
+    use_cache,
+    fn() {
+      decode_collection_entries(json)
+      |> collect_playlist_ids([])
+      |> string.join("\n")
+    },
+  )
+}
+
+fn cached_json_title(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_title",
+    json,
+    use_cache,
+    fn() {
+      let parsed = decode_json(json, decode.dynamic) |> result.unwrap(dynamic.nil())
+      decode_path_or(parsed, ["title"], "", decode.string)
+    },
+  )
+}
+
+fn cached_json_track_ids(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "soundcloud_track_ids",
+    json,
+    use_cache,
+    fn() {
+      let parsed = decode_json(json, decode.dynamic) |> result.unwrap(dynamic.nil())
+      let tracks = decode_path_or(parsed, ["tracks"], [], decode.list(of: decode.dynamic))
+      collect_track_ids(tracks, [])
+      |> string.join("\n")
+    },
+  )
+}
+
+fn fetch_profile_body(url: String) -> String {
+  case request.to(url) {
+    Error(_) -> ""
+    Ok(req) -> {
+      let req =
+        req
+        |> request.set_header("user-agent", "Mozilla/5.0")
+        |> request.set_header("accept", "application/json,text/html,*/*")
+      case hackney.send(req) {
+        Ok(response) -> response.body
+        Error(_) -> ""
+      }
+    }
+  }
+}
+
+fn decode_json(
+  raw: String,
+  decoder: decode.Decoder(a),
+) -> Result(a, json.DecodeError) {
+  json.parse(raw, decoder)
+}
+
+fn decode_collection_entries(raw: String) -> List(dynamic.Dynamic) {
+  let parsed = decode_json(raw, decode.dynamic) |> result.unwrap(dynamic.nil())
+  decode_path_or(parsed, ["collection"], [], decode.list(of: decode.dynamic))
+}
+
+fn id_decoder() -> decode.Decoder(String) {
+  decode.one_of(decode.string, or: [decode.int |> decode.map(int.to_string)])
+}
+
+fn decode_path(
+  data: dynamic.Dynamic,
+  path: List(b),
+  decoder: decode.Decoder(a),
+) -> Option(a) {
+  case decode.run(data, decode.at(path, decoder)) {
+    Ok(value) -> Some(value)
+    Error(_) -> None
+  }
+}
+
+fn decode_path_or(
+  data: dynamic.Dynamic,
+  path: List(b),
+  fallback: a,
+  decoder: decode.Decoder(a),
+) -> a {
+  decode.run(data, decode.optionally_at(path, fallback, decoder))
+  |> result.unwrap(fallback)
+}
+
+fn track_tuple_from_dynamic(
+  data: dynamic.Dynamic,
+  path_prefix: List(String),
+) -> Option(#(String, String, String)) {
+  let id_path = list.append(path_prefix, ["id"])
+  let title_path = list.append(path_prefix, ["title"])
+  let artist_path = list.append(path_prefix, ["user", "username"])
+  case decode_path(data, id_path, id_decoder()) {
+    None -> None
+    Some(id) -> {
+      let title = decode_path_or(data, title_path, "untitled", decode.string)
+      let artist = decode_path_or(data, artist_path, "unknown", decode.string)
+      Some(#(id, title, artist))
+    }
+  }
+}
+
+fn track_tuple_from_entry(entry: dynamic.Dynamic) -> Option(#(String, String, String)) {
+  case track_tuple_from_dynamic(entry, ["track"]) {
+    Some(track) -> Some(track)
+    None ->
+      case decode_path_or(entry, ["kind"], "", decode.string) == "track" {
+        True ->
+          case track_tuple_from_dynamic(entry, []) {
+            Some(track) -> Some(track)
+            None -> track_tuple_from_dynamic(entry, ["origin", "track"])
+          }
+        False -> track_tuple_from_dynamic(entry, ["origin", "track"])
+      }
+  }
+}
+
+fn playlist_id_from_entry(entry: dynamic.Dynamic) -> Option(String) {
+  case decode_path(entry, ["playlist", "id"], id_decoder()) {
+    Some(id) -> Some(id)
+    None ->
+      case decode_path_or(entry, ["kind"], "", decode.string) == "playlist" {
+        True -> decode_path(entry, ["id"], id_decoder())
+        False -> None
+      }
+  }
+}
+
+fn collect_playlist_ids(
+  entries: List(dynamic.Dynamic),
+  acc: List(String),
+) -> List(String) {
+  case entries {
+    [] -> list.reverse(acc)
+    [entry, ..rest] ->
+      case playlist_id_from_entry(entry) {
+        Some(id) -> collect_playlist_ids(rest, [id, ..acc])
+        None -> collect_playlist_ids(rest, acc)
+      }
+  }
+}
+
+fn collect_track_ids(tracks: List(dynamic.Dynamic), acc: List(String)) -> List(String) {
+  case tracks {
+    [] -> list.reverse(acc)
+    [track, ..rest] ->
+      case decode_path(track, ["id"], id_decoder()) {
+        Some(id) -> collect_track_ids(rest, [id, ..acc])
+        None -> collect_track_ids(rest, acc)
+      }
+  }
+}
+
+fn build_tracks_tsv(raw: String) -> String {
+  decode_collection_entries(raw)
+  |> collect_track_rows([])
+  |> string.join("\n")
+}
+
+fn collect_track_rows(
+  entries: List(dynamic.Dynamic),
+  acc: List(String),
+) -> List(String) {
+  case entries {
+    [] -> list.reverse(acc)
+    [entry, ..rest] ->
+      case track_tuple_from_entry(entry) {
+        Some(track) -> {
+          let #(id, title, artist) = track
+          collect_track_rows(rest, [id <> "\t" <> title <> "\t" <> artist, ..acc])
+        }
+        None -> collect_track_rows(rest, acc)
+      }
+  }
 }
 
 fn likes_start_url(user_id: String, client_id: String) -> String {

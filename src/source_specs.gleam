@@ -13,6 +13,7 @@ pub type SourceSpec {
     key: String,
     name: String,
     entry_point: String,
+    use_cache: Bool,
     assert_spec: SourceAssertSpec,
   )
 }
@@ -26,6 +27,7 @@ pub fn bandcamp() -> SourceSpec {
     key: "bandcamp",
     name: "Bandcamp",
     entry_point: "https://bandcamp.com/janwirth",
+    use_cache: True,
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 1,
@@ -39,6 +41,7 @@ pub fn bandcamp() -> SourceSpec {
           "World, Hold On",
           "Buttercup",
           "Ghost Radio",
+          "Acid House",
         ],
       ),
   )
@@ -49,6 +52,7 @@ pub fn soundcloud() -> SourceSpec {
     key: "soundcloud",
     name: "Soundcloud",
     entry_point: "https://soundcloud.com/tungstenselects",
+    use_cache: True,
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 10,
@@ -70,6 +74,7 @@ pub fn spotify() -> SourceSpec {
     key: "spotify",
     name: "Spotify",
     entry_point: "https://open.spotify.com/user/franzskuffka",
+    use_cache: True,
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 50,
@@ -86,6 +91,7 @@ pub fn youtube() -> SourceSpec {
     key: "youtube",
     name: "Youtube",
     entry_point: "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
+    use_cache: True,
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 5,
@@ -97,6 +103,7 @@ pub fn youtube() -> SourceSpec {
           "Vengaboys - Up & Down",
           "Dendemann - Wo ich wech bin",
           "BHZ - SCHLIESSE DIE AUGEN",
+          "Chanel"
         ],
         required_full_fragments: [],
       ),

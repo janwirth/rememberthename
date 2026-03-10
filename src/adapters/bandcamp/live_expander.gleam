@@ -34,6 +34,7 @@
 import gleam/int
 import gleam/list
 import gleam/string
+import adapters/cache
 import adapters/core
 
 // Spec integration:
@@ -56,24 +57,25 @@ pub fn bandcamp_profile(profile_url: String) -> BandcampProfile {
 pub fn resolve_profile(
   profile: BandcampProfile,
   depth: core.DepthMode,
+  use_cache: Bool,
 ) -> core.ResolveResult {
   // Keep entry point specific: BandcampProfile -> profile_url traversal root.
   let BandcampProfile(profile_url) = profile
-  core.resolve_profile_url(profile_url, depth, expand)
+  core.resolve_profile_url(profile_url, depth, fn(node) { expand(node, use_cache) })
 }
 
-pub fn expand(node: core.AdapterNode) -> core.ExpandResult {
+pub fn expand(node: core.AdapterNode, use_cache: Bool) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url)
-    core.CategoryNode(ctx) -> expand_category(ctx)
-    core.ListNode(ctx) -> expand_album(ctx)
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url, use_cache)
+    core.CategoryNode(ctx) -> expand_category(ctx, use_cache)
+    core.ListNode(ctx) -> expand_album(ctx, use_cache)
     _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
-fn expand_profile(profile_url: String) -> core.ExpandResult {
+fn expand_profile(profile_url: String, use_cache: Bool) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
-  let html = fetch(profile_url)
+  let html = cached_fetch(profile_url, use_cache)
   let entry_items = parse_entry_items(html)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
   let collection_token = extract_between(html, "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;", "&quot;")
@@ -100,10 +102,10 @@ fn expand_profile(profile_url: String) -> core.ExpandResult {
   }
 }
 
-fn expand_category(ctx: String) -> core.ExpandResult {
+fn expand_category(ctx: String, use_cache: Bool) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token)
+    [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token, use_cache)
     _ ->
       core.ExpandResult(
         items: [],
@@ -114,7 +116,12 @@ fn expand_category(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn fetch_category_page(kind: String, fan_id: String, token: String) -> core.ExpandResult {
+fn fetch_category_page(
+  kind: String,
+  fan_id: String,
+  token: String,
+  use_cache: Bool,
+) -> core.ExpandResult {
   // Pagination follows Bandcamp API `more_available` + `last_token`.
   let endpoint =
     case kind {
@@ -129,7 +136,7 @@ fn fetch_category_page(kind: String, fan_id: String, token: String) -> core.Expa
     <> token
     <> "\",\"count\":50}"
 
-  let json = post_json(endpoint, body)
+  let json = cached_post_json(endpoint, body, use_cache)
   let #(page_items, album_nodes) = parse_category_payload(json, kind)
   let items = list.append(page_items, parse_tracklist_items(json, kind))
   let next = extract_between(json, "\"last_token\":\"", "\"")
@@ -150,11 +157,11 @@ fn fetch_category_page(kind: String, fan_id: String, token: String) -> core.Expa
   )
 }
 
-fn expand_album(ctx: String) -> core.ExpandResult {
+fn expand_album(ctx: String, use_cache: Bool) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["album", album_url, album_id] -> {
-      let html = fetch(album_url)
+      let html = cached_fetch(album_url, use_cache)
       core.ExpandResult(
         items: parse_album_tracks(html, album_id),
         lists: [],
@@ -170,6 +177,24 @@ fn expand_album(ctx: String) -> core.ExpandResult {
         unresolved: [core.ListNode(ctx)],
       )
   }
+}
+
+fn cached_fetch(url: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "bandcamp_fetch",
+    url,
+    use_cache,
+    fn() { fetch(url) },
+  )
+}
+
+fn cached_post_json(url: String, body: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "bandcamp_post_json",
+    url <> "|" <> body,
+    use_cache,
+    fn() { post_json(url, body) },
+  )
 }
 
 fn parse_items(json: String, kind: String) -> List(core.UnifiedItem) {

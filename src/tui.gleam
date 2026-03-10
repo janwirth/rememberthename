@@ -78,12 +78,10 @@ type Model {
     selected_index: Int,
     focus: FocusPane,
     esc_armed: Bool,
-    cache_enabled: Bool,
     depth_selected_index: Int,
     track_selected_index: Int,
     current_track_lines: List(String),
     current_fetch: FetchBundle,
-    cached_fetches: List(#(String, FetchBundle)),
     exit_subject: process.Subject(Nil),
   )
 }
@@ -120,6 +118,7 @@ type SourceEntry {
     key: String,
     name: String,
     entry_point: String,
+    use_cache: Bool,
     min_depth_1_items: Int,
     min_full_items: Int,
     first_items_to_preserve: Int,
@@ -135,7 +134,6 @@ type Msg {
   ActivateSelected
   EscPressed
   ExitPressed
-  ToggleCache
   FetchCompleted(String, DepthKind, core.ResolveResult)
   Noop
 }
@@ -146,12 +144,10 @@ fn init(exit_subject: process.Subject(Nil)) -> #(Model, List(fn() -> Msg)) {
       selected_index: 0,
       focus: SidebarPane,
       esc_armed: False,
-      cache_enabled: True,
       depth_selected_index: 0,
       track_selected_index: 0,
       current_track_lines: [],
       current_fetch: empty_fetch_bundle(),
-      cached_fetches: [],
       exit_subject: exit_subject,
     ),
     [],
@@ -262,7 +258,6 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         False -> #(Model(..model, esc_armed: True), [])
       }
     ExitPressed -> request_exit(model)
-    ToggleCache -> #(Model(..model, cache_enabled: !model.cache_enabled), [])
     FetchCompleted(source_key, depth_kind, result) -> {
       let status = fetched_status(result)
       let track_lines = track_lines_from_result(result)
@@ -277,18 +272,6 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ),
             track_selected_index: 0,
             current_track_lines: track_lines,
-            cached_fetches: put_cache(
-              model.cached_fetches,
-              source_key,
-              set_depth_status(
-                option_with_default(
-                  get_cache(model.cached_fetches, source_key),
-                  model.current_fetch,
-                ),
-                depth_kind,
-                status,
-              ),
-            ),
           ),
           [],
         )
@@ -297,18 +280,6 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ..model,
             track_selected_index: 0,
             current_track_lines: track_lines,
-            cached_fetches: put_cache(
-              model.cached_fetches,
-              source_key,
-              set_depth_status(
-                option_with_default(
-                  get_cache(model.cached_fetches, source_key),
-                  empty_fetch_bundle(),
-                ),
-                depth_kind,
-                status,
-              ),
-            ),
           ),
           [],
         )
@@ -329,17 +300,9 @@ fn request_exit(model: Model) -> #(Model, List(fn() -> Msg)) {
 
 fn focus_detail(
   model: Model,
-  source: SourceEntry,
+  _source: SourceEntry,
 ) -> #(Model, List(fn() -> Msg)) {
-  let base_model = Model(..model, focus: DetailPane, esc_armed: False)
-  case model.cache_enabled {
-    True ->
-      case get_cache(model.cached_fetches, source.key) {
-        Some(cached) -> #(Model(..base_model, current_fetch: cached), [])
-        None -> #(Model(..base_model, current_fetch: empty_fetch_bundle()), [])
-      }
-    False -> #(Model(..base_model, current_fetch: empty_fetch_bundle()), [])
-  }
+  #(Model(..model, focus: DetailPane, esc_armed: False, current_fetch: empty_fetch_bundle()), [])
 }
 
 fn fetch_selected_depth(
@@ -351,11 +314,15 @@ fn fetch_selected_depth(
   #(Model(..model, current_fetch: staged), [
     fn() {
       let result =
-        resolve_source(source, case depth_kind {
-          Depth1Kind -> core.Depth1
-          Depth3Kind -> core.Depth3
-          DepthAllKind -> core.All
-        })
+        resolve_source(
+          source,
+          case depth_kind {
+            Depth1Kind -> core.Depth1
+            Depth3Kind -> core.Depth3
+            DepthAllKind -> core.All
+          },
+          source.use_cache,
+        )
       FetchCompleted(source.key, depth_kind, result)
     },
   ])
@@ -364,15 +331,8 @@ fn fetch_selected_depth(
 fn view(model: Model) -> shore.Node(Msg) {
   let selected = selected_content(model.selected_index)
   let sidebar_items = sidebar_item_nodes(model.selected_index, model.focus)
-  let cache_label = case model.cache_enabled {
-    True -> "cache: ON"
-    False -> "cache: OFF"
-  }
   let sidebar_children =
-    [
-      ui.text_styled(cache_label <> " (toggle: C)", Some(style.Yellow), None),
-      ui.br(),
-    ]
+    [ui.text_styled("adapter cache: per-source", Some(style.Yellow), None), ui.br()]
     |> list.append(sidebar_items)
     |> list.append([
       ui.keybind(key.Up, MoveUp),
@@ -383,8 +343,6 @@ fn view(model: Model) -> shore.Node(Msg) {
       ui.keybind(key.Left, MoveLeft),
       ui.keybind(key.Enter, ActivateSelected),
       ui.keybind(key.Esc, EscPressed),
-      ui.keybind(key.Char("c"), ToggleCache),
-      ui.keybind(key.Char("C"), ToggleCache),
       ui.keybind(key.Char("x"), ExitPressed),
     ])
 
@@ -741,13 +699,6 @@ fn selected_depth_details(model: Model) -> String {
   }
 }
 
-fn option_with_default(value: Option(a), fallback: a) -> a {
-  case value {
-    Some(inner) -> inner
-    None -> fallback
-  }
-}
-
 fn validation_view_nodes(model: Model) -> List(shore.Node(Msg)) {
   case selected_source(model.selected_index) {
     None -> helpers.validation_unavailable_nodes()
@@ -775,16 +726,17 @@ fn result_option(status: DepthStatus) -> Option(core.ResolveResult) {
 fn resolve_source(
   source: SourceEntry,
   depth: core.DepthMode,
+  use_cache: Bool,
 ) -> core.ResolveResult {
   case source.key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(source.entry_point)
-      bandcamp_live_expander.resolve_profile(profile, depth)
+      bandcamp_live_expander.resolve_profile(profile, depth, use_cache)
     }
     "soundcloud" -> {
       let profile =
         soundcloud_live_expander.soundcloud_profile(source.entry_point)
-      soundcloud_live_expander.resolve_profile(profile, depth)
+      soundcloud_live_expander.resolve_profile(profile, depth, use_cache)
     }
     "spotify" -> {
       let access_token =
@@ -803,41 +755,12 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(source.entry_point)
-      spotify_live_expander.resolve_profile(profile, depth, config)
+      spotify_live_expander.resolve_profile(profile, depth, config, use_cache)
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(source.entry_point)
-      youtube_live_expander.resolve_profile(profile, depth)
+      youtube_live_expander.resolve_profile(profile, depth, use_cache)
     }
-  }
-}
-
-fn get_cache(
-  entries: List(#(String, FetchBundle)),
-  key: String,
-) -> Option(FetchBundle) {
-  case entries {
-    [] -> None
-    [#(entry_key, value), ..rest] ->
-      case entry_key == key {
-        True -> Some(value)
-        False -> get_cache(rest, key)
-      }
-  }
-}
-
-fn put_cache(
-  entries: List(#(String, FetchBundle)),
-  key: String,
-  value: FetchBundle,
-) -> List(#(String, FetchBundle)) {
-  case entries {
-    [] -> [#(key, value)]
-    [#(entry_key, entry_value), ..rest] ->
-      case entry_key == key {
-        True -> [#(key, value), ..rest]
-        False -> [#(entry_key, entry_value), ..put_cache(rest, key, value)]
-      }
   }
 }
 
@@ -861,7 +784,7 @@ fn source_entries() -> List(SourceEntry) {
 }
 
 fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
-  let source_specs.SourceSpec(key, name, entry_point, assert_spec) = spec
+  let source_specs.SourceSpec(key, name, entry_point, use_cache, assert_spec) = spec
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
@@ -873,6 +796,7 @@ fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
     key: key,
     name: name,
     entry_point: entry_point,
+    use_cache: use_cache,
     min_depth_1_items: min_depth_1_items,
     min_full_items: min_full_items,
     first_items_to_preserve: first_items_to_preserve,

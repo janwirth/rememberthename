@@ -75,21 +75,8 @@ with_initial_data(Url, Fun) ->
 
 fetch(Url) when is_binary(Url) ->
     try
-        CachePath = cache_path(<<"url:", Url/binary>>),
-        case file:read_file(CachePath) of
-            {ok, Cached} when byte_size(Cached) > 0 ->
-                Cached;
-            _ ->
-                CmdBin = <<"/usr/bin/curl -L -s --max-time 20 \"", Url/binary, "\"">>,
-                Resp = unicode:characters_to_binary(os:cmd(binary_to_list(CmdBin))),
-                case byte_size(Resp) > 0 of
-                    true ->
-                        _ = file:write_file(CachePath, Resp),
-                        Resp;
-                    false ->
-                        <<>>
-                end
-        end
+        CmdBin = <<"/usr/bin/curl -L -s --max-time 20 \"", Url/binary, "\"">>,
+        unicode:characters_to_binary(os:cmd(binary_to_list(CmdBin)))
     catch
         _:_ -> <<>>
     end;
@@ -98,11 +85,6 @@ fetch(Url) ->
 
 post_continuation(ApiKey, ClientVersion, Token) ->
     try
-        CachePath = cache_path(<<"cont:", ApiKey/binary, "|", ClientVersion/binary, "|", Token/binary>>),
-        case file:read_file(CachePath) of
-            {ok, Cached} when byte_size(Cached) > 0 ->
-                Cached;
-            _ ->
         Url = <<"https://www.youtube.com/youtubei/v1/browse?key=", ApiKey/binary>>,
         Body = <<
             "{\"context\":{\"client\":{\"clientName\":\"WEB\",\"clientVersion\":\"",
@@ -118,15 +100,7 @@ post_continuation(ApiKey, ClientVersion, Token) ->
             Url/binary,
             "\""
         >>,
-                Resp = unicode:characters_to_binary(os:cmd(binary_to_list(CmdBin))),
-                case byte_size(Resp) > 0 of
-                    true ->
-                        _ = file:write_file(CachePath, Resp),
-                        Resp;
-                    false ->
-                        <<>>
-                end
-        end
+        unicode:characters_to_binary(os:cmd(binary_to_list(CmdBin)))
     catch
         _:_ -> <<>>
     end.

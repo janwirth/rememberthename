@@ -38,6 +38,7 @@ import gleam/string
 import dot_env as dot
 import dot_env/env
 import simplifile
+import adapters/cache
 import adapters/core
 
 @external(erlang, "spotify_http", "liked_tracks_json")
@@ -45,9 +46,6 @@ fn liked_tracks_json(token: String, offset: Int) -> String
 
 @external(erlang, "spotify_http", "tracks_tsv")
 fn tracks_tsv(json: String) -> String
-
-@external(erlang, "spotify_http", "tracks_next_offset")
-fn tracks_next_offset(json: String) -> String
 
 pub fn read_access_token_file(session_file: String) -> String {
   case simplifile.read(from: session_file) {
@@ -103,21 +101,32 @@ pub fn resolve_profile(
   profile: SpotifyUserProfile,
   depth: core.DepthMode,
   config: SpotifyConfig,
+  use_cache: Bool,
 ) -> core.ResolveResult {
   let SpotifyUserProfile(profile_url) = profile
-  core.resolve_profile_url(profile_url, depth, fn(node) { expand(node, config) })
+  core.resolve_profile_url(profile_url, depth, fn(node) {
+    expand(node, config, use_cache)
+  })
 }
 
-pub fn expand(node: core.AdapterNode, config: SpotifyConfig) -> core.ExpandResult {
+pub fn expand(
+  node: core.AdapterNode,
+  config: SpotifyConfig,
+  use_cache: Bool,
+) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url, config)
+    core.ProfileEntry(profile_url) -> expand_profile(profile_url, config, use_cache)
     core.CategoryNode(ctx) -> expand_playlists(ctx)
-    core.ListNode(ctx) -> expand_playlist_tracks(ctx)
-    core.PageNode(ctx) -> expand_track_page(ctx)
+    core.ListNode(ctx) -> expand_playlist_tracks(ctx, use_cache)
+    core.PageNode(ctx) -> expand_track_page(ctx, use_cache)
   }
 }
 
-fn expand_profile(profile_url: String, config: SpotifyConfig) -> core.ExpandResult {
+fn expand_profile(
+  profile_url: String,
+  config: SpotifyConfig,
+  use_cache: Bool,
+) -> core.ExpandResult {
   let user_id = parse_user_id(profile_url)
   let SpotifyConfig(access_token, session_file, client_id, redirect_uri, scopes) = config
   let token =
@@ -132,7 +141,7 @@ fn expand_profile(profile_url: String, config: SpotifyConfig) -> core.ExpandResu
         unresolved: [core.ProfileEntry(profile_url)],
       )
     False ->
-      emit_liked_tracks(token, 0)
+      emit_liked_tracks(token, 0, use_cache)
   }
 }
 
@@ -203,11 +212,11 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn expand_playlist_tracks(ctx: String) -> core.ExpandResult {
+fn expand_playlist_tracks(ctx: String, use_cache: Bool) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str))
+      emit_liked_tracks(token, to_int(offset_str), use_cache)
     _ ->
       core.ExpandResult(
         items: [],
@@ -218,11 +227,11 @@ fn expand_playlist_tracks(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn expand_track_page(ctx: String) -> core.ExpandResult {
+fn expand_track_page(ctx: String, use_cache: Bool) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes_page", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str))
+      emit_liked_tracks(token, to_int(offset_str), use_cache)
     _ ->
       core.ExpandResult(
         items: [],
@@ -236,9 +245,10 @@ fn expand_track_page(ctx: String) -> core.ExpandResult {
 fn emit_liked_tracks(
   token: String,
   offset: Int,
+  use_cache: Bool,
 ) -> core.ExpandResult {
-  let json = liked_tracks_json(token, offset)
-  let items = parse_track_items(tracks_tsv(json))
+  let json = cached_liked_tracks_json(token, offset, use_cache)
+  let items = parse_track_items(cached_tracks_tsv(json, use_cache))
   let collection =
     core.UnifiedCollection(
       id: "spotify:collection:likes",
@@ -253,7 +263,7 @@ fn emit_liked_tracks(
       source_type: "collection",
       source_id: "spotify:collection:likes",
     )
-  let next_offset = string.trim(tracks_next_offset(json))
+  let next_offset = tracks_next_offset(json)
   let next_nodes =
     case next_offset != "" {
       True -> [core.PageNode("likes_page|" <> token <> "|" <> next_offset)]
@@ -264,6 +274,24 @@ fn emit_liked_tracks(
     lists: [collection],
     next_nodes: next_nodes,
     unresolved: [],
+  )
+}
+
+fn cached_liked_tracks_json(token: String, offset: Int, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "spotify_liked_tracks_json",
+    token <> "|" <> int.to_string(offset),
+    use_cache,
+    fn() { liked_tracks_json(token, offset) },
+  )
+}
+
+fn cached_tracks_tsv(json: String, use_cache: Bool) -> String {
+  cache.read_or_fetch(
+    "spotify_tracks_tsv",
+    json,
+    use_cache,
+    fn() { tracks_tsv(json) },
   )
 }
 
@@ -301,6 +329,20 @@ fn parse_track_items(json: String) -> List(core.UnifiedItem) {
         )
     }
   })
+}
+
+fn tracks_next_offset(json: String) -> String {
+  let has_next =
+    !string.contains(json, "\"next\":null")
+    && !string.contains(json, "\"next\": null")
+  case has_next {
+    False -> ""
+    True -> {
+      let offset = extract_number_after(json, "\"offset\":")
+      let limit = extract_number_after(json, "\"limit\":")
+      int.to_string(offset + limit)
+    }
+  }
 }
 
 fn parse_lines(raw: String) -> List(String) {
@@ -361,6 +403,51 @@ fn extract_between(body: String, start: String, ending: String) -> String {
         _ -> ""
       }
     _ -> ""
+  }
+}
+
+
+fn extract_number_after(body: String, needle: String) -> Int {
+  case string.split_once(body, needle) {
+    Ok(#(_, after)) -> {
+      let digits = leading_digits(string.to_graphemes(string.trim_start(after)), [])
+      case digits {
+        [] -> 0
+        _ ->
+          digits
+          |> list.reverse
+          |> string.join("")
+          |> to_int
+      }
+    }
+    Error(_) -> 0
+  }
+}
+
+fn leading_digits(chars: List(String), acc: List(String)) -> List(String) {
+  case chars {
+    [] -> acc
+    [char, ..rest] ->
+      case is_ascii_digit(char) {
+        True -> leading_digits(rest, [char, ..acc])
+        False -> acc
+      }
+  }
+}
+
+fn is_ascii_digit(char: String) -> Bool {
+  case char {
+    "0" -> True
+    "1" -> True
+    "2" -> True
+    "3" -> True
+    "4" -> True
+    "5" -> True
+    "6" -> True
+    "7" -> True
+    "8" -> True
+    "9" -> True
+    _ -> False
   }
 }
 

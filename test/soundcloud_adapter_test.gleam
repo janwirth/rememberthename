@@ -11,7 +11,11 @@ pub fn live_soundcloud_follows_unified_depth_spec_test() {
   let profile = soundcloud_live_expander.soundcloud_profile(sources.entry_point(source))
   let results =
     depth_test_spec.resolve_standard_depths(fn(depth) {
-      soundcloud_live_expander.resolve_profile(profile, depth)
+      soundcloud_live_expander.resolve_profile(
+        profile,
+        depth,
+        sources.use_cache(source),
+      )
     })
 
   depth_test_spec.assert_standard_depth_pattern(
