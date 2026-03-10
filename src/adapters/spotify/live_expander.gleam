@@ -31,8 +31,15 @@
 //// - This implementation currently focuses on liked tracks.
 //// - Saved albums and album-track expansion are not implemented in this module.
 import gleam/int
+import gleam/hackney
+import gleam/http
+import gleam/http/request
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/json
 import gleam/io
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import dot_env as dot
@@ -41,11 +48,31 @@ import simplifile
 import adapters/cache
 import adapters/core
 
-@external(erlang, "spotify_http", "liked_tracks_json")
-fn liked_tracks_json(token: String, offset: Int) -> String
+fn liked_tracks_json(token: String, offset: Int) -> String {
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("api.spotify.com")
+    |> request.set_method(http.Get)
+    |> request.set_path("/v1/me/tracks")
+    |> request.set_query([
+      #("limit", "50"),
+      #("offset", int.to_string(offset)),
+    ])
+    |> request.set_header("authorization", "Bearer " <> token)
 
-@external(erlang, "spotify_http", "tracks_tsv")
-fn tracks_tsv(json: String) -> String
+  case hackney.send(req) {
+    Ok(res) -> res.body
+    Error(_) -> ""
+  }
+}
+
+fn tracks_tsv(json_body: String) -> String {
+  let parsed = decode_json(json_body, decode.dynamic) |> result.unwrap(dynamic.nil())
+  let items = decode_path_or(parsed, ["items"], [], decode.list(of: decode.dynamic))
+  collect_tracks_tsv(items, [])
+  |> string.join("\n")
+}
 
 pub fn read_access_token_file(session_file: String) -> String {
   case simplifile.read(from: session_file) {
@@ -342,6 +369,68 @@ fn parse_track_items(json: String) -> List(core.UnifiedItem) {
         )
     }
   })
+}
+
+fn decode_json(
+  raw: String,
+  decoder: decode.Decoder(a),
+) -> Result(a, json.DecodeError) {
+  json.parse(raw, decoder)
+}
+
+fn decode_path(
+  data: dynamic.Dynamic,
+  path: List(b),
+  decoder: decode.Decoder(a),
+) -> Option(a) {
+  case decode.run(data, decode.at(path, decoder)) {
+    Ok(value) -> Some(value)
+    Error(_) -> None
+  }
+}
+
+fn decode_path_or(
+  data: dynamic.Dynamic,
+  path: List(b),
+  fallback: a,
+  decoder: decode.Decoder(a),
+) -> a {
+  decode.run(data, decode.optionally_at(path, fallback, decoder))
+  |> result.unwrap(fallback)
+}
+
+fn collect_tracks_tsv(
+  items: List(dynamic.Dynamic),
+  acc: List(String),
+) -> List(String) {
+  case items {
+    [] -> list.reverse(acc)
+    [item, ..rest] ->
+      case spotify_track_tsv(item) {
+        Some(line) -> collect_tracks_tsv(rest, [line, ..acc])
+        None -> collect_tracks_tsv(rest, acc)
+      }
+  }
+}
+
+fn spotify_track_tsv(item: dynamic.Dynamic) -> Option(String) {
+  case decode_path(item, ["track", "id"], decode.string) {
+    None -> None
+    Some(id) -> {
+      let title = decode_path_or(item, ["track", "name"], "", decode.string)
+      let artists =
+        decode_path_or(item, ["track", "artists"], [], decode.list(of: decode.dynamic))
+      let artist = first_artist_name(artists)
+      Some(id <> "\t" <> title <> "\t" <> artist)
+    }
+  }
+}
+
+fn first_artist_name(artists: List(dynamic.Dynamic)) -> String {
+  case artists {
+    [] -> "unknown"
+    [first, .._] -> decode_path_or(first, ["name"], "unknown", decode.string)
+  }
 }
 
 fn tracks_next_offset(json: String) -> String {

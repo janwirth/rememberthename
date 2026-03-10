@@ -53,7 +53,7 @@ fn restore_terminal_cursor() {
 
 fn start_tui() {
   let exit = process.new_subject()
-  let assert Ok(_actor) =
+  case
     shore.spec(
       init: fn() { init(exit) },
       update:,
@@ -66,11 +66,14 @@ fn start_tui() {
         focus_next: key.Tab,
         focus_prev: key.BackTab,
       ),
-      redraw: shore.on_timer(33),
+      redraw: shore.on_update(),
     )
     |> shore.start
-
-  exit |> process.receive_forever
+  {
+    Ok(_actor) -> exit |> process.receive_forever
+    Error(_) ->
+      io.println("tui failed to start")
+  }
 }
 
 type Model {
@@ -81,6 +84,7 @@ type Model {
     depth_selected_index: Int,
     track_selected_index: Int,
     current_track_lines: List(String),
+    current_debug_lines: List(String),
     current_fetch: FetchBundle,
     exit_subject: process.Subject(Nil),
   )
@@ -134,7 +138,7 @@ type Msg {
   ActivateSelected
   EscPressed
   ExitPressed
-  FetchCompleted(String, DepthKind, core.ResolveResult)
+  FetchCompleted(String, DepthKind, DepthStatus, List(String), List(String))
   Noop
 }
 
@@ -147,6 +151,7 @@ fn init(exit_subject: process.Subject(Nil)) -> #(Model, List(fn() -> Msg)) {
       depth_selected_index: 0,
       track_selected_index: 0,
       current_track_lines: [],
+      current_debug_lines: [],
       current_fetch: empty_fetch_bundle(),
       exit_subject: exit_subject,
     ),
@@ -258,9 +263,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         False -> #(Model(..model, esc_armed: True), [])
       }
     ExitPressed -> request_exit(model)
-    FetchCompleted(source_key, depth_kind, result) -> {
-      let status = fetched_status(result)
-      let track_lines = track_lines_from_result(result)
+    FetchCompleted(source_key, depth_kind, status, track_lines, debug_lines) -> {
       case selected_source(model.selected_index) {
         Some(current_source) if current_source.key == source_key -> #(
           Model(
@@ -272,6 +275,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ),
             track_selected_index: 0,
             current_track_lines: track_lines,
+            current_debug_lines: debug_lines,
           ),
           [],
         )
@@ -280,6 +284,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ..model,
             track_selected_index: 0,
             current_track_lines: track_lines,
+            current_debug_lines: debug_lines,
           ),
           [],
         )
@@ -302,7 +307,16 @@ fn focus_detail(
   model: Model,
   _source: SourceEntry,
 ) -> #(Model, List(fn() -> Msg)) {
-  #(Model(..model, focus: DetailPane, esc_armed: False, current_fetch: empty_fetch_bundle()), [])
+  #(
+    Model(
+      ..model,
+      focus: DetailPane,
+      esc_armed: False,
+      current_fetch: empty_fetch_bundle(),
+      current_debug_lines: [],
+    ),
+    [],
+  )
 }
 
 fn fetch_selected_depth(
@@ -313,6 +327,7 @@ fn fetch_selected_depth(
   let staged = set_depth_status(model.current_fetch, depth_kind, Fetching)
   #(Model(..model, current_fetch: staged), [
     fn() {
+      let debug_subject = process.new_subject()
       let result =
         resolve_source(
           source,
@@ -322,14 +337,22 @@ fn fetch_selected_depth(
             DepthAllKind -> core.All
           },
           source.use_cache,
+          fn(line) { process.send(debug_subject, line) },
         )
-      FetchCompleted(source.key, depth_kind, result)
+      let status = fetched_status(result)
+      let track_lines = track_lines_from_result(result)
+      FetchCompleted(
+        source.key,
+        depth_kind,
+        status,
+        track_lines,
+        collect_debug_lines(debug_subject, []),
+      )
     },
   ])
 }
 
 fn view(model: Model) -> shore.Node(Msg) {
-  let selected = selected_content(model.selected_index)
   let sidebar_items = sidebar_item_nodes(model.selected_index, model.focus)
   let sidebar_children =
     [ui.text_styled("adapter cache: per-source", Some(style.Yellow), None), ui.br()]
@@ -348,24 +371,41 @@ fn view(model: Model) -> shore.Node(Msg) {
 
   let sidebar = ui.box(sidebar_children, Some("Sidebar"))
 
-  let #(title, body) = selected
-  let validation_nodes = validation_view_nodes(model)
-  let depth_nodes = depth_nodes(model)
+  let main_children = case model.focus {
+    SidebarPane -> {
+      let selected_title = menu_item_title(model.selected_index)
+      [
+        ui.text("Selected: " <> selected_title),
+        ui.hr(),
+        ui.text("Browse sources with Up/Down."),
+        ui.text("Press Right to open source details."),
+        ui.text("Press Enter in details to fetch selected depth."),
+      ]
+    }
+    _ -> {
+      let #(title, body) = selected_content(model.selected_index)
+      [ui.text(title), ui.hr()]
+      |> list.append(validation_view_nodes(model))
+      |> list.append([
+        ui.text_wrapped(body),
+        ui.br(),
+        ui.hr(),
+        ui.text("Depth results"),
+      ])
+      |> list.append(depth_nodes(model))
+      |> list.append([
+        ui.br(),
+        ui.text_wrapped(selected_depth_details(model)),
+        ui.br(),
+        ui.text("Debug"),
+        ui.hr(),
+      ])
+      |> list.append(debug_nodes(model.current_debug_lines))
+    }
+  }
   let main_content =
     ui.box(
-      [ui.text(title), ui.hr()]
-        |> list.append(validation_nodes)
-        |> list.append([
-          ui.text_wrapped(body),
-          ui.br(),
-          ui.hr(),
-          ui.text("Depth results"),
-        ])
-        |> list.append(depth_nodes)
-        |> list.append([
-          ui.br(),
-          ui.text_wrapped(selected_depth_details(model)),
-        ]),
+      main_children,
       Some("Main"),
     )
 
@@ -727,16 +767,27 @@ fn resolve_source(
   source: SourceEntry,
   depth: core.DepthMode,
   use_cache: Bool,
+  on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case source.key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(source.entry_point)
-      bandcamp_live_expander.resolve_profile(profile, depth, use_cache)
+      bandcamp_live_expander.resolve_profile_with_debug(
+        profile,
+        depth,
+        use_cache,
+        on_debug,
+      )
     }
     "soundcloud" -> {
       let profile =
         soundcloud_live_expander.soundcloud_profile(source.entry_point)
-      soundcloud_live_expander.resolve_profile(profile, depth, use_cache)
+      soundcloud_live_expander.resolve_profile_with_debug(
+        profile,
+        depth,
+        use_cache,
+        on_debug,
+      )
     }
     "spotify" -> {
       let access_token =
@@ -755,12 +806,45 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(source.entry_point)
-      spotify_live_expander.resolve_profile(profile, depth, config, use_cache)
+      spotify_live_expander.resolve_profile_with_debug(
+        profile,
+        depth,
+        config,
+        use_cache,
+        on_debug,
+      )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(source.entry_point)
-      youtube_live_expander.resolve_profile(profile, depth, use_cache)
+      youtube_live_expander.resolve_profile_with_debug(
+        profile,
+        depth,
+        use_cache,
+        on_debug,
+      )
     }
+  }
+}
+
+fn collect_debug_lines(
+  subject: process.Subject(String),
+  acc: List(String),
+) -> List(String) {
+  case process.receive(subject, within: 0) {
+    Ok(line) -> collect_debug_lines(subject, [line, ..acc])
+    Error(_) -> list.reverse(acc)
+  }
+}
+
+fn debug_nodes(lines: List(String)) -> List(shore.Node(Msg)) {
+  case lines {
+    [] -> [ui.text("(no debug output)")]
+    _ ->
+      lines
+      |> list.reverse
+      |> list.take(20)
+      |> list.reverse
+      |> list.map(ui.text)
   }
 }
 

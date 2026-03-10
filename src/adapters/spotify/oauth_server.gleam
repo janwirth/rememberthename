@@ -11,8 +11,10 @@ import simplifile
 import adapters/spotify/live_expander as spotify_live_expander
 import mist
 
-@external(erlang, "spotify_oauth_http", "open_url")
-fn open_url(url: String) -> String
+fn open_url(url: String) -> Nil {
+  io.println("[spotify-oauth] Open manually in your browser:")
+  io.println(url)
+}
 
 pub fn main() {
   let client_id = spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
@@ -36,7 +38,7 @@ pub fn main() {
 
   io.println("[spotify-oauth] Open:")
   io.println(authorize_url)
-  let _ = open_url(authorize_url)
+  open_url(authorize_url)
   io.println("[spotify-oauth] Waiting for callback on 127.0.0.1:8080 ...")
   let handler = make_handler(client_id, client_secret, redirect_uri, code_file, session_file)
   let assert Ok(_) =
