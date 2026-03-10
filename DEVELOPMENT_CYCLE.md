@@ -17,8 +17,8 @@ The resolver traverses collection graphs with configurable depth limits (Depth1,
 
 1. **Entry point**: `test/rememberthename_test.gleam` runs `gleeunit.main()`.
 2. **Shared depth spec**: `test/depth_test_spec.gleam` provides reusable depth assertions:
-   - `resolve_standard_depths(resolve)` runs the resolver at Depth1, 2, 3, 10, 20, All.
-   - `assert_standard_depth_pattern(results, spec)` checks transitivity, depth progression, anchor fragments, and first-items stability.
+   - `resolve_standard_depths(resolve)` runs the resolver in migration order: Depth1, Depth2, then All (with an All warm-up pass before measured assertions).
+   - `assert_standard_depth_pattern(results, spec)` checks progression, anchor fragments, and first-items stability.
 3. **Unit tests (fake adapter)**: `test/soundcloud_adapter_fake_test.gleam`:
    - Injects a `fake_expand` function into `core.resolve_profile_url` instead of a live adapter.
    - No network; deterministic fixture data.

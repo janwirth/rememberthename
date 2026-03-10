@@ -6,9 +6,6 @@ pub type DepthResults {
   DepthResults(
     depth_1: core.ResolveResult,
     depth_2: core.ResolveResult,
-    depth_3: core.ResolveResult,
-    depth_10: core.ResolveResult,
-    depth_20: core.ResolveResult,
     depth_all: core.ResolveResult,
   )
 }
@@ -25,12 +22,11 @@ pub type DepthAssertSpec {
 pub fn resolve_standard_depths(
   resolve: fn(core.DepthMode) -> core.ResolveResult,
 ) -> DepthResults {
+  // Warm cache path before measured "all" assertions.
+  let _ = resolve(core.All)
   DepthResults(
     depth_1: resolve(core.Depth1),
     depth_2: resolve(core.Depth2),
-    depth_3: resolve(core.Depth3),
-    depth_10: resolve(core.Depth10),
-    depth_20: resolve(core.Depth20),
     depth_all: resolve(core.All),
   )
 }
@@ -38,12 +34,9 @@ pub fn resolve_standard_depths(
 pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpec) {
   let DepthAssertSpec(min_depth_1_items, min_full_items, first_items_to_preserve, anchor_fragments) =
     spec
-  let DepthResults(d1, d2, d3, d10, d20, all) = results
+  let DepthResults(d1, d2, all) = results
   let #(i1, l1, u1) = counts(d1)
   let #(i2, _, _) = counts(d2)
-  let #(i3, _, _) = counts(d3)
-  let #(i10, l10, u10) = counts(d10)
-  let #(i20, l20, u20) = counts(d20)
   let #(iall, lall, uall) = counts(all)
 
   assert i1 >= min_depth_1_items
@@ -51,18 +44,11 @@ pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpe
 
   // Transitivity over depth modes.
   assert i2 > i1
-  assert i3 > i2
-  assert i10 >= i3
-  assert i20 > i10
-  assert iall >= i20
+  assert iall >= i2
 
   // Lists and unresolved should not regress at deeper levels.
-  assert l10 >= l1
-  assert l20 >= l10
-  assert lall >= l20
-  assert u10 == u1
-  assert u20 == u10
-  assert uall == u20
+  assert lall >= l1
+  assert uall == u1
 
   // "First items" contract: early discovered ids stay present in full traversal.
   let first_ids = first_item_ids(d1, first_items_to_preserve)

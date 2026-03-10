@@ -31,6 +31,7 @@
 //// - This implementation currently focuses on liked tracks.
 //// - Saved albums and album-track expansion are not implemented in this module.
 import gleam/int
+import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
@@ -41,15 +42,6 @@ pub fn read_access_token_file(session_file: String) -> String
 
 @external(erlang, "spotify_http", "read_env_value")
 pub fn read_env_value(file_path: String, key: String) -> String
-
-@external(erlang, "spotify_http", "ensure_access_token")
-fn ensure_access_token(
-  provided_token: String,
-  session_file: String,
-  client_id: String,
-  redirect_uri: String,
-  scopes: String,
-) -> String
 
 @external(erlang, "spotify_http", "liked_tracks_json")
 fn liked_tracks_json(token: String, offset: Int) -> String
@@ -116,7 +108,7 @@ fn expand_profile(profile_url: String, config: SpotifyConfig) -> core.ExpandResu
   let user_id = parse_user_id(profile_url)
   let SpotifyConfig(access_token, session_file, client_id, redirect_uri, scopes) = config
   let token =
-    ensure_access_token(access_token, session_file, client_id, redirect_uri, scopes)
+    resolve_access_token(access_token, session_file, client_id, redirect_uri, scopes)
     |> string.trim
   case user_id == "" || token == "" {
     True ->
@@ -129,6 +121,50 @@ fn expand_profile(profile_url: String, config: SpotifyConfig) -> core.ExpandResu
     False ->
       emit_liked_tracks(token, 0)
   }
+}
+
+fn resolve_access_token(
+  provided_token: String,
+  session_file: String,
+  client_id: String,
+  redirect_uri: String,
+  scopes: String,
+) -> String {
+  let provided = string.trim(provided_token)
+  case provided != "" {
+    True -> provided
+    False -> {
+      let file_token = read_access_token_file(session_file) |> string.trim
+      case file_token != "" {
+        True -> file_token
+        False -> {
+          log_oauth_flow(session_file, client_id, redirect_uri, scopes)
+          ""
+        }
+      }
+    }
+  }
+}
+
+fn log_oauth_flow(
+  session_file: String,
+  client_id: String,
+  redirect_uri: String,
+  scopes: String,
+) {
+  let auth_url =
+    "https://accounts.spotify.com/authorize?client_id="
+    <> client_id
+    <> "&response_type=code&redirect_uri="
+    <> redirect_uri
+    <> "&scope="
+    <> scopes
+    <> "&show_dialog=true"
+  io.println("")
+  io.println("[spotify-oauth] No session found at " <> session_file)
+  io.println("[spotify-oauth] Open this URL and authorize:")
+  io.println(auth_url)
+  io.println("[spotify-oauth] Save token JSON into " <> session_file)
 }
 
 fn expand_playlists(ctx: String) -> core.ExpandResult {
@@ -218,23 +254,38 @@ fn emit_liked_tracks(
   )
 }
 
-fn parse_track_items(raw: String) -> List(core.UnifiedItem) {
-  parse_lines(raw)
-  |> list.filter_map(fn(line) {
-    let cols = string.split(line, "\t")
-    case cols {
-      [track_id, title, artist] if track_id != "" ->
+fn parse_track_items(json: String) -> List(core.UnifiedItem) {
+  parse_lines(json)
+  |> list.filter_map(fn(chunk) {
+    let cols = string.split(chunk, "\t")
+    let track_id =
+      case cols {
+        [id, _, _] -> id
+        _ -> ""
+      }
+    let title =
+      case cols {
+        [_, t, _] -> t
+        _ -> ""
+      }
+    let artist_name =
+      case cols {
+        [_, _, a] -> a
+        _ -> "unknown"
+      }
+    case track_id == "" {
+      True -> Error(Nil)
+      False ->
         Ok(
           core.UnifiedItem(
             id: "spotify:item:" <> track_id,
             title: normalize(title),
-            artist: normalize(default_if_empty(artist, "unknown")),
+            artist: normalize(default_if_empty(artist_name, "unknown")),
             service: "spotify",
             source_type: "item",
             source_id: "spotify:item:" <> track_id,
           ),
         )
-      _ -> Error(Nil)
     }
   })
 }
@@ -279,3 +330,5 @@ fn normalize(value: String) -> String {
   |> string.replace("\n", " ")
   |> string.replace("  ", " ")
 }
+
+

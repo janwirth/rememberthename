@@ -3,7 +3,6 @@
 -export([
     read_access_token_file/1,
     read_env_value/2,
-    ensure_access_token/5,
     liked_tracks_json/2,
     tracks_tsv/1,
     tracks_next_offset/1
@@ -46,20 +45,6 @@ read_env_value(FilePath, Key) ->
         end
     catch
         _:_ -> <<>>
-    end.
-
-ensure_access_token(ProvidedToken, SessionFile, ClientId, RedirectUri, Scopes) ->
-    case trim(ProvidedToken) of
-        <<>> ->
-            case read_access_token_file(SessionFile) of
-                <<>> ->
-                    log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes),
-                    <<>>;
-                TokenFromFile ->
-                    TokenFromFile
-            end;
-        Token ->
-            Token
     end.
 
 liked_tracks_json(Token, Offset) ->
@@ -110,6 +95,21 @@ api_get(Url, Token) ->
         _:_ -> <<>>
     end.
 
+run_jq_on_json(Json, Filter) ->
+    try
+        CachePath = cache_path(Json),
+        _ = file:write_file(CachePath, Json),
+        Cmd =
+            "/opt/homebrew/bin/jq -r '" ++
+            Filter ++
+            "' '" ++
+            CachePath ++
+            "'",
+        unicode:characters_to_binary(os:cmd(Cmd))
+    catch
+        _:_ -> <<>>
+    end.
+
 fetch(Url) when is_binary(Url) ->
     try
         CachePath = cache_path(<<"url:", Url/binary>>),
@@ -144,21 +144,6 @@ extract_between(Body, Start, Ending) ->
             <<>>
     end.
 
-run_jq_on_json(Json, Filter) ->
-    try
-        CachePath = cache_path(Json),
-        _ = file:write_file(CachePath, Json),
-        Cmd =
-            "/opt/homebrew/bin/jq -r '" ++
-            Filter ++
-            "' '" ++
-            CachePath ++
-            "'",
-        unicode:characters_to_binary(os:cmd(Cmd))
-    catch
-        _:_ -> <<>>
-    end.
-
 cache_path(Blob) ->
     Hash = integer_to_list(erlang:phash2(Blob)),
     "/tmp/rememberthename_spotify_cache_" ++ Hash ++ ".json".
@@ -169,29 +154,3 @@ trim(Value) ->
 int_to_bin(Int) ->
     unicode:characters_to_binary(integer_to_list(Int)).
 
-log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes) ->
-    EncRedirect = url_encode(redirect_bin(RedirectUri)),
-    EncScopes = url_encode(iolist_to_binary(Scopes)),
-    AuthUrl = <<
-        "https://accounts.spotify.com/authorize?client_id=",
-        (iolist_to_binary(ClientId))/binary,
-        "&response_type=code&redirect_uri=",
-        EncRedirect/binary,
-        "&scope=",
-        EncScopes/binary,
-        "&show_dialog=true"
-    >>,
-    io:format("~n[spotify-oauth] No session found at ~s~n", [SessionFile]),
-    io:format("[spotify-oauth] Open this URL and authorize:~n~s~n", [AuthUrl]),
-    io:format("[spotify-oauth] Copy the `code` query param from redirect URL.~n", []),
-    io:format("[spotify-oauth] Exchange code at /api/token with client_id/client_secret, then store JSON:~n", []),
-    io:format("{\"access_token\":\"<token-from-token-endpoint>\",\"token_type\":\"Bearer\"}~n", []),
-    io:format("[spotify-oauth] Session file path: ~s~n~n", [SessionFile]),
-    _ = os:cmd(binary_to_list(<<"open \"", AuthUrl/binary, "\"">>)),
-    ok.
-
-redirect_bin(Value) when is_binary(Value) -> Value;
-redirect_bin(Value) -> iolist_to_binary(Value).
-
-url_encode(Bin) ->
-    list_to_binary(uri_string:quote(binary_to_list(Bin))).
