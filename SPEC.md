@@ -7,11 +7,11 @@ Music is fragmented. Music disappears. First step is knowledge
 ## 1) Product Goal
 
 `rememberthename` is a music-archive ingestion and normalization backend.
-It ingests collection sources from multiple services and exposes a unified, cached API.
-Service-process details are defined in `services.spec.md`.
+It ingests collection profiles from multiple services and exposes a unified API.
+Adapter-process details are defined in `adapters.spec.md`.
 
 Primary objective:
-- Accept source references (URL or structured input).
+- Accept source identities (URL or structured input).
 - Resolve recursively across collection nodes.
 - Normalize into one canonical cross-service data model.
 
@@ -20,13 +20,13 @@ Primary objective:
 - Input fields: `title`, `artist`, `source_id`, `service`.
 - Source parsing and import for collection-level inputs only:
   - Bandcamp album links
-  - SoundCloud set/playlist links (detailed in `SOUNDCLOUD_SPEC.md`)
+  - SoundCloud profile links (detailed in `SOUNDCLOUD_SPEC.md`)
   - YouTube playlist URLs
   - Spotify likes (`/collection/tracks`, `/collection/albums`)
 - Recursive resolution:
   - Collections can contain items and/or nested collections.
   - Resolver traverses until all reachable nodes are processed.
-- Unified API response from cached data.
+- Unified API response from resolved data.
 - Full automated TDD workflow.
 - Backend-only implementation (no Lustre/UI scope).
 
@@ -41,30 +41,40 @@ Primary objective:
 ## 4) Core Canonical Model
 
 - `Service`: `bandcamp | soundcloud | youtube | spotify`
-- `SourceKind`: `album | playlist | likes_tracks | likes_albums`
-- `SourceRef`:
-  - `service`
-  - `source_id`
-  - `kind`
+- `SourceType`: `item | collection`
+- `SourceIdentity` (explicit type):
+  - `service: Service`
+  - `source_type: SourceType`
+  - `source_id: String`
+  - constraints:
+    - `source_id` must be non-empty after trim
+    - key is deterministic: `service + ":" + source_type + ":" + source_id`
+    - for ingestion, `source_type` must be `collection`
 - `UnifiedItem`:
   - `id` (stable canonical ID)
   - `title`
   - `artist`
-  - `source` (`SourceRef` of parent collection origin)
+  - `service`
+  - `source_id`
+  - `source_type` (`item`)
 - `UnifiedCollection`:
   - `id` (stable canonical ID)
   - `title`
-  - `entries` (`List(SourceRef)` for child collections/items)
-  - `source` (`SourceRef`)
+  - `entries` (`List(SourceIdentity)` for child collections/items)
+  - `track_ids` (`List(String)`, optional service-emitted list view)
+  - `list_ids` (`List(String)`, optional service-emitted nested list references)
+  - `service`
+  - `source_id`
+  - `source_type` (`collection`)
 - `UnifiedNode`: `item | collection`
 
 Design constraints:
-- Every node is addressable by a deterministic key from `service + kind + source_id`.
+- Every node is addressable by a deterministic key from `service + source_type + source_id`.
 - Duplicates collapse to one canonical node.
 
-## 5) Canonical Intermediary Models Per Service
+## 5) Canonical Intermediary Models Per Adapter
 
-Each service adapter returns an intermediary payload first, then a mapper transforms it into canonical nodes.
+Each adapter returns an intermediary payload first, then a mapper transforms it into canonical nodes.
 
 ### 5.1 Bandcamp intermediary
 
@@ -79,7 +89,7 @@ Each service adapter returns an intermediary payload first, then a mapper transf
   - `artist_name`
 
 Mapping:
-- Seed source kind: `album`
+- Profile source type: `collection`
 - Snapshot maps to one `UnifiedCollection` (album) + N `UnifiedItem`s (tracks).
 
 ### 5.2 SoundCloud intermediary
@@ -99,7 +109,7 @@ SoundCloud-specific models, parsing rules, and tests are factored into `SOUNDCLO
   - `channel_name`
 
 Mapping:
-- Seed source kind: `playlist`
+- Profile source type: `collection`
 - Snapshot maps to one `UnifiedCollection` + N `UnifiedItem`s.
 
 ### 5.4 Spotify intermediary
@@ -121,26 +131,32 @@ Mapping:
   - `tracks: List(SpotifyTrackEntry)` (optional eager expansion)
 
 Mapping:
-- Seed source kinds: `likes_tracks | likes_albums`
+- Profile source type: `collection`
 - Snapshot maps to one logical `UnifiedCollection` plus item nodes (and optional nested album collections).
 
 ## 6) Input + Parsing Rules
 
 Two accepted input forms:
-1. Structured row: `title`, `artist`, `source_id`, `service`, `kind`
-2. URL input: parser derives `service`, `source_id`, `kind`
+1. Structured row: `title`, `artist`, `source_id`, `service`, `source_type`
+2. URL input: parser derives `service`, `source_id`, `source_type`
 
-Service mapping expectations:
-- Bandcamp: `/album/...` -> `album`
-- SoundCloud: `/sets/...` -> `playlist` (full rules in `SOUNDCLOUD_SPEC.md`)
-- YouTube: `list=...` -> `playlist`
+Accepted `SourceIdentity` shape per service:
+- Bandcamp:
+  - `{ service: bandcamp, source_type: collection, source_id: <album_slug_or_id> }`
+- SoundCloud:
+  - `{ service: soundcloud, source_type: collection, source_id: <profile_url> }`
+  - full parsing/mapping rules in `SOUNDCLOUD_SPEC.md`
+- YouTube:
+  - `{ service: youtube, source_type: collection, source_id: <playlist_id> }`
+  - playlist URLs (`list=...`) are accepted.
 - Spotify:
-  - `/collection/tracks` -> `likes_tracks`
-  - `/collection/albums` -> `likes_albums`
+  - `{ service: spotify, source_type: collection, source_id: "collection/tracks" }`
+  - `{ service: spotify, source_type: collection, source_id: "collection/albums" }`
 
 Rejected as invalid input:
 - Bandcamp `/track/...`
 - SoundCloud `/artist/track` (see `SOUNDCLOUD_SPEC.md`)
+- YouTube non-playlist URLs
 - Any unsupported URL shape
 
 Invalid/unsupported input:
@@ -149,30 +165,27 @@ Invalid/unsupported input:
 ## 7) Recursive Resolution Semantics
 
 Resolver contract:
-- Input: one or more seed `SourceRef`s.
+- Input: one or more profile `SourceIdentity` values.
 - Adapter lookup fetches `UnifiedNode` for each source.
 - `item` nodes are collected.
 - `collection` nodes enqueue child entries.
+- Adapters may emit list payloads with `title`, `track_ids`, and `list_ids`; these map to `UnifiedCollection`.
+- `list_ids` represent nested lists and must be expanded recursively as child collections.
 - Resolver is cycle-safe and duplicate-safe via visited set.
 - Output:
   - ordered list of resolved unique `UnifiedItem`s
-  - list of unresolved `SourceRef`s
+  - list of unresolved `SourceIdentity` values
 
 Required behavior:
 - Deterministic traversal order.
 - No infinite recursion.
 - Same source visited at most once.
 
-## 8) Cache + Unified API
-
-Cache responsibilities:
-- Store canonical nodes keyed by deterministic source key.
-- Return cached entities on repeated requests.
-- Track unresolved lookups for diagnostics.
+## 8) Unified API
 
 Unified API responsibilities:
-- Accept collection seeds.
-- Resolve recursively via cache + adapter.
+- Accept collection profiles.
+- Resolve recursively via adapters.
 - Return normalized payload:
   - `items`
   - `unresolved`
@@ -188,7 +201,7 @@ Test policy:
 Test layers:
 1. Domain tests
    - Source key determinism
-   - Kind restrictions (no track seed kind)
+   - Profile restrictions (no track URL profiles)
 2. Importer tests
    - Valid collection URL parsing
    - Explicit rejection of track URLs
@@ -201,8 +214,7 @@ Test layers:
    - Deduplication
    - Cycle handling
    - Unresolved tracking
-5. Cache/API tests
-   - Cache hit/miss behavior
+5. API tests
    - Idempotent repeated requests
    - Unified payload shape
 
@@ -217,7 +229,6 @@ Definition of done:
 - HTTP client (all external fetches): Gleam HTTP only.
 - Bandcamp/SoundCloud/YouTube ingestion: HTTP fetch + deterministic parser/scraper logic.
 - Spotify ingestion: HTTP requests to Spotify Web API only.
-- Storage/cache: minimal in-process cache first; persistence can be added later if tests require it.
 - Dependencies: keep minimal, only add packages required by failing tests.
 
 ## 11) Development Cycle
