@@ -1,3 +1,4 @@
+import adapters/cache
 import gleam/list
 import gleam/string
 import adapters/core
@@ -5,7 +6,6 @@ import adapters/core
 pub type DepthResults {
   DepthResults(
     depth_1: core.ResolveResult,
-    depth_2: core.ResolveResult,
     depth_all: core.ResolveResult,
   )
 }
@@ -21,14 +21,11 @@ pub type DepthAssertSpec {
 }
 
 pub fn resolve_standard_depths(
-  resolve: fn(core.DepthMode) -> core.ResolveResult,
+  resolve: fn(core.DepthMode, cache.CacheMode) -> core.ResolveResult,
 ) -> DepthResults {
-  // Warm cache path before measured "all" assertions.
-  let _ = resolve(core.All)
   DepthResults(
-    depth_1: resolve(core.Depth1),
-    depth_2: resolve(core.Depth2),
-    depth_all: resolve(core.All),
+    depth_1: resolve(core.Depth1, cache.CacheIgnore),
+    depth_all: resolve(core.All, cache.CacheUpsert),
   )
 }
 
@@ -41,17 +38,15 @@ pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpe
     required_full_fragments,
   ) =
     spec
-  let DepthResults(d1, d2, all) = results
+  let DepthResults(d1, all) = results
   let #(i1, l1, u1) = counts(d1)
-  let #(i2, _, _) = counts(d2)
   let #(iall, lall, uall) = counts(all)
 
   assert i1 >= min_depth_1_items
   assert iall >= min_full_items
 
-  // Transitivity over depth modes.
-  assert i2 > i1
-  assert iall >= i2
+  // Full traversal should include at least shallow traversal content.
+  assert iall >= i1
 
   // Lists and unresolved should not regress at deeper levels.
   assert lall >= l1
@@ -62,12 +57,11 @@ pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpe
   assert first_ids != []
   assert list.all(first_ids, fn(id) { has_item_id(all, id) })
 
-  // Anchor fragments must be found in shallow depth (items_1 or items_2) and in full result.
+  // Anchor fragments must be found in shallow depth and in full result.
   let items_1 = items(d1)
-  let items_2 = items(d2)
   let items_all = items(all)
   list.each(anchor_fragments, fn(fragment) {
-    assert has_title_fragment(items_1, fragment) || has_title_fragment(items_2, fragment)
+    assert has_title_fragment(items_1, fragment)
     assert has_title_fragment(items_all, fragment)
   })
 

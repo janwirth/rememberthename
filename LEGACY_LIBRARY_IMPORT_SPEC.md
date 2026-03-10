@@ -63,13 +63,68 @@ Hashing requirement:
 
 Legacy resolver must be validated by overlap against currently configured sources (`source_specs.all()`).
 
+### Shared Source ID Normalizer (Required)
+
+Add a shared normalization module used by all adapters and the legacy importer before persistence and before overlap checks.
+
+Purpose:
+
+- unify source identifiers into one canonical comparable format
+- make overlap-by-source deterministic across heterogeneous adapters
+- prevent false negatives caused by url/id formatting differences
+
+Proposed module:
+
+- `source_id_normalizer`
+  - input: raw adapter/importer id + service + source_type
+  - output: canonical `normalized_source_id`
+
+Canonical output contract:
+
+- lowercase when the service id space is case-insensitive
+- trim surrounding whitespace
+- collapse known URL forms to id-only value (service-specific)
+- strip tracking/query noise that is not identity
+- preserve identity-bearing separators (`:`, `/`, `-`, `_`) where needed
+- include stable fallback `raw_source_id` when normalization is uncertain
+
+Suggested normalized shape:
+
+- `service`
+- `source_type`
+- `raw_source_id`
+- `normalized_source_id`
+- `normalization_version` (for future migration safety)
+- `normalization_confidence` (`exact | heuristic`)
+
+Service-level rule examples:
+
+- Spotify:
+  - `https://open.spotify.com/track/<id>?si=...` -> `<id>`
+  - `spotify:track:<id>` -> `<id>`
+- YouTube:
+  - `https://www.youtube.com/watch?v=<id>&...` -> `<id>`
+  - `https://youtu.be/<id>` -> `<id>`
+- SoundCloud/Bandcamp:
+  - normalize host + path where ids are URL-derived, removing trailing slash noise
+- Legacy importer:
+  - if file hash is canonical identity, use that as normalized id fallback
+  - otherwise use explicit legacy track id tag when present
+
+Normalizer integration rules:
+
+- adapters/importer must emit both `raw_source_id` and `normalized_source_id`
+- overlap matching by id must operate on `normalized_source_id`
+- overlap-by-source aggregation keys must use:
+  - `service + source_type + normalized_source_id`
+
 ### Matching Strategies (run independently and together)
 
 1. Exact match
    - Match key: normalized `title + artist + duration?` (when duration exists)
    - Goal: highest precision baseline
 2. Match by ID
-   - Match key: stable source/legacy ids (`source_id`, `legacy_track_id`, external ids)
+   - Match key: `normalized_source_id` (derived from `source_id`, `legacy_track_id`, external ids)
    - Goal: deterministic linking when ids exist
 3. Match by Track + Artist Name
    - Match key: normalized (`title`, `artist`)
@@ -86,12 +141,14 @@ Define a spec-level assertion record (naming can change in implementation):
 - `min_track_artist_overlap_ratio`
 - `min_total_legacy_items`
 - `required_anchor_fragments` (same idea as current `anchor_fragments`)
+- `min_normalized_id_coverage_ratio` (share of imported rows with confident normalized ids)
 
 Validation pass criteria:
 
 - Imported set size meets minimum expected volume.
 - Each overlap strategy meets its threshold.
 - Anchor fragments appear in matched output.
+- Normalized id coverage is high enough for reliable overlap-by-source metrics.
 
 ## Geldata Discovery + Query Plan
 
@@ -135,6 +192,9 @@ Expected outcome:
    - track+artist strategy count
 4. Overlap ratios
    - strategy count / total imported
+5. Normalizer coverage
+   - imported rows with `normalized_source_id`
+   - imported rows with `normalization_confidence = exact`
 
 Representative query skeletons (adapt names to final schema):
 
@@ -190,6 +250,11 @@ Mirror existing validation cadence (`warmup -> depth1 -> depth2 -> all`) where a
    - track+artist match reaches configured minimum ratio
 5. Anchor checks
    - required anchor fragments appear in overlap outputs
+6. Source id normalizer checks
+   - known source id variants collapse to one `normalized_source_id`
+   - id overlap uses normalized ids only
+   - overlap-by-source grouping is stable across adapter/importer paths
+   - normalizer coverage ratio reaches configured minimum
 
 ### Suggested Shared Helpers
 
@@ -201,6 +266,9 @@ Speculate two reusable modules to avoid duplication across adapters:
 - `integrator`
   - owns canonical normalization + strategy orchestration
   - returns typed overlap metrics by strategy for validators/tests
+- `source_id_normalizer`
+  - owns service-specific id canonicalization rules
+  - provides typed normalization result + confidence + version
 
 ## Deliverables from This Spec
 

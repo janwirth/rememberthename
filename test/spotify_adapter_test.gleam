@@ -24,12 +24,12 @@ pub fn live_spotify_user_follows_unified_depth_spec_test() {
         )
       let profile = spotify_live_expander.spotify_user(sources.entry_point(source))
       let results =
-        depth_test_spec.resolve_standard_depths(fn(depth) {
+        depth_test_spec.resolve_standard_depths(fn(depth, cache_mode) {
           spotify_live_expander.resolve_profile(
             profile,
             depth,
             config,
-            sources.use_cache(source),
+            cache_mode,
           )
         })
       depth_test_spec.assert_standard_depth_pattern(

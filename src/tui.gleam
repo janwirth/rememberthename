@@ -3,6 +3,7 @@ import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
+import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import gleam/dynamic
 import gleam/dynamic/decode
@@ -91,6 +92,7 @@ type Model {
     depth_selected_index: Int,
     track_selected_index: Int,
     current_track_lines: List(String),
+    source_track_lines: List(#(String, List(String))),
     current_debug_lines: List(String),
     current_fetch: FetchBundle,
     cache_mode: cache.CacheMode,
@@ -175,7 +177,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ..model,
             track_selected_index: previous_track_index(
               model.track_selected_index,
-              model.current_track_lines,
+              active_track_lines(model),
             ),
           ),
           [],
@@ -200,7 +202,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             ..model,
             track_selected_index: next_track_index(
               model.track_selected_index,
-              model.current_track_lines,
+              active_track_lines(model),
             ),
           ),
           [],
@@ -211,11 +213,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         TracksPane -> #(model, [])
         DetailPane ->
           case selected_view_type(model.selected_index) {
-            nav.Source(_, _) ->
-              case model.current_track_lines != [] {
-                True -> #(Model(..model, focus: TracksPane), [])
-                False -> #(model, [])
-              }
+            nav.Source(_, _) -> #(Model(..model, focus: TracksPane), [])
             _ -> #(model, [])
           }
         SidebarPane -> focus_selected_right(model)
@@ -226,7 +224,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         DetailPane -> #(Model(..model, focus: SidebarPane), [])
         TracksPane ->
           case selected_view_type(model.selected_index) {
-            nav.Source(_, _) -> #(Model(..model, focus: SidebarPane), [])
+            nav.Source(_, _) -> #(Model(..model, focus: DetailPane), [])
             _ -> #(Model(..model, focus: DetailPane), [])
           }
       }
@@ -255,6 +253,8 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
       }
     ExitPressed -> request_exit(model)
     FetchCompleted(source_key, depth_kind, status, track_lines, debug_lines) -> {
+      let next_source_track_lines =
+        upsert_source_track_lines(model.source_track_lines, source_key, track_lines)
       case selected_source(model.selected_index) {
         Some(current_source) if current_source.key == source_key -> #(
           Model(
@@ -265,7 +265,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
               status,
             ),
             track_selected_index: 0,
-            current_track_lines: track_lines,
+            source_track_lines: next_source_track_lines,
             current_debug_lines: debug_lines,
           ),
           [],
@@ -273,8 +273,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         _ -> #(
           Model(
             ..model,
-            track_selected_index: 0,
-            current_track_lines: track_lines,
+            source_track_lines: next_source_track_lines,
             current_debug_lines: debug_lines,
           ),
           [],
@@ -342,6 +341,7 @@ fn default_model(exit_subject: process.Subject(Nil)) -> Model {
     depth_selected_index: 0,
     track_selected_index: 0,
     current_track_lines: [],
+    source_track_lines: [],
     current_debug_lines: [],
     current_fetch: empty_fetch_bundle(),
     cache_mode: cache.CacheUpsert,
@@ -379,7 +379,7 @@ fn sanitize_model(model: Model) -> Model {
     True -> 0
     False -> model.depth_selected_index
   }
-  let track_count = list.length(model.current_track_lines)
+  let track_count = list.length(active_track_lines(model))
   let track_selected_index = case track_count <= 0 {
     True -> 0
     False ->
@@ -433,6 +433,7 @@ fn decode_saved_model(
           [],
           decode.list(of: decode.string),
         ),
+        source_track_lines: [],
         current_debug_lines: decode_path_or(
           data,
           ["current_debug_lines"],
@@ -761,8 +762,9 @@ fn focus_selected_right(model: Model) -> #(Model, List(fn() -> Msg)) {
       #(
         Model(
           ..model,
-          focus: TracksPane,
+          focus: DetailPane,
           esc_armed: False,
+          track_selected_index: 0,
           cache_mode: source.cache_mode,
         ),
         [],
@@ -848,30 +850,34 @@ fn view(model: Model) -> shore.Node(Msg) {
     nav.RunAll(_) ->
       ui.box(
         run_all_main_nodes(model),
-        Some("Selected view: " <> nav.title(current_view)),
+        Some(nav.title(current_view)),
       )
     nav.Source(_, _) -> {
+      let source_track_lines = selected_source_track_lines(model)
+      let source_nodes = source_main_nodes(model)
       let tracks_nodes =
         helpers.track_panel_nodes(
-          model.current_track_lines,
+          source_track_lines,
           model.track_selected_index,
           model.focus == TracksPane,
           track_viewport_size,
         )
       ui.box(
-        tracks_nodes,
-        Some("Tracks (" <> int.to_string(list.length(model.current_track_lines)) <> ")"),
+        source_nodes
+        |> list.append([ui.br(), ui.hr(), ui.text("Tracks")])
+        |> list.append(tracks_nodes),
+        Some("Tracks (" <> int.to_string(list.length(source_track_lines)) <> ")"),
       )
     }
     nav.Exit(_) ->
       ui.box(
         exit_main_nodes(model),
-        Some("Selected view: " <> nav.title(current_view)),
+        Some(nav.title(current_view)),
       )
     nav.ToggleCache(_) ->
       ui.box(
         toggle_cache_main_nodes(model),
-        Some("Selected view: " <> nav.title(current_view)),
+        Some(nav.title(current_view)),
       )
   }
 
@@ -908,6 +914,53 @@ fn selected_view_type(index: Int) -> nav.View {
 
 fn selected_source(index: Int) -> Option(nav.SourceEntry) {
   nav.source_from_view(selected_view_type(index))
+}
+
+fn active_track_lines(model: Model) -> List(String) {
+  case selected_view_type(model.selected_index) {
+    nav.Source(_, _) -> selected_source_track_lines(model)
+    _ -> model.current_track_lines
+  }
+}
+
+fn selected_source_track_lines(model: Model) -> List(String) {
+  case selected_source(model.selected_index) {
+    Some(source) -> lookup_source_track_lines(model.source_track_lines, source.key)
+    None -> []
+  }
+}
+
+fn lookup_source_track_lines(
+  entries: List(#(String, List(String))),
+  source_key: String,
+) -> List(String) {
+  case entries {
+    [] -> []
+    [entry, ..rest] -> {
+      let #(key, lines) = entry
+      case key == source_key {
+        True -> lines
+        False -> lookup_source_track_lines(rest, source_key)
+      }
+    }
+  }
+}
+
+fn upsert_source_track_lines(
+  entries: List(#(String, List(String))),
+  source_key: String,
+  lines: List(String),
+) -> List(#(String, List(String))) {
+  case entries {
+    [] -> [#(source_key, lines)]
+    [entry, ..rest] -> {
+      let #(key, _) = entry
+      case key == source_key {
+        True -> [#(source_key, lines), ..rest]
+        False -> [entry, ..upsert_source_track_lines(rest, source_key, lines)]
+      }
+    }
+  }
 }
 
 fn section_at(index: Int) -> #(String, String) {
@@ -1232,6 +1285,28 @@ fn selected_depth_details(model: Model) -> String {
   }
 }
 
+fn source_main_nodes(model: Model) -> List(shore.Node(Msg)) {
+  let #(_, body) = selected_content(model.selected_index)
+  let fetch_button_label = case model.focus {
+    DetailPane -> "● [ FETCH ] (press Enter)"
+    TracksPane -> "  [ FETCH ] (press Left then Enter)"
+    SidebarPane -> "  [ FETCH ] (press Right then Enter)"
+  }
+  let status_line = case model.current_fetch.depth_all {
+    Fetching -> "fetching started..."
+    FetchFailed(reason) -> "fetch failed: " <> reason
+    Fetched(_, _, _) -> "fetched"
+    NotFetched -> "enter to fetch"
+  }
+  [
+    ui.text_styled("source", Some(style.White), None),
+    ui.text(body),
+    ui.br(),
+    ui.text(fetch_button_label),
+    ui.text("status: " <> status_line),
+  ]
+}
+
 fn resolve_source(
   source: nav.SourceEntry,
   depth: core.DepthMode,
@@ -1239,6 +1314,8 @@ fn resolve_source(
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case source.key {
+    "tuna_normalized" ->
+      tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(source.entry_point)
       bandcamp_live_expander.resolve_profile_with_debug(

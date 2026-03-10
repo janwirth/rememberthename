@@ -6,11 +6,11 @@ pub fn live_bandcamp_follows_unified_depth_spec_test() {
   let source = sources.bandcamp()
   let profile = bandcamp_live_expander.bandcamp_profile(sources.entry_point(source))
   let results =
-    depth_test_spec.resolve_standard_depths(fn(depth) {
+    depth_test_spec.resolve_standard_depths(fn(depth, cache_mode) {
       bandcamp_live_expander.resolve_profile(
         profile,
         depth,
-        sources.use_cache(source),
+        cache_mode,
       )
     })
   depth_test_spec.assert_standard_depth_pattern(

@@ -1,4 +1,3 @@
-import spotify_adapter_test
 import gleeunit
 
 pub fn main() {
@@ -11,5 +10,7 @@ pub fn main() {
 
   // Spotify-only run
   // spotify_adapter_test.live_spotify_user_follows_unified_depth_spec_test()
+  // tuna_source_id_normalizer_test.live_tuna_source_ids_normalize_when_available_test()
   gleeunit.main()
 }
+

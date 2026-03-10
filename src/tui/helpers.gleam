@@ -47,7 +47,7 @@ pub fn track_panel_nodes(
   viewport_size: Int,
 ) -> List(shore.Node(msg)) {
   case lines {
-    [] -> [ui.text("(no tracks yet; run a depth fetch in middle panel)")]
+    [] -> [ui.text("enter to fetch")]
     _ -> {
       let visible = visible_track_lines(lines, selected_index, viewport_size)
       list.map(visible, fn(entry) {

@@ -24,7 +24,10 @@ pub type View {
 }
 
 pub fn source_entries() -> List(SourceEntry) {
-  list.map(source_specs.all(), source_entry_from_spec)
+  list.append(
+    list.map(source_specs.all(), source_entry_from_spec),
+    [tuna_normalized_source()],
+  )
 }
 
 pub fn section_count() -> Int {
@@ -126,5 +129,18 @@ fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
     min_full_items: min_full_items,
     first_items_to_preserve: first_items_to_preserve,
     anchor_fragments: anchor_fragments,
+  )
+}
+
+fn tuna_normalized_source() -> SourceEntry {
+  SourceEntry(
+    key: "tuna_normalized",
+    name: "Tuna Normalized IDs",
+    entry_point: "gel:tuna/main::default::Track",
+    cache_mode: cache.CacheUpsert,
+    min_depth_1_items: 1,
+    min_full_items: 1,
+    first_items_to_preserve: 1,
+    anchor_fragments: [],
   )
 }
