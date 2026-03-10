@@ -15,7 +15,7 @@ pub fn live_soundcloud_follows_unified_depth_spec_test() {
     results,
     depth_test_spec.DepthAssertSpec(
       min_depth_1_items: 10,
-      min_full_items: 40,
+      min_full_items: 1000,
       first_items_to_preserve: 3,
       anchor_fragments: [
         "A Horse with no Name (Edit)",
