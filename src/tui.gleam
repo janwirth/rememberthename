@@ -355,7 +355,7 @@ fn fetch_selected_depth(
 fn view(model: Model) -> shore.Node(Msg) {
   let sidebar_items = sidebar_item_nodes(model.selected_index, model.focus)
   let sidebar_children =
-    [ui.text_styled("adapter cache: per-source", Some(style.Yellow), None), ui.br()]
+    []
     |> list.append(sidebar_items)
     |> list.append([
       ui.keybind(key.Up, MoveUp),
@@ -394,13 +394,13 @@ fn view(model: Model) -> shore.Node(Msg) {
   let main_content =
     ui.box(
       main_children,
-      Some("Selected view: " <> selected_title),
+      Some(selected_title),
     )
 
   let tracks_content =
     ui.box(
       track_panel_nodes(model),
-      Some("Tracks"),
+      Some("Tracks (" <> int.to_string(list.length(model.current_track_lines)) <> ")"),
     )
 
   layout.grid(
@@ -485,8 +485,8 @@ fn sidebar_item_nodes_loop(
     True -> items
     False -> {
       let title = menu_item_title(current_index)
-      let is_selected = current_index == selected_index && focus == SidebarPane
-      let node = helpers.red_dot_node(title, is_selected)
+      let is_selected = current_index == selected_index
+      let node = helpers.sidebar_item_node(title, is_selected, focus == SidebarPane)
       sidebar_item_nodes_loop(
         selected_index,
         focus,

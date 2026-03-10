@@ -25,6 +25,21 @@ pub fn red_dot_node(text: String, selected: Bool) -> shore.Node(msg) {
   }
 }
 
+pub fn sidebar_item_node(
+  text: String,
+  selected: Bool,
+  sidebar_focused: Bool,
+) -> shore.Node(msg) {
+  case selected {
+    True ->
+      case sidebar_focused {
+        True -> red_dot_node(text, True)
+        False -> ui.text_styled("  " <> text, Some(style.Black), Some(style.White))
+      }
+    False -> red_dot_node(text, False)
+  }
+}
+
 pub fn track_panel_nodes(
   lines: List(String),
   selected_index: Int,
