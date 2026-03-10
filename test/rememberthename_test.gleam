@@ -1,4 +1,5 @@
 import spotify_adapter_test
+import gleeunit
 
 pub fn main() {
   // Manual test selection:
@@ -9,5 +10,6 @@ pub fn main() {
   // youtube_adapter_test.live_youtube_follows_unified_depth_spec_test()
 
   // Spotify-only run
-  spotify_adapter_test.live_spotify_user_follows_unified_depth_spec_test()
+  // spotify_adapter_test.live_spotify_user_follows_unified_depth_spec_test()
+  gleeunit.main()
 }
