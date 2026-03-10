@@ -44,6 +44,35 @@ Required output detail:
 - list metadata (`title`, `track_ids`, `list_ids`, `service`, `source_type`, `source_id`)
 - no media bytes, no artwork bytes
 
+## 3.1 Adapter Interface Contract
+
+Each adapter module must expose:
+- an internal traversal union type (module-owned)
+- a profile entry constructor for traversal start
+- an expand function that maps one traversal node to emitted payload + child nodes
+
+Reference shape (spec-level):
+
+- internal union:
+  - `AdapterNode`
+  - constructors must include at least:
+    - `ProfileEntry(SourceIdentity)` (entry point)
+    - additional internal constructors as needed (`CategoryNode`, `ListNode`, `PageNode`, ...)
+- higher-kinded/effect shape:
+  - `expand: AdapterNode -> m(ExpandResult)`
+  - where `m(_)` is adapter-selected effect context (sync/async/task), hidden behind module API
+- expand result:
+  - `items: List(UnifiedItem)`
+  - `lists: List(UnifiedCollection)`
+  - `next_nodes: List(AdapterNode)`
+  - `unresolved: List(UnresolvedNode)` (optional incremental unresolved emission)
+
+Design rules:
+- `AdapterNode` is internal to each adapter module (not shared globally).
+- callers can only construct traversal via `ProfileEntry(...)`.
+- node identity key must be deterministic for visited-set dedupe.
+- emitted `next_nodes` must preserve deterministic order.
+
 ## 4) Update Stream
 
 Per-job event stream is minimal and ordered:
@@ -54,6 +83,11 @@ Per-job event stream is minimal and ordered:
 ## 5) Internally
 
 Structural recursion, in-order, no parallelism beyond adapter level.
+
+Recursive runtime model:
+- `resolve_profile(profile)` initializes queue with `ProfileEntry(profile)`.
+- `loop(queue, visited, acc, ...)` is tail-recursive.
+- loop terminates only when queue is empty.
 
 ## 6) Testing & Evolution
 

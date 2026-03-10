@@ -181,6 +181,31 @@ Required behavior:
 - No infinite recursion.
 - Same source visited at most once.
 
+### 7.1 Recursive Queue Function Model
+
+Resolution must be implemented as a recursive function over an explicit queue state (tail-recursive loop).
+
+State shape:
+- `queue: List(AdapterNode)` (pending traversal nodes)
+- `visited: Set(String)` (node keys)
+- `items: Dict(String, UnifiedItem)` (dedup by canonical key)
+- `lists: Dict(String, UnifiedCollection)` (dedup by canonical key)
+- `unresolved: List(UnresolvedNode)`
+
+Recursive step:
+- if `queue` is empty -> return final result
+- pop head node
+- if visited -> recurse with remaining queue
+- else expand node through adapter
+- merge emitted items/lists
+- append emitted child nodes to queue
+- recurse with updated state
+
+This model is mandatory for:
+- nested list traversal
+- profile-category traversal
+- page `2..n` traversal via emitted page/list nodes
+
 ## 8) Unified API
 
 Unified API responsibilities:
