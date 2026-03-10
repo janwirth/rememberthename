@@ -371,37 +371,25 @@ fn view(model: Model) -> shore.Node(Msg) {
 
   let sidebar = ui.box(sidebar_children, Some("Sidebar"))
 
-  let main_children = case model.focus {
-    SidebarPane -> {
-      let selected_title = menu_item_title(model.selected_index)
-      [
-        ui.text("Selected: " <> selected_title),
-        ui.hr(),
-        ui.text("Browse sources with Up/Down."),
-        ui.text("Press Right to open source details."),
-        ui.text("Press Enter in details to fetch selected depth."),
-      ]
-    }
-    _ -> {
-      let #(title, body) = selected_content(model.selected_index)
-      [ui.text(title), ui.hr()]
-      |> list.append(validation_view_nodes(model))
-      |> list.append([
-        ui.text_wrapped(body),
-        ui.br(),
-        ui.hr(),
-        ui.text("Depth results"),
-      ])
-      |> list.append(depth_nodes(model))
-      |> list.append([
-        ui.br(),
-        ui.text_wrapped(selected_depth_details(model)),
-        ui.br(),
-        ui.text("Debug"),
-        ui.hr(),
-      ])
-      |> list.append(debug_nodes(model.current_debug_lines))
-    }
+  let main_children = {
+    let #(title, body) = selected_content(model.selected_index)
+    [ui.text(title), ui.hr()]
+    |> list.append(validation_view_nodes(model))
+    |> list.append([
+      ui.text(body),
+      ui.br(),
+      ui.hr(),
+      ui.text("Depth results"),
+    ])
+    |> list.append(depth_nodes(model))
+    |> list.append([
+      ui.br(),
+      ui.text(selected_depth_details(model)),
+      ui.br(),
+      ui.text("Debug"),
+      ui.hr(),
+    ])
+    |> list.append(debug_nodes(model.current_debug_lines))
   }
   let main_content =
     ui.box(
