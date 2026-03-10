@@ -394,7 +394,7 @@ fn view(model: Model) -> shore.Node(Msg) {
   let main_content =
     ui.box(
       main_children,
-      Some(selected_title),
+      Some("Selected view: " <> selected_title),
     )
 
   let tracks_content =
