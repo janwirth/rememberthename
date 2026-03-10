@@ -130,6 +130,21 @@ type SourceEntry {
   )
 }
 
+type MenuItem {
+  RunAllSourcesItem
+  SourceItem(SourceEntry)
+  ExitItem
+}
+
+type SourceRun {
+  SourceRun(
+    source: SourceEntry,
+    depth_1: core.ResolveResult,
+    depth_3: core.ResolveResult,
+    depth_all: core.ResolveResult,
+  )
+}
+
 type Msg {
   MoveUp
   MoveDown
@@ -139,6 +154,7 @@ type Msg {
   EscPressed
   ExitPressed
   FetchCompleted(String, DepthKind, DepthStatus, List(String), List(String))
+  FetchAllCompleted(FetchBundle, List(String), List(String))
   Noop
 }
 
@@ -227,11 +243,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             True -> #(Model(..model, focus: TracksPane), [])
             False -> #(model, [])
           }
-        SidebarPane ->
-          case selected_source(model.selected_index) {
-            None -> #(model, [])
-            Some(source) -> focus_detail(model, source)
-          }
+        SidebarPane -> focus_selected_detail(model)
       }
     MoveLeft ->
       case model.focus {
@@ -244,16 +256,13 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         SidebarPane ->
           case is_exit_selected(model.selected_index) {
             True -> request_exit(model)
-            False ->
-              case selected_source(model.selected_index) {
-                None -> #(model, [])
-                Some(source) -> focus_detail(model, source)
-              }
+            False -> focus_selected_detail(model)
           }
         DetailPane ->
-          case selected_source(model.selected_index) {
-            None -> #(model, [])
-            Some(source) -> fetch_selected_depth(model, source)
+          case selected_menu_item(model.selected_index) {
+            RunAllSourcesItem -> fetch_all_sources(model)
+            SourceItem(source) -> fetch_selected_depth(model, source)
+            ExitItem -> #(model, [])
           }
         TracksPane -> #(model, [])
       }
@@ -290,6 +299,16 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         )
       }
     }
+    FetchAllCompleted(bundle, track_lines, debug_lines) -> #(
+      Model(
+        ..model,
+        current_fetch: bundle,
+        track_selected_index: 0,
+        current_track_lines: track_lines,
+        current_debug_lines: debug_lines,
+      ),
+      [],
+    )
     Noop -> #(model, [])
   }
 }
@@ -317,6 +336,23 @@ fn focus_detail(
     ),
     [],
   )
+}
+
+fn focus_selected_detail(model: Model) -> #(Model, List(fn() -> Msg)) {
+  case selected_menu_item(model.selected_index) {
+    RunAllSourcesItem -> #(
+      Model(
+        ..model,
+        focus: DetailPane,
+        esc_armed: False,
+        current_fetch: empty_fetch_bundle(),
+        current_debug_lines: [],
+      ),
+      [],
+    )
+    SourceItem(source) -> focus_detail(model, source)
+    ExitItem -> #(model, [])
+  }
 }
 
 fn fetch_selected_depth(
@@ -348,6 +384,21 @@ fn fetch_selected_depth(
         track_lines,
         collect_debug_lines(debug_subject, []),
       )
+    },
+  ])
+}
+
+fn fetch_all_sources(model: Model) -> #(Model, List(fn() -> Msg)) {
+  let staged = FetchBundle(Fetching, Fetching, Fetching)
+  #(Model(..model, current_fetch: staged), [
+    fn() {
+      let debug_subject = process.new_subject()
+      let runs = run_all_source_tests(source_entries(), debug_subject)
+      let bundle = bundle_from_runs(runs)
+      let track_lines = validation_lines_from_runs(runs)
+      let debug_lines =
+        list.append(track_lines, collect_debug_lines(debug_subject, []))
+      FetchAllCompleted(bundle, track_lines, debug_lines)
     },
   ])
 }
@@ -420,7 +471,7 @@ fn section_count() -> Int {
 }
 
 fn menu_count() -> Int {
-  section_count() + 1
+  section_count() + 2
 }
 
 fn previous_index(index: Int) -> Int {
@@ -438,19 +489,34 @@ fn next_index(index: Int) -> Int {
 }
 
 fn is_exit_selected(index: Int) -> Bool {
-  index == section_count()
+  index == section_count() + 1
+}
+
+fn selected_menu_item(index: Int) -> MenuItem {
+  case index {
+    0 -> RunAllSourcesItem
+    _ ->
+      case is_exit_selected(index) {
+        True -> ExitItem
+        False ->
+          case source_at(source_entries(), index - 1, 0) {
+            Some(source) -> SourceItem(source)
+            None -> ExitItem
+          }
+      }
+  }
 }
 
 fn selected_source(index: Int) -> Option(SourceEntry) {
-  case is_exit_selected(index) {
-    True -> None
-    False -> source_at(source_entries(), index, 0)
+  case selected_menu_item(index) {
+    SourceItem(source) -> Some(source)
+    _ -> None
   }
 }
 
 fn section_at(index: Int) -> #(String, String) {
-  case source_at(source_entries(), index, 0) {
-    Some(source) -> #(source.name, source_info_details(source))
+  case selected_menu_item(index) {
+    SourceItem(source) -> #(source.name, source_info_details(source))
     _ -> #("Unknown Source", "No source found at this index.")
   }
 }
@@ -459,49 +525,65 @@ fn sidebar_item_nodes(
   selected_index: Int,
   focus: FocusPane,
 ) -> List(shore.Node(Msg)) {
-  sidebar_item_nodes_loop(selected_index, focus, 0, [], menu_count())
-  |> list.reverse
+  let run_all_node = sidebar_node_for_index(0, selected_index, focus)
+  let sources =
+    source_sidebar_nodes_loop(selected_index, focus, 0, section_count(), [])
+    |> list.reverse
+  let exit_node = sidebar_node_for_index(menu_count() - 1, selected_index, focus)
+  [run_all_node, ui.br()]
+  |> list.append(sources)
+  |> list.append([ui.br(), exit_node])
 }
 
 fn menu_item_title(index: Int) -> String {
-  case is_exit_selected(index) {
-    True -> "Exit"
-    False ->
-      case source_at(source_entries(), index, 0) {
-        Some(source) -> source.name
-        _ -> "Unknown"
-      }
+  case selected_menu_item(index) {
+    RunAllSourcesItem -> "Run all sources"
+    ExitItem -> "Exit"
+    SourceItem(source) -> source.name
   }
 }
 
-fn sidebar_item_nodes_loop(
+fn sidebar_node_for_index(
+  menu_index: Int,
   selected_index: Int,
   focus: FocusPane,
-  current_index: Int,
+) -> shore.Node(Msg) {
+  let title = menu_item_title(menu_index)
+  let is_selected = menu_index == selected_index
+  helpers.sidebar_item_node(title, is_selected, focus == SidebarPane)
+}
+
+fn source_sidebar_nodes_loop(
+  selected_index: Int,
+  focus: FocusPane,
+  source_index: Int,
+  source_count: Int,
   items: List(shore.Node(Msg)),
-  max: Int,
 ) -> List(shore.Node(Msg)) {
-  case current_index >= max {
+  case source_index >= source_count {
     True -> items
     False -> {
-      let title = menu_item_title(current_index)
-      let is_selected = current_index == selected_index
-      let node = helpers.sidebar_item_node(title, is_selected, focus == SidebarPane)
-      sidebar_item_nodes_loop(
+      let node = sidebar_node_for_index(source_index + 1, selected_index, focus)
+      source_sidebar_nodes_loop(
         selected_index,
         focus,
-        current_index + 1,
+        source_index + 1,
+        source_count,
         [node, ..items],
-        max,
       )
     }
   }
 }
 
 fn selected_content(index: Int) -> #(String, String) {
-  case is_exit_selected(index) {
-    True -> #("Exit", "Press Enter to gracefully close the Shore demo.")
-    False -> section_at(index)
+  case selected_menu_item(index) {
+    RunAllSourcesItem ->
+      #(
+        "Run all source tests",
+        "Press Enter in this panel to run depth 1/3/all for every source.",
+      )
+    ExitItem -> #("Exit", "Press Enter to gracefully close the Shore demo.")
+    SourceItem(_) -> section_at(index)
   }
 }
 
@@ -721,16 +803,29 @@ fn selected_depth_details(model: Model) -> String {
   }
   case status {
     Fetched(_, details, _) -> details
-    Fetching -> "Fetching selected depth..."
-    NotFetched -> "Press Enter to fetch selected depth."
+    Fetching ->
+      case selected_menu_item(model.selected_index) {
+        RunAllSourcesItem -> "Running all source tests..."
+        _ -> "Fetching selected depth..."
+      }
+    NotFetched ->
+      case selected_menu_item(model.selected_index) {
+        RunAllSourcesItem ->
+          "Press Enter to run depth 1/3/all test suite for every source."
+        _ -> "Press Enter to fetch selected depth."
+      }
     FetchFailed(reason) -> "Fetch failed: " <> reason
   }
 }
 
 fn validation_view_nodes(model: Model) -> List(shore.Node(Msg)) {
-  case selected_source(model.selected_index) {
-    None -> helpers.validation_unavailable_nodes()
-    Some(source) -> {
+  case selected_menu_item(model.selected_index) {
+    RunAllSourcesItem -> [
+      ui.text_styled("validation: aggregate mode", Some(style.White), None),
+      ui.text("[-] run and inspect right panel for per-source pass/fail"),
+    ]
+    ExitItem -> helpers.validation_unavailable_nodes()
+    SourceItem(source) -> {
       helpers.validation_nodes(
         source.min_depth_1_items,
         source.min_full_items,
@@ -815,6 +910,154 @@ fn resolve_source(
         on_debug,
       )
     }
+  }
+}
+
+fn run_all_source_tests(
+  sources: List(SourceEntry),
+  debug_subject: process.Subject(String),
+) -> List(SourceRun) {
+  run_all_source_tests_loop(sources, debug_subject, [])
+}
+
+fn run_all_source_tests_loop(
+  sources: List(SourceEntry),
+  debug_subject: process.Subject(String),
+  acc: List(SourceRun),
+) -> List(SourceRun) {
+  case sources {
+    [] -> list.reverse(acc)
+    [source, ..rest] -> {
+      let depth_1 =
+        resolve_source(
+          source,
+          core.Depth1,
+          source.use_cache,
+          fn(line) {
+            process.send(debug_subject, "[" <> source.name <> "][depth1] " <> line)
+          },
+        )
+      let depth_3 =
+        resolve_source(
+          source,
+          core.Depth3,
+          source.use_cache,
+          fn(line) {
+            process.send(debug_subject, "[" <> source.name <> "][depth3] " <> line)
+          },
+        )
+      let depth_all =
+        resolve_source(
+          source,
+          core.All,
+          source.use_cache,
+          fn(line) {
+            process.send(debug_subject, "[" <> source.name <> "][depth-all] " <> line)
+          },
+        )
+      run_all_source_tests_loop(
+        rest,
+        debug_subject,
+        [SourceRun(source, depth_1, depth_3, depth_all), ..acc],
+      )
+    }
+  }
+}
+
+fn bundle_from_runs(runs: List(SourceRun)) -> FetchBundle {
+  FetchBundle(
+    depth_1: depth_status_from_runs(runs, Depth1Kind),
+    depth_3: depth_status_from_runs(runs, Depth3Kind),
+    depth_all: depth_status_from_runs(runs, DepthAllKind),
+  )
+}
+
+fn depth_status_from_runs(runs: List(SourceRun), kind: DepthKind) -> DepthStatus {
+  let summary = summarize_depth_runs(runs, kind)
+  let details = depth_details_from_runs(runs, kind)
+  Fetched(summary, details, core.ResolveResult([], [], []))
+}
+
+fn summarize_depth_runs(runs: List(SourceRun), kind: DepthKind) -> String {
+  let #(items, lists, unresolved) = depth_totals_from_runs(runs, kind, #(0, 0, 0))
+  "sources="
+  <> int.to_string(list.length(runs))
+  <> " items="
+  <> int.to_string(items)
+  <> " lists="
+  <> int.to_string(lists)
+  <> " unresolved="
+  <> int.to_string(unresolved)
+}
+
+fn depth_totals_from_runs(
+  runs: List(SourceRun),
+  kind: DepthKind,
+  acc: #(Int, Int, Int),
+) -> #(Int, Int, Int) {
+  case runs {
+    [] -> acc
+    [run, ..rest] -> {
+      let #(items_acc, lists_acc, unresolved_acc) = acc
+      let result = depth_result_for_run(run, kind)
+      let core.ResolveResult(items, lists, unresolved) = result
+      depth_totals_from_runs(
+        rest,
+        kind,
+        #(
+          items_acc + list.length(items),
+          lists_acc + list.length(lists),
+          unresolved_acc + list.length(unresolved),
+        ),
+      )
+    }
+  }
+}
+
+fn depth_details_from_runs(runs: List(SourceRun), kind: DepthKind) -> String {
+  runs
+  |> list.map(fn(run) {
+    let SourceRun(source, _, _, _) = run
+    let result = depth_result_for_run(run, kind)
+    source.name <> ": " <> summarize_result(result)
+  })
+  |> string.join("\n")
+}
+
+fn validation_lines_from_runs(runs: List(SourceRun)) -> List(String) {
+  list.map(runs, fn(run) {
+    let SourceRun(source, depth_1, depth_3, depth_all) = run
+    let helpers.ValidationView(label, _, checks) =
+      helpers.build_validation(
+        source.min_depth_1_items,
+        source.min_full_items,
+        source.first_items_to_preserve,
+        source.anchor_fragments,
+        Some(depth_1),
+        Some(depth_3),
+        Some(depth_all),
+      )
+    let failed_checks =
+      list.filter(checks, fn(check) {
+        string.starts_with(check, "[ ]") || string.starts_with(check, "  -")
+      })
+    case label {
+      "PASS" -> source.name <> ": PASS"
+      _ ->
+        case failed_checks {
+          [] -> source.name <> ": FAIL"
+          _ -> source.name <> ": FAIL | " <> string.join(failed_checks, " | ")
+        }
+    }
+  })
+}
+
+fn depth_result_for_run(run: SourceRun, kind: DepthKind) -> core.ResolveResult {
+  let SourceRun(_, depth_1, depth_3, depth_all) = run
+  case kind {
+    Depth1Kind -> depth_1
+    Depth3Kind -> depth_3
+    DepthAllKind -> depth_all
   }
 }
 
