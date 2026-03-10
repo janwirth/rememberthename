@@ -2,6 +2,7 @@
 %% Spotify public user/profile HTTP helpers.
 -export([
     read_access_token_file/1,
+    read_env_value/2,
     ensure_access_token/5,
     user_playlists_json/3,
     playlist_tracks_json/3,
@@ -19,6 +20,23 @@ read_access_token_file(SessionFile) ->
                 case Token of
                     <<>> -> trim(Body);
                     _ -> Token
+                end;
+            _ ->
+                <<>>
+        end
+    catch
+        _:_ -> <<>>
+    end.
+
+read_env_value(FilePath, Key) ->
+    try
+        case file:read_file(FilePath) of
+            {ok, Body} when byte_size(Body) > 0 ->
+                KeyBin = iolist_to_binary(Key),
+                Pattern = <<"(?:^|\\n)", KeyBin/binary, "=([^\\n\\r]*)">>,
+                case re:run(Body, Pattern, [{capture, [1], binary}]) of
+                    {match, [Value]} -> trim(Value);
+                    _ -> <<>>
                 end;
             _ ->
                 <<>>
@@ -179,7 +197,7 @@ log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes) ->
     AuthUrl = <<
         "https://accounts.spotify.com/authorize?client_id=",
         (iolist_to_binary(ClientId))/binary,
-        "&response_type=token&redirect_uri=",
+        "&response_type=code&redirect_uri=",
         EncRedirect/binary,
         "&scope=",
         EncScopes/binary,
@@ -187,8 +205,9 @@ log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes) ->
     >>,
     io:format("~n[spotify-oauth] No session found at ~s~n", [SessionFile]),
     io:format("[spotify-oauth] Open this URL and authorize:~n~s~n", [AuthUrl]),
-    io:format("[spotify-oauth] Then store JSON in session file:~n", []),
-    io:format("{\"access_token\":\"<token-from-redirect-fragment>\",\"token_type\":\"Bearer\"}~n", []),
+    io:format("[spotify-oauth] Copy the `code` query param from redirect URL.~n", []),
+    io:format("[spotify-oauth] Exchange code at /api/token with client_id/client_secret, then store JSON:~n", []),
+    io:format("{\"access_token\":\"<token-from-token-endpoint>\",\"token_type\":\"Bearer\"}~n", []),
     io:format("[spotify-oauth] Session file path: ~s~n~n", [SessionFile]),
     _ = os:cmd(binary_to_list(<<"open \"", AuthUrl/binary, "\"">>)),
     ok.

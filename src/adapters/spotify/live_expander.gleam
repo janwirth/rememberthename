@@ -8,6 +8,9 @@ import adapters/core
 @external(erlang, "spotify_http", "read_access_token_file")
 pub fn read_access_token_file(session_file: String) -> String
 
+@external(erlang, "spotify_http", "read_env_value")
+pub fn read_env_value(file_path: String, key: String) -> String
+
 @external(erlang, "spotify_http", "ensure_access_token")
 fn ensure_access_token(
   provided_token: String,
