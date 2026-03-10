@@ -1,4 +1,35 @@
-//// Spotify live adapter (public user playlists).
+//// Spotify adapter documentation (merged from `SPOTIFY_SPEC.md`)
+////
+//// Scope and root inputs:
+//// - Supports authenticated Spotify likes traversal via profile entry roots.
+//// - Runtime target is the user-scoped liked tracks feed (`/v1/me/tracks`).
+////
+//// Auth/API contract:
+//// - OAuth bearer token is required.
+//// - Token resolution order: provided token -> session file -> OAuth guidance.
+//// - Missing/invalid auth resolves to unresolved profile nodes (no process crash).
+////
+//// Intermediary mapping:
+//// - Each fetched page is normalized into `UnifiedItem` values with canonical ids:
+////   `spotify:item:<track_id>`.
+//// - Liked tracks are emitted as collection:
+////   `spotify:collection:likes` ("Liked Songs").
+//// - Item and collection identity follow canonical `service/source_type/source_id`
+////   conventions from the shared adapter spec.
+////
+//// Depth semantics in this adapter:
+//// - Depth1: first page of `/v1/me/tracks` (limit=50), plus collection shell.
+//// - DepthN: follows `next` pagination offsets page-by-page up to depth budget.
+//// - DepthAll: exhausts all reachable liked-tracks pages.
+////
+//// Ordering and dedup:
+//// - Preserves Spotify API order within each page.
+//// - Preserves traversal order across pages.
+//// - Deduplication is handled by the core resolver using canonical item identity.
+////
+//// Notes:
+//// - This implementation currently focuses on liked tracks.
+//// - Saved albums and album-track expansion are not implemented in this module.
 import gleam/int
 import gleam/list
 import gleam/result
@@ -20,17 +51,8 @@ fn ensure_access_token(
   scopes: String,
 ) -> String
 
-@external(erlang, "spotify_http", "user_playlists_json")
-fn user_playlists_json(user_id: String, token: String, offset: Int) -> String
-
-@external(erlang, "spotify_http", "playlist_tracks_json")
-fn playlist_tracks_json(playlist_id: String, token: String, offset: Int) -> String
-
-@external(erlang, "spotify_http", "playlists_tsv")
-fn playlists_tsv(json: String) -> String
-
-@external(erlang, "spotify_http", "playlists_next_offset")
-fn playlists_next_offset(json: String) -> String
+@external(erlang, "spotify_http", "liked_tracks_json")
+fn liked_tracks_json(token: String, offset: Int) -> String
 
 @external(erlang, "spotify_http", "tracks_tsv")
 fn tracks_tsv(json: String) -> String
@@ -105,37 +127,16 @@ fn expand_profile(profile_url: String, config: SpotifyConfig) -> core.ExpandResu
         unresolved: [core.ProfileEntry(profile_url)],
       )
     False ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [core.CategoryNode("playlists|" <> user_id <> "|" <> token <> "|0")],
-        unresolved: [],
-      )
+      emit_liked_tracks(token, 0)
   }
 }
 
 fn expand_playlists(ctx: String) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    ["playlists", user_id, token, offset_str] -> {
+    ["likes", token, offset_str] -> {
       let offset = to_int(offset_str)
-      let json = user_playlists_json(user_id, token, offset)
-      let playlist_lines = parse_lines(playlists_tsv(json))
-      let playlist_nodes =
-        list.filter_map(playlist_lines, fn(line) {
-          let cols = string.split(line, "\t")
-          case cols {
-            [playlist_id, _] if playlist_id != "" ->
-              Ok(core.ListNode("playlist|" <> playlist_id <> "|" <> token))
-            _ -> Error(Nil)
-          }
-        })
-      let next_offset = string.trim(playlists_next_offset(json))
-      let next_nodes =
-        case next_offset != "" {
-          True -> list.append(playlist_nodes, [core.CategoryNode("playlists|" <> user_id <> "|" <> token <> "|" <> next_offset)])
-          False -> playlist_nodes
-        }
+      let next_nodes = [core.ListNode("likes|" <> token <> "|" <> int.to_string(offset))]
       core.ExpandResult(
         items: [],
         lists: [],
@@ -156,8 +157,8 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
 fn expand_playlist_tracks(ctx: String) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    ["playlist", playlist_id, token] ->
-      emit_playlist_tracks(playlist_id, token, 0)
+    ["likes", token, offset_str] ->
+      emit_liked_tracks(token, to_int(offset_str))
     _ ->
       core.ExpandResult(
         items: [],
@@ -171,8 +172,8 @@ fn expand_playlist_tracks(ctx: String) -> core.ExpandResult {
 fn expand_track_page(ctx: String) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    ["playlist_page", playlist_id, token, offset_str] ->
-      emit_playlist_tracks(playlist_id, token, to_int(offset_str))
+    ["likes_page", token, offset_str] ->
+      emit_liked_tracks(token, to_int(offset_str))
     _ ->
       core.ExpandResult(
         items: [],
@@ -183,17 +184,16 @@ fn expand_track_page(ctx: String) -> core.ExpandResult {
   }
 }
 
-fn emit_playlist_tracks(
-  playlist_id: String,
+fn emit_liked_tracks(
   token: String,
   offset: Int,
 ) -> core.ExpandResult {
-  let json = playlist_tracks_json(playlist_id, token, offset)
+  let json = liked_tracks_json(token, offset)
   let items = parse_track_items(tracks_tsv(json))
   let collection =
     core.UnifiedCollection(
-      id: "spotify:collection:playlist:" <> playlist_id,
-      title: "Playlist " <> playlist_id,
+      id: "spotify:collection:likes",
+      title: "Liked Songs",
       track_ids:
         list.map(items, fn(item) {
           let core.UnifiedItem(id, _, _, _, _, _) = item
@@ -202,12 +202,12 @@ fn emit_playlist_tracks(
       list_ids: [],
       service: "spotify",
       source_type: "collection",
-      source_id: "spotify:collection:playlist:" <> playlist_id,
+      source_id: "spotify:collection:likes",
     )
   let next_offset = string.trim(tracks_next_offset(json))
   let next_nodes =
     case next_offset != "" {
-      True -> [core.PageNode("playlist_page|" <> playlist_id <> "|" <> token <> "|" <> next_offset)]
+      True -> [core.PageNode("likes_page|" <> token <> "|" <> next_offset)]
       False -> []
     }
   core.ExpandResult(

@@ -4,10 +4,7 @@
     read_access_token_file/1,
     read_env_value/2,
     ensure_access_token/5,
-    user_playlists_json/3,
-    playlist_tracks_json/3,
-    playlists_tsv/1,
-    playlists_next_offset/1,
+    liked_tracks_json/2,
     tracks_tsv/1,
     tracks_next_offset/1
 ]).
@@ -16,7 +13,7 @@ read_access_token_file(SessionFile) ->
     try
         case file:read_file(SessionFile) of
             {ok, Body} when byte_size(Body) > 0 ->
-                Token = trim(extract_between(Body, <<"\"access_token\":\"">>, <<"\"">>)),
+                Token = extract_access_token_json(Body),
                 case Token of
                     <<>> -> trim(Body);
                     _ -> Token
@@ -26,6 +23,12 @@ read_access_token_file(SessionFile) ->
         end
     catch
         _:_ -> <<>>
+    end.
+
+extract_access_token_json(Body) ->
+    case re:run(Body, <<"\"access_token\"\\s*:\\s*\"([^\"]+)\"">>, [{capture, [1], binary}]) of
+        {match, [Token]} -> trim(Token);
+        _ -> trim(extract_between(Body, <<"\"access_token\":\"">>, <<"\"">>))
     end.
 
 read_env_value(FilePath, Key) ->
@@ -59,37 +62,12 @@ ensure_access_token(ProvidedToken, SessionFile, ClientId, RedirectUri, Scopes) -
             Token
     end.
 
-user_playlists_json(UserId, Token, Offset) ->
+liked_tracks_json(Token, Offset) ->
     Url = <<
-        "https://api.spotify.com/v1/users/",
-        UserId/binary,
-        "/playlists?limit=50&offset=",
+        "https://api.spotify.com/v1/me/tracks?limit=50&offset=",
         (int_to_bin(Offset))/binary
     >>,
     api_get(Url, Token).
-
-playlist_tracks_json(PlaylistId, Token, Offset) ->
-    Url = <<
-        "https://api.spotify.com/v1/playlists/",
-        PlaylistId/binary,
-        "/tracks?limit=100&offset=",
-        (int_to_bin(Offset))/binary
-    >>,
-    api_get(Url, Token).
-
-playlists_tsv(Json) ->
-    run_jq_on_json(
-        Json,
-        ".items[]? | [(.id // \"\"), (.name // \"\")] | @tsv"
-    ).
-
-playlists_next_offset(Json) ->
-    trim(
-        run_jq_on_json(
-            Json,
-            "(.offset // 0) as $o | (.limit // 0) as $l | (.next // null) | if . == null then \"\" else (($o + $l) | tostring) end"
-        )
-    ).
 
 tracks_tsv(Json) ->
     run_jq_on_json(
