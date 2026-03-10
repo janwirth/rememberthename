@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import soundcloud_adapter
 
@@ -11,7 +12,8 @@ pub fn depth_1_stops_after_profile_test() {
   let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth1, fake_expand)
   let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
 
-  assert item_ids(items) == []
+  assert list.length(items) >= 10
+  assert contains_item_id(items, "d1-track-01")
   assert list_ids(lists) == ["profile-root"]
   assert unresolved == []
 }
@@ -26,22 +28,40 @@ pub fn depth_2_expands_one_more_hop_test() {
   let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth2, fake_expand)
   let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
 
-  assert item_ids(items) == ["track-a", "track-b"]
+  assert list.length(items) >= 30
+  assert contains_item_id(items, "d2b-track-10")
   assert list_ids(lists) == ["profile-root", "list-b", "list-a"]
   assert unresolved == [soundcloud_adapter.ListNode("list-missing")]
 }
 
-pub fn full_depth_recurses_lists_categories_and_pages_test() {
+pub fn depth_3_recurses_lists_categories_and_pages_test() {
   let profile =
     soundcloud_adapter.SourceIdentity(
       service: "soundcloud",
       source_type: "collection",
       source_id: "https://soundcloud.com/demo",
     )
-  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Full, fake_expand)
+  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.Depth3, fake_expand)
   let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
 
-  assert item_ids(items) == ["track-a", "track-b", "track-c"]
+  assert list.length(items) >= 30
+  assert contains_item_id(items, "track-c")
+  assert list_ids(lists) == ["profile-root", "list-b", "list-a", "list-c"]
+  assert unresolved == [soundcloud_adapter.ListNode("list-missing")]
+}
+
+pub fn all_depth_matches_depth_3_for_fixture_test() {
+  let profile =
+    soundcloud_adapter.SourceIdentity(
+      service: "soundcloud",
+      source_type: "collection",
+      source_id: "https://soundcloud.com/demo",
+    )
+  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, fake_expand)
+  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+
+  assert list.length(items) >= 30
+  assert contains_item_id(items, "track-c")
   assert list_ids(lists) == ["profile-root", "list-b", "list-a", "list-c"]
   assert unresolved == [soundcloud_adapter.ListNode("list-missing")]
 }
@@ -50,7 +70,7 @@ fn fake_expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.Expan
   case node {
     soundcloud_adapter.ProfileEntry(_) ->
       soundcloud_adapter.ExpandResult(
-        items: [],
+        items: make_depth_items("d1-track-", 10),
         lists: [
           make_list("profile-root", "Profile Root", ["track-a"], ["list-a", "list-b"]),
         ],
@@ -64,7 +84,7 @@ fn fake_expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.Expan
 
     soundcloud_adapter.CategoryNode("likes") ->
       soundcloud_adapter.ExpandResult(
-        items: [],
+        items: make_depth_items("d2cat-track-", 10),
         lists: [make_list("list-b", "Category List B", [], [])],
         next_nodes: [soundcloud_adapter.PageNode("likes:2")],
         unresolved: [],
@@ -80,7 +100,8 @@ fn fake_expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.Expan
 
     soundcloud_adapter.ListNode("list-a") ->
       soundcloud_adapter.ExpandResult(
-        items: [make_item("track-a", "Track A", "Artist A")],
+        items:
+          list.append([make_item("track-a", "Track A", "Artist A")], make_depth_items("d2a-track-", 10)),
         lists: [make_list("list-a", "List A", ["track-a"], [])],
         next_nodes: [],
         unresolved: [],
@@ -88,7 +109,8 @@ fn fake_expand(node: soundcloud_adapter.AdapterNode) -> soundcloud_adapter.Expan
 
     soundcloud_adapter.ListNode("list-b") ->
       soundcloud_adapter.ExpandResult(
-        items: [make_item("track-b", "Track B", "Artist B")],
+        items:
+          list.append([make_item("track-b", "Track B", "Artist B")], make_depth_items("d2b-track-", 10)),
         lists: [make_list("list-b", "List B", ["track-b"], ["list-c"])],
         next_nodes: [
           soundcloud_adapter.ListNode("list-c"),
@@ -143,16 +165,39 @@ fn make_list(
   )
 }
 
-fn item_ids(items: List(soundcloud_adapter.UnifiedItem)) -> List(String) {
-  list.map(items, fn(item) {
-    let soundcloud_adapter.UnifiedItem(id, _, _, _, _, _) = item
-    id
-  })
-}
-
 fn list_ids(lists: List(soundcloud_adapter.UnifiedCollection)) -> List(String) {
   list.map(lists, fn(collection) {
     let soundcloud_adapter.UnifiedCollection(id, _, _, _, _, _, _) = collection
     id
   })
 }
+
+fn contains_item_id(items: List(soundcloud_adapter.UnifiedItem), wanted: String) -> Bool {
+  list.any(items, fn(item) {
+    let soundcloud_adapter.UnifiedItem(id, _, _, _, _, _) = item
+    id == wanted
+  })
+}
+
+fn make_depth_items(prefix: String, count: Int) -> List(soundcloud_adapter.UnifiedItem) {
+  let numbers =
+    int.range(
+      from: 1,
+      to: count + 1,
+      with: [],
+      run: fn(acc, n) { list.append(acc, [n]) },
+    )
+  list.map(numbers, fn(n) {
+    let n_str = int_to_two_digits(n)
+    let id = prefix <> n_str
+    make_item(id, "Generated " <> id, "Generated Artist")
+  })
+}
+
+fn int_to_two_digits(n: Int) -> String {
+  case n < 10 {
+    True -> "0" <> int.to_string(n)
+    False -> int.to_string(n)
+  }
+}
+

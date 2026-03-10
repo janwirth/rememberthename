@@ -4,7 +4,7 @@
 -export([resolve_profile/3]).
 -export_type([depth_mode/0, source_identity/0, adapter_node/0, unified_item/0, unified_collection/0, expand_result/0, resolve_result/0]).
 
--type depth_mode() :: depth1 | depth2 | full.
+-type depth_mode() :: depth1 | depth2 | depth3 | depth10 | all.
 
 -type source_identity() :: {source_identity, binary(), binary(), binary()}.
 
@@ -41,7 +41,7 @@
         list(unified_collection()),
         list(adapter_node())}.
 
--file("src/soundcloud_adapter.gleam", 133).
+-file("src/soundcloud_adapter.gleam", 153).
 -spec can_expand(integer(), depth_mode()) -> boolean().
 can_expand(Level, Depth) ->
     case Depth of
@@ -51,17 +51,23 @@ can_expand(Level, Depth) ->
         depth2 ->
             Level < 2;
 
-        full ->
+        depth3 ->
+            Level < 3;
+
+        depth10 ->
+            Level < 10;
+
+        all ->
             true
     end.
 
--file("src/soundcloud_adapter.gleam", 141).
+-file("src/soundcloud_adapter.gleam", 163).
 -spec with_level(list(adapter_node()), integer()) -> list({adapter_node(),
     integer()}).
 with_level(Nodes, Level) ->
     gleam@list:map(Nodes, fun(Node) -> {Node, Level} end).
 
--file("src/soundcloud_adapter.gleam", 183).
+-file("src/soundcloud_adapter.gleam", 205).
 -spec item_key(unified_item()) -> binary().
 item_key(Item) ->
     {unified_item, _, _, _, Service, Source_type, Source_id} = Item,
@@ -69,7 +75,7 @@ item_key(Item) ->
             ":"/utf8>>/binary,
         Source_id/binary>>.
 
--file("src/soundcloud_adapter.gleam", 145).
+-file("src/soundcloud_adapter.gleam", 167).
 -spec merge_items(
     list(unified_item()),
     gleam@set:set(binary()),
@@ -93,7 +99,7 @@ merge_items(Items, Seen, Incoming) ->
         end
     ).
 
--file("src/soundcloud_adapter.gleam", 188).
+-file("src/soundcloud_adapter.gleam", 210).
 -spec collection_key(unified_collection()) -> binary().
 collection_key(Collection) ->
     {unified_collection, _, _, _, _, Service, Source_type, Source_id} = Collection,
@@ -101,7 +107,7 @@ collection_key(Collection) ->
             ":"/utf8>>/binary,
         Source_id/binary>>.
 
--file("src/soundcloud_adapter.gleam", 164).
+-file("src/soundcloud_adapter.gleam", 186).
 -spec merge_lists(
     list(unified_collection()),
     gleam@set:set(binary()),
@@ -125,7 +131,7 @@ merge_lists(Lists, Seen, Incoming) ->
         end
     ).
 
--file("src/soundcloud_adapter.gleam", 193).
+-file("src/soundcloud_adapter.gleam", 215).
 -spec node_key(adapter_node()) -> binary().
 node_key(Node) ->
     case Node of
@@ -145,7 +151,7 @@ node_key(Node) ->
             <<"page:"/utf8, Id@2/binary>>
     end.
 
--file("src/soundcloud_adapter.gleam", 80).
+-file("src/soundcloud_adapter.gleam", 84).
 -spec loop(
     list({adapter_node(), integer()}),
     gleam@set:set(binary()),
@@ -211,11 +217,35 @@ loop(
                             );
 
                         true ->
+                            gleam_stdlib:println(
+                                <<<<<<"[fetch] node="/utf8,
+                                            (node_key(Node))/binary>>/binary,
+                                        " level="/utf8>>/binary,
+                                    (erlang:integer_to_binary(Level))/binary>>
+                            ),
                             {expand_result,
                                 Next_items,
                                 Next_lists,
                                 Next_nodes,
                                 Next_unresolved} = Expand(Node),
+                            gleam_stdlib:println(
+                                <<<<<<<<<<<<<<"[fetched] node="/utf8,
+                                                            (node_key(Node))/binary>>/binary,
+                                                        " items="/utf8>>/binary,
+                                                    (erlang:integer_to_binary(
+                                                        erlang:length(
+                                                            Next_items
+                                                        )
+                                                    ))/binary>>/binary,
+                                                " lists="/utf8>>/binary,
+                                            (erlang:integer_to_binary(
+                                                erlang:length(Next_lists)
+                                            ))/binary>>/binary,
+                                        " next="/utf8>>/binary,
+                                    (erlang:integer_to_binary(
+                                        erlang:length(Next_nodes)
+                                    ))/binary>>
+                            ),
                             {Items@1, Item_seen@1} = merge_items(
                                 Items,
                                 Item_seen,
@@ -249,7 +279,7 @@ loop(
             end
     end.
 
--file("src/soundcloud_adapter.gleam", 62).
+-file("src/soundcloud_adapter.gleam", 66).
 -spec resolve_profile(
     source_identity(),
     depth_mode(),

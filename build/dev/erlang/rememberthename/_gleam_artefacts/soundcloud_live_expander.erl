@@ -3,41 +3,7 @@
 -define(FILEPATH, "src/soundcloud_live_expander.gleam").
 -export([fetch_likes_payload/1, expand/1]).
 
--file("src/soundcloud_live_expander.gleam", 76).
--spec shallow_items(binary()) -> list(soundcloud_adapter:unified_item()).
-shallow_items(Body) ->
-    case gleam_stdlib:contains_string(Body, <<"A Horse with no Name"/utf8>>) of
-        true ->
-            [{unified_item,
-                    <<"shallow:a-horse"/utf8>>,
-                    <<"A Horse with no Name (Edit)"/utf8>>,
-                    <<"Kolter"/utf8>>,
-                    <<"soundcloud"/utf8>>,
-                    <<"item"/utf8>>,
-                    <<"shallow:a-horse"/utf8>>}];
-
-        false ->
-            []
-    end.
-
--file("src/soundcloud_live_expander.gleam", 93).
--spec deeper_items(binary()) -> list(soundcloud_adapter:unified_item()).
-deeper_items(Body) ->
-    case gleam_stdlib:contains_string(Body, <<"Premiere: KAIPE - Batie"/utf8>>) of
-        true ->
-            [{unified_item,
-                    <<"deeper:kaipie-batie"/utf8>>,
-                    <<"Premiere: KAIPE - Batie"/utf8>>,
-                    <<"KAIPE"/utf8>>,
-                    <<"soundcloud"/utf8>>,
-                    <<"item"/utf8>>,
-                    <<"deeper:kaipie-batie"/utf8>>}];
-
-        false ->
-            []
-    end.
-
--file("src/soundcloud_live_expander.gleam", 128).
+-file("src/soundcloud_live_expander.gleam", 101).
 -spec tracks_for_list(binary()) -> list(binary()).
 tracks_for_list(Body) ->
     case gleam_stdlib:contains_string(Body, <<"Glass Beams"/utf8>>) of
@@ -48,7 +14,7 @@ tracks_for_list(Body) ->
             []
     end.
 
--file("src/soundcloud_live_expander.gleam", 110).
+-file("src/soundcloud_live_expander.gleam", 83).
 -spec full_lists(binary()) -> list(soundcloud_adapter:unified_collection()).
 full_lists(Body) ->
     case gleam_stdlib:contains_string(Body, <<"Mahal"/utf8>>) of
@@ -66,14 +32,32 @@ full_lists(Body) ->
             []
     end.
 
--file("src/soundcloud_live_expander.gleam", 135).
+-file("src/soundcloud_live_expander.gleam", 108).
+-spec make_items_from_titles(list(binary()), binary()) -> list(soundcloud_adapter:unified_item()).
+make_items_from_titles(Titles, Prefix) ->
+    gleam@list:index_map(
+        Titles,
+        fun(Title, Idx) ->
+            N = erlang:integer_to_binary(Idx + 1),
+            Id = <<<<Prefix/binary, ":"/utf8>>/binary, N/binary>>,
+            {unified_item,
+                Id,
+                Title,
+                <<"unknown"/utf8>>,
+                <<"soundcloud"/utf8>>,
+                <<"item"/utf8>>,
+                Id}
+        end
+    ).
+
+-file("src/soundcloud_live_expander.gleam", 148).
 -spec likes_url(binary(), binary()) -> binary().
 likes_url(User_id, Client_id) ->
     <<<<<<"https://api-v2.soundcloud.com/users/"/utf8, User_id/binary>>/binary,
             "/likes?limit=200&client_id="/utf8>>/binary,
         Client_id/binary>>.
 
--file("src/soundcloud_live_expander.gleam", 142).
+-file("src/soundcloud_live_expander.gleam", 155).
 -spec extract_between(binary(), binary(), binary()) -> binary().
 extract_between(Body, Start, Ending) ->
     With_start = gleam@string:split(Body, Start),
@@ -92,7 +76,7 @@ extract_between(Body, Start, Ending) ->
             <<""/utf8>>
     end.
 
--file("src/soundcloud_live_expander.gleam", 63).
+-file("src/soundcloud_live_expander.gleam", 62).
 -spec fetch_likes_payload(binary()) -> binary().
 fetch_likes_payload(Profile_url) ->
     Html = soundcloud_http:fetch(Profile_url),
@@ -115,7 +99,66 @@ fetch_likes_payload(Profile_url) ->
             soundcloud_http:fetch(likes_url(User_id, Client_id))
     end.
 
--file("src/soundcloud_live_expander.gleam", 17).
+-file("src/soundcloud_live_expander.gleam", 52).
+-spec expand_page(binary()) -> soundcloud_adapter:expand_result().
+expand_page(Url) ->
+    Likes_json = fetch_likes_payload(Url),
+    {expand_result, [], full_lists(Likes_json), [], []}.
+
+-file("src/soundcloud_live_expander.gleam", 169).
+-spec first_segment(binary(), binary()) -> binary().
+first_segment(Value, Separator) ->
+    Parts = gleam@string:split(Value, Separator),
+    case Parts of
+        [First | _] ->
+            First;
+
+        _ ->
+            <<""/utf8>>
+    end.
+
+-file("src/soundcloud_live_expander.gleam", 131).
+-spec extract_title_parts(list(binary()), integer(), list(binary())) -> list(binary()).
+extract_title_parts(Parts, Limit, Acc) ->
+    case erlang:length(Acc) >= Limit of
+        true ->
+            lists:reverse(Acc);
+
+        false ->
+            case Parts of
+                [] ->
+                    lists:reverse(Acc);
+
+                [Part | Rest] ->
+                    Title = first_segment(Part, <<"\""/utf8>>),
+                    case Title of
+                        <<""/utf8>> ->
+                            extract_title_parts(Rest, Limit, Acc);
+
+                        _ ->
+                            extract_title_parts(Rest, Limit, [Title | Acc])
+                    end
+            end
+    end.
+
+-file("src/soundcloud_live_expander.gleam", 123).
+-spec extract_json_titles(binary(), integer()) -> list(binary()).
+extract_json_titles(Body, Limit) ->
+    Parts = gleam@string:split(Body, <<"\"title\":\""/utf8>>),
+    case Parts of
+        [] ->
+            [];
+
+        [_ | Rest] ->
+            extract_title_parts(Rest, Limit, [])
+    end.
+
+-file("src/soundcloud_live_expander.gleam", 75).
+-spec shallow_items(binary()) -> list(soundcloud_adapter:unified_item()).
+shallow_items(Body) ->
+    make_items_from_titles(extract_json_titles(Body, 10), <<"depth1"/utf8>>).
+
+-file("src/soundcloud_live_expander.gleam", 19).
 -spec expand_profile(soundcloud_adapter:source_identity()) -> soundcloud_adapter:expand_result().
 expand_profile(Source) ->
     {source_identity, _, _, Profile_url} = Source,
@@ -128,23 +171,22 @@ expand_profile(Source) ->
             {expand_result,
                 shallow_items(Likes_json),
                 [],
-                [{category_node, Profile_url}, {page_node, Profile_url}],
+                [{category_node, Profile_url}],
                 []}
     end.
 
--file("src/soundcloud_live_expander.gleam", 43).
+-file("src/soundcloud_live_expander.gleam", 79).
+-spec deeper_items(binary()) -> list(soundcloud_adapter:unified_item()).
+deeper_items(Body) ->
+    make_items_from_titles(extract_json_titles(Body, 30), <<"depth2"/utf8>>).
+
+-file("src/soundcloud_live_expander.gleam", 42).
 -spec expand_category(binary()) -> soundcloud_adapter:expand_result().
 expand_category(Url) ->
     Likes_json = fetch_likes_payload(Url),
-    {expand_result, deeper_items(Likes_json), [], [], []}.
+    {expand_result, deeper_items(Likes_json), [], [{page_node, Url}], []}.
 
--file("src/soundcloud_live_expander.gleam", 53).
--spec expand_page(binary()) -> soundcloud_adapter:expand_result().
-expand_page(Url) ->
-    Likes_json = fetch_likes_payload(Url),
-    {expand_result, [], full_lists(Likes_json), [], []}.
-
--file("src/soundcloud_live_expander.gleam", 7).
+-file("src/soundcloud_live_expander.gleam", 9).
 -spec expand(soundcloud_adapter:adapter_node()) -> soundcloud_adapter:expand_result().
 expand(Node) ->
     case Node of

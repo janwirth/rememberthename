@@ -1,3 +1,5 @@
+import gleam/int
+import gleam/list
 import gleam/string
 import soundcloud_adapter
 
@@ -31,10 +33,7 @@ fn expand_profile(
       soundcloud_adapter.ExpandResult(
         items: shallow_items(likes_json),
         lists: [],
-        next_nodes: [
-          soundcloud_adapter.CategoryNode(profile_url),
-          soundcloud_adapter.PageNode(profile_url),
-        ],
+        next_nodes: [soundcloud_adapter.CategoryNode(profile_url)],
         unresolved: [],
       )
   }
@@ -45,7 +44,7 @@ fn expand_category(url: String) -> soundcloud_adapter.ExpandResult {
   soundcloud_adapter.ExpandResult(
     items: deeper_items(likes_json),
     lists: [],
-    next_nodes: [],
+    next_nodes: [soundcloud_adapter.PageNode(url)],
     unresolved: [],
   )
 }
@@ -74,37 +73,11 @@ pub fn fetch_likes_payload(profile_url: String) -> String {
 }
 
 fn shallow_items(body: String) -> List(soundcloud_adapter.UnifiedItem) {
-  case string.contains(body, "A Horse with no Name") {
-    True ->
-      [
-        soundcloud_adapter.UnifiedItem(
-          id: "shallow:a-horse",
-          title: "A Horse with no Name (Edit)",
-          artist: "Kolter",
-          service: "soundcloud",
-          source_type: "item",
-          source_id: "shallow:a-horse",
-        ),
-      ]
-    False -> []
-  }
+  make_items_from_titles(extract_json_titles(body, 10), "depth1")
 }
 
 fn deeper_items(body: String) -> List(soundcloud_adapter.UnifiedItem) {
-  case string.contains(body, "Premiere: KAIPE - Batie") {
-    True ->
-      [
-        soundcloud_adapter.UnifiedItem(
-          id: "deeper:kaipie-batie",
-          title: "Premiere: KAIPE - Batie",
-          artist: "KAIPE",
-          service: "soundcloud",
-          source_type: "item",
-          source_id: "deeper:kaipie-batie",
-        ),
-      ]
-    False -> []
-  }
+  make_items_from_titles(extract_json_titles(body, 30), "depth2")
 }
 
 fn full_lists(body: String) -> List(soundcloud_adapter.UnifiedCollection) {
@@ -132,6 +105,46 @@ fn tracks_for_list(body: String) -> List(String) {
   }
 }
 
+fn make_items_from_titles(titles: List(String), prefix: String) -> List(soundcloud_adapter.UnifiedItem) {
+  list.index_map(titles, fn(title, idx) {
+    let n = int.to_string(idx + 1)
+    let id = prefix <> ":" <> n
+    soundcloud_adapter.UnifiedItem(
+      id: id,
+      title: title,
+      artist: "unknown",
+      service: "soundcloud",
+      source_type: "item",
+      source_id: id,
+    )
+  })
+}
+
+fn extract_json_titles(body: String, limit: Int) -> List(String) {
+  let parts = string.split(body, "\"title\":\"")
+  case parts {
+    [] -> []
+    [_, ..rest] -> extract_title_parts(rest, limit, [])
+  }
+}
+
+fn extract_title_parts(parts: List(String), limit: Int, acc: List(String)) -> List(String) {
+  case list.length(acc) >= limit {
+    True -> list.reverse(acc)
+    False ->
+      case parts {
+        [] -> list.reverse(acc)
+        [part, ..rest] -> {
+          let title = first_segment(part, "\"")
+          case title {
+            "" -> extract_title_parts(rest, limit, acc)
+            _ -> extract_title_parts(rest, limit, [title, ..acc])
+          }
+        }
+      }
+  }
+}
+
 fn likes_url(user_id: String, client_id: String) -> String {
   "https://api-v2.soundcloud.com/users/"
   <> user_id
@@ -149,6 +162,14 @@ fn extract_between(body: String, start: String, ending: String) -> String {
         _ -> ""
       }
     }
+    _ -> ""
+  }
+}
+
+fn first_segment(value: String, separator: String) -> String {
+  let parts = string.split(value, separator)
+  case parts {
+    [first, ..] -> first
     _ -> ""
   }
 }

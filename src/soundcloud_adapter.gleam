@@ -1,11 +1,15 @@
+import gleam/int
 import gleam/list
+import gleam/io
 import gleam/result
 import gleam/set
 
 pub type DepthMode {
   Depth1
   Depth2
-  Full
+  Depth3
+  Depth10
+  All
 }
 
 pub type SourceIdentity {
@@ -116,7 +120,23 @@ fn loop(
               )
             }
             True -> {
+              io.println(
+                "[fetch] node="
+                <> node_key(node)
+                <> " level="
+                <> int.to_string(level),
+              )
               let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = expand(node)
+              io.println(
+                "[fetched] node="
+                <> node_key(node)
+                <> " items="
+                <> int.to_string(list.length(next_items))
+                <> " lists="
+                <> int.to_string(list.length(next_lists))
+                <> " next="
+                <> int.to_string(list.length(next_nodes)),
+              )
               let #(items, item_seen) = merge_items(items, item_seen, next_items)
               let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
               let queue = list.append(rest, with_level(next_nodes, level + 1))
@@ -134,7 +154,9 @@ fn can_expand(level: Int, depth: DepthMode) -> Bool {
   case depth {
     Depth1 -> level < 1
     Depth2 -> level < 2
-    Full -> True
+    Depth3 -> level < 3
+    Depth10 -> level < 10
+    All -> True
   }
 }
 
