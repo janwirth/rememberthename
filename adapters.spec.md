@@ -63,7 +63,7 @@ Reference shape (spec-level):
   - where `m(_)` is adapter-selected effect context (sync/async/task), hidden behind module API
 - expand result:
   - `items: List(UnifiedItem)`
-  - `lists: List(UnifiedCollection)`
+  - `lists: List(UnifiedCollection)` (only fully resolved lists)
   - `next_nodes: List(AdapterNode)`
   - `unresolved: List(UnresolvedNode)` (optional incremental unresolved emission)
 
@@ -72,13 +72,14 @@ Design rules:
 - callers can only construct traversal via `ProfileEntry(...)`.
 - node identity key must be deterministic for visited-set dedupe.
 - emitted `next_nodes` must preserve deterministic order.
+- partial list state is internal only; externally emitted lists must be complete.
 
 ## 4) Update Stream
 
 Per-job event stream is minimal and ordered:
 - `started` (debug/context message)
-- `progress` (status text + optional payload: item or list; list payload can include `track_ids` and `list_ids`)
-- `completed` (final stats)
+- `progress` (status text + optional payload: item only)
+- `completed` (final stats + full list payloads)
 
 ## 5) Internally
 

@@ -19,7 +19,7 @@ Primary objective:
 
 - Input fields: `title`, `artist`, `source_id`, `service`.
 - Source parsing and import for collection-level inputs only:
-  - Bandcamp album links
+  - Bandcamp profile links (detailed in `BANDCAMP_SPEC.md`)
   - SoundCloud profile links (detailed in `SOUNDCLOUD_SPEC.md`)
   - YouTube playlist URLs
   - Spotify likes (`/collection/tracks`, `/collection/albums`)
@@ -78,19 +78,7 @@ Each adapter returns an intermediary payload first, then a mapper transforms it 
 
 ### 5.1 Bandcamp intermediary
 
-- `BandcampAlbumSnapshot`
-  - `album_id`
-  - `album_title`
-  - `artist_name`
-  - `tracks: List(BandcampTrackEntry)`
-- `BandcampTrackEntry`
-  - `track_id`
-  - `track_title`
-  - `artist_name`
-
-Mapping:
-- Profile source type: `collection`
-- Snapshot maps to one `UnifiedCollection` (album) + N `UnifiedItem`s (tracks).
+Bandcamp-specific models, parsing rules, and depth semantics are factored into `BANDCAMP_SPEC.md`.
 
 ### 5.2 SoundCloud intermediary
 
@@ -142,7 +130,7 @@ Two accepted input forms:
 
 Accepted `SourceIdentity` shape per service:
 - Bandcamp:
-  - `{ service: bandcamp, source_type: collection, source_id: <album_slug_or_id> }`
+  - `{ service: bandcamp, source_type: collection, source_id: <profile_url> }`
 - SoundCloud:
   - `{ service: soundcloud, source_type: collection, source_id: <profile_url> }`
   - full parsing/mapping rules in `SOUNDCLOUD_SPEC.md`
@@ -169,11 +157,12 @@ Resolver contract:
 - Adapter lookup fetches `UnifiedNode` for each source.
 - `item` nodes are collected.
 - `collection` nodes enqueue child entries.
-- Adapters may emit list payloads with `title`, `track_ids`, and `list_ids`; these map to `UnifiedCollection`.
 - `list_ids` represent nested lists and must be expanded recursively as child collections.
+- Adapters may build list state incrementally during traversal, but contract output must emit only full `UnifiedCollection` lists when recursion is complete.
 - Resolver is cycle-safe and duplicate-safe via visited set.
 - Output:
   - ordered list of resolved unique `UnifiedItem`s
+  - list of resolved full `UnifiedCollection` values
   - list of unresolved `SourceIdentity` values
 
 Required behavior:
