@@ -1,6 +1,7 @@
 -module(soundcloud_http).
 -export([
     fetch/1,
+    post_json/2,
     json_next_href/1,
     json_tracks_tsv/1,
     json_playlist_ids/1,
@@ -16,6 +17,35 @@ fetch(Url) ->
             {ok, Cached} when byte_size(Cached) > 0 ->
                 Cached;
             _ -> <<>>
+        end
+    catch
+        _:_ -> <<>>
+    end.
+
+post_json(Url, Body) ->
+    try
+        BinUrl = iolist_to_binary(Url),
+        BinBody = iolist_to_binary(Body),
+        CachePath = post_cache_path(BinUrl, BinBody),
+        case file:read_file(CachePath) of
+            {ok, Cached} when byte_size(Cached) > 0 ->
+                Cached;
+            _ ->
+                CmdBin = <<
+                    "/usr/bin/curl -L -s -X POST -H \"content-type: application/json\" --data '",
+                    BinBody/binary,
+                    "' \"",
+                    BinUrl/binary,
+                    "\""
+                >>,
+                Resp = unicode:characters_to_binary(os:cmd(binary_to_list(CmdBin))),
+                case byte_size(Resp) > 0 of
+                    true ->
+                        _ = file:write_file(CachePath, Resp),
+                        Resp;
+                    false ->
+                        <<>>
+                end
         end
     catch
         _:_ -> <<>>
@@ -77,3 +107,7 @@ ensure_cached(BinUrl) ->
 cache_path(UrlBin) ->
     Hash = integer_to_list(erlang:phash2(UrlBin)),
     "/tmp/rememberthename_http_cache_" ++ Hash ++ ".json".
+
+post_cache_path(UrlBin, BodyBin) ->
+    Hash = integer_to_list(erlang:phash2(<<UrlBin/binary, "||", BodyBin/binary>>)),
+    "/tmp/rememberthename_http_post_cache_" ++ Hash ++ ".json".

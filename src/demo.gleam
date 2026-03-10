@@ -1,24 +1,19 @@
 import gleam/int
 import gleam/io
 import gleam/list
+import bandcamp_live_expander
 import soundcloud_adapter
 import soundcloud_live_expander
 
 pub fn main() {
-  let profile_url = "https://soundcloud.com/tungstenselects"
   io.println("rememberthename demo")
-  io.println("profile: " <> profile_url)
-  run_depth("depth-10", soundcloud_adapter.Depth10, profile_url)
-  run_depth("depth-20", soundcloud_adapter.Depth20, profile_url)
-  run_depth("all", soundcloud_adapter.All, profile_url)
+  run_all_soundcloud("https://soundcloud.com/tungstenselects")
+  run_all_bandcamp("https://bandcamp.com/janwirth")
 }
 
-fn run_depth(
-  label: String,
-  depth: soundcloud_adapter.DepthMode,
-  profile_url: String,
-) -> Nil {
-  io.println("== " <> label <> " ==")
+fn run_all_soundcloud(profile_url: String) -> Nil {
+  io.println("== soundcloud all ==")
+  io.println("profile: " <> profile_url)
 
   let profile =
     soundcloud_adapter.SourceIdentity(
@@ -27,7 +22,31 @@ fn run_depth(
       source_id: profile_url,
     )
 
-  let result = soundcloud_adapter.resolve_profile(profile, depth, soundcloud_live_expander.expand)
+  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, soundcloud_live_expander.expand)
+  let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
+
+  io.println("items: " <> int.to_string(list.length(items)))
+  io.println("lists: " <> int.to_string(list.length(lists)))
+  io.println("unresolved: " <> int.to_string(list.length(unresolved)))
+  io.println("items:")
+  print_item_titles(items)
+  io.println("lists:")
+  print_list_titles(lists)
+  io.println("")
+}
+
+fn run_all_bandcamp(profile_url: String) -> Nil {
+  io.println("== bandcamp all ==")
+  io.println("profile: " <> profile_url)
+
+  let profile =
+    soundcloud_adapter.SourceIdentity(
+      service: "bandcamp",
+      source_type: "collection",
+      source_id: profile_url,
+    )
+
+  let result = soundcloud_adapter.resolve_profile(profile, soundcloud_adapter.All, bandcamp_live_expander.expand)
   let soundcloud_adapter.ResolveResult(items, lists, unresolved) = result
 
   io.println("items: " <> int.to_string(list.length(items)))
