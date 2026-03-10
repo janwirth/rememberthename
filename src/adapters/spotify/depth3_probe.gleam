@@ -6,8 +6,11 @@ import adapters/spotify/live_expander as spotify_live_expander
 
 pub fn main() {
   let client_id = spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
+  let client_secret =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
   let access_token = spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
   assert client_id != ""
+  assert client_secret != ""
   assert access_token != ""
 
   let config =
@@ -15,6 +18,7 @@ pub fn main() {
       access_token: access_token,
       session_file: ".spotify_oauth_session.json",
       client_id: client_id,
+      client_secret: client_secret,
       redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
       scopes: "playlist-read-private playlist-read-collaborative user-library-read",
     )

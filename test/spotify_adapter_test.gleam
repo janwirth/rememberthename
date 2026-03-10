@@ -18,6 +18,7 @@ pub fn live_spotify_user_follows_unified_depth_spec_test() {
           access_token: access_token,
           session_file: ".spotify_oauth_session.json",
           client_id: client_id,
+          client_secret: client_secret,
           redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )

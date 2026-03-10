@@ -99,6 +99,7 @@ pub type SpotifyConfig {
     access_token: String,
     session_file: String,
     client_id: String,
+    client_secret: String,
     redirect_uri: String,
     scopes: String,
   )
@@ -112,6 +113,7 @@ pub fn spotify_config(
   access_token access_token: String,
   session_file session_file: String,
   client_id client_id: String,
+  client_secret client_secret: String,
   redirect_uri redirect_uri: String,
   scopes scopes: String,
 ) -> SpotifyConfig {
@@ -119,6 +121,7 @@ pub fn spotify_config(
     access_token: access_token,
     session_file: session_file,
     client_id: client_id,
+    client_secret: client_secret,
     redirect_uri: redirect_uri,
     scopes: scopes,
   )
@@ -168,9 +171,23 @@ fn expand_profile(
   use_cache: Bool,
 ) -> core.ExpandResult {
   let user_id = parse_user_id(profile_url)
-  let SpotifyConfig(access_token, session_file, client_id, redirect_uri, scopes) = config
+  let SpotifyConfig(
+    access_token,
+    session_file,
+    client_id,
+    client_secret,
+    redirect_uri,
+    scopes,
+  ) = config
   let token =
-    resolve_access_token(access_token, session_file, client_id, redirect_uri, scopes)
+    resolve_access_token(
+      access_token,
+      session_file,
+      client_id,
+      client_secret,
+      redirect_uri,
+      scopes,
+    )
     |> string.trim
   case user_id == "" || token == "" {
     True ->
@@ -189,22 +206,68 @@ fn resolve_access_token(
   provided_token: String,
   session_file: String,
   client_id: String,
+  client_secret: String,
   redirect_uri: String,
   scopes: String,
 ) -> String {
-  let provided = string.trim(provided_token)
-  case provided != "" {
-    True -> provided
+  let refresh_token = read_refresh_token_file(session_file) |> string.trim
+  let refreshed =
+    case refresh_token != "" && client_id != "" && client_secret != "" {
+      True -> refresh_access_token(refresh_token, client_id, client_secret)
+      False -> ""
+    }
+    |> string.trim
+  case refreshed != "" {
+    True -> refreshed
     False -> {
-      let file_token = read_access_token_file(session_file) |> string.trim
-      case file_token != "" {
-        True -> file_token
+      let provided = string.trim(provided_token)
+      case provided != "" {
+        True -> provided
         False -> {
-          log_oauth_flow(session_file, client_id, redirect_uri, scopes)
-          ""
+          let file_token = read_access_token_file(session_file) |> string.trim
+          case file_token != "" {
+            True -> file_token
+            False -> {
+              log_oauth_flow(session_file, client_id, redirect_uri, scopes)
+              ""
+            }
+          }
         }
       }
     }
+  }
+}
+
+fn read_refresh_token_file(session_file: String) -> String {
+  case simplifile.read(from: session_file) {
+    Ok(body) -> string.trim(extract_refresh_token(body))
+    Error(_) -> ""
+  }
+}
+
+fn refresh_access_token(
+  refresh_token: String,
+  client_id: String,
+  client_secret: String,
+) -> String {
+  let body =
+    "grant_type=refresh_token&refresh_token="
+    <> refresh_token
+    <> "&client_id="
+    <> client_id
+    <> "&client_secret="
+    <> client_secret
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("accounts.spotify.com")
+    |> request.set_method(http.Post)
+    |> request.set_path("/api/token")
+    |> request.set_header("content-type", "application/x-www-form-urlencoded")
+    |> request.set_body(body)
+  case hackney.send(req) {
+    Ok(res) -> string.trim(extract_access_token(res.body))
+    Error(_) -> ""
   }
 }
 
@@ -493,6 +556,15 @@ fn extract_access_token(body: String) -> String {
   let exact = extract_between(compact, "\"access_token\":\"", "\"")
   case exact {
     "" -> extract_between(body, "\"access_token\":\"", "\"")
+    token -> token
+  }
+}
+
+fn extract_refresh_token(body: String) -> String {
+  let compact = string.replace(body, " ", "")
+  let exact = extract_between(compact, "\"refresh_token\":\"", "\"")
+  case exact {
+    "" -> extract_between(body, "\"refresh_token\":\"", "\"")
     token -> token
   }
 }
