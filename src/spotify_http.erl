@@ -1,7 +1,8 @@
 -module(spotify_http).
 %% Spotify public user/profile HTTP helpers.
 -export([
-    extract_access_token/1,
+    read_access_token_file/1,
+    ensure_access_token/5,
     user_playlists_json/3,
     playlist_tracks_json/3,
     playlists_tsv/1,
@@ -10,9 +11,35 @@
     tracks_next_offset/1
 ]).
 
-extract_access_token(UserUrl) ->
-    Html = fetch(UserUrl),
-    trim(extract_between(Html, <<"\"accessToken\":\"">>, <<"\"">>)).
+read_access_token_file(SessionFile) ->
+    try
+        case file:read_file(SessionFile) of
+            {ok, Body} when byte_size(Body) > 0 ->
+                Token = trim(extract_between(Body, <<"\"access_token\":\"">>, <<"\"">>)),
+                case Token of
+                    <<>> -> trim(Body);
+                    _ -> Token
+                end;
+            _ ->
+                <<>>
+        end
+    catch
+        _:_ -> <<>>
+    end.
+
+ensure_access_token(ProvidedToken, SessionFile, ClientId, RedirectUri, Scopes) ->
+    case trim(ProvidedToken) of
+        <<>> ->
+            case read_access_token_file(SessionFile) of
+                <<>> ->
+                    log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes),
+                    <<>>;
+                TokenFromFile ->
+                    TokenFromFile
+            end;
+        Token ->
+            Token
+    end.
 
 user_playlists_json(UserId, Token, Offset) ->
     Url = <<
@@ -145,3 +172,29 @@ trim(Value) ->
 
 int_to_bin(Int) ->
     unicode:characters_to_binary(integer_to_list(Int)).
+
+log_oauth_flow(SessionFile, ClientId, RedirectUri, Scopes) ->
+    EncRedirect = url_encode(redirect_bin(RedirectUri)),
+    EncScopes = url_encode(iolist_to_binary(Scopes)),
+    AuthUrl = <<
+        "https://accounts.spotify.com/authorize?client_id=",
+        (iolist_to_binary(ClientId))/binary,
+        "&response_type=token&redirect_uri=",
+        EncRedirect/binary,
+        "&scope=",
+        EncScopes/binary,
+        "&show_dialog=true"
+    >>,
+    io:format("~n[spotify-oauth] No session found at ~s~n", [SessionFile]),
+    io:format("[spotify-oauth] Open this URL and authorize:~n~s~n", [AuthUrl]),
+    io:format("[spotify-oauth] Then store JSON in session file:~n", []),
+    io:format("{\"access_token\":\"<token-from-redirect-fragment>\",\"token_type\":\"Bearer\"}~n", []),
+    io:format("[spotify-oauth] Session file path: ~s~n~n", [SessionFile]),
+    _ = os:cmd(binary_to_list(<<"open \"", AuthUrl/binary, "\"">>)),
+    ok.
+
+redirect_bin(Value) when is_binary(Value) -> Value;
+redirect_bin(Value) -> iolist_to_binary(Value).
+
+url_encode(Bin) ->
+    list_to_binary(uri_string:quote(binary_to_list(Bin))).

@@ -46,7 +46,7 @@ Each adapter module must expose:
 - an internal traversal union type (module-owned)
 - a public opaque profile type
 - a public constructor function for profile creation
-- a `resolve_profile(profile, depth)` API
+- a `resolve_profile(profile, depth, config)` API
 - an expand function that maps one traversal node to emitted payload + child nodes
 
 Reference shape (spec-level):
@@ -71,6 +71,8 @@ Design rules:
 - node identity key must be deterministic for visited-set dedupe.
 - emitted `next_nodes` must preserve deterministic order.
 - partial list state is internal only; externally emitted lists must be complete.
+- adapters may require a second, service-specific `config` value at resolve time
+  (for example OAuth/session details for Spotify).
 
 ## 4) Update Stream
 
