@@ -369,12 +369,11 @@ fn view(model: Model) -> shore.Node(Msg) {
       ui.keybind(key.Char("x"), ExitPressed),
     ])
 
-  let sidebar = ui.box(sidebar_children, Some("Sidebar"))
+  let sidebar = ui.box(sidebar_children, Some("Sources"))
 
   let main_children = {
-    let #(title, body) = selected_content(model.selected_index)
-    [ui.text(title), ui.hr()]
-    |> list.append(validation_view_nodes(model))
+    let #(_, body) = selected_content(model.selected_index)
+    validation_view_nodes(model)
     |> list.append([
       ui.text(body),
       ui.br(),
@@ -391,15 +390,16 @@ fn view(model: Model) -> shore.Node(Msg) {
     ])
     |> list.append(debug_nodes(model.current_debug_lines))
   }
+  let selected_title = menu_item_title(model.selected_index)
   let main_content =
     ui.box(
       main_children,
-      Some("Main"),
+      Some("Selected view: " <> selected_title),
     )
 
   let tracks_content =
     ui.box(
-      [ui.text("Tracks"), ui.hr()] |> list.append(track_panel_nodes(model)),
+      track_panel_nodes(model),
       Some("Tracks"),
     )
 

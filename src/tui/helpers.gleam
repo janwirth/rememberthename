@@ -77,6 +77,21 @@ pub fn build_validation(
           has_title_fragment(result_items(rall), fragment)
         })
       let anchors_ok = anchors_shallow_ok && anchors_full_ok
+      let missing_shallow =
+        missing_fragments_from_items(
+          anchor_fragments,
+          result_items(r1),
+          result_items(r3),
+        )
+      let missing_full =
+        missing_fragments_from_items(anchor_fragments, result_items(rall), [])
+      let anchor_reason_lines = case anchors_ok {
+        True -> []
+        False -> [
+          "  - missing in depth 1/3: " <> format_fragments(missing_shallow),
+          "  - missing in full: " <> format_fragments(missing_full),
+        ]
+      }
 
       let checks = [
         "[x] depth 1/3/all fetched",
@@ -87,6 +102,7 @@ pub fn build_validation(
         checkbox(first_items_ok) <> " first items preserved",
         checkbox(anchors_ok) <> " anchor fragments present",
       ]
+      |> list.append(anchor_reason_lines)
       let passed =
         min_depth_ok
         && min_full_ok
@@ -214,6 +230,24 @@ fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
     let core.UnifiedItem(_, title, _, _, _, _) = item
     string.contains(title, wanted)
   })
+}
+
+fn missing_fragments_from_items(
+  fragments: List(String),
+  primary_items: List(core.UnifiedItem),
+  fallback_items: List(core.UnifiedItem),
+) -> List(String) {
+  list.filter(fragments, fn(fragment) {
+    !has_title_fragment(primary_items, fragment)
+    && !has_title_fragment(fallback_items, fragment)
+  })
+}
+
+fn format_fragments(fragments: List(String)) -> String {
+  case fragments {
+    [] -> "(none)"
+    _ -> string.join(fragments, ", ")
+  }
 }
 
 fn clamp_int(value: Int, low: Int, high: Int) -> Int {
