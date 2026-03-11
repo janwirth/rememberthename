@@ -122,10 +122,10 @@ pub fn youtube() -> SourceSpec {
           "Nimo - BITTER",
           "Vengaboys - Up & Down",
           "Dendemann - Wo ich wech bin",
-          "BHZ - SCHLIESSE DIE AUGEN",
-          "Chanel"
+          "BHZ - SCHLIESSE DIE AUGEN"
         ],
-        required_full_fragments: [],
+        // Full traversal includes titles with case-varying "chanel" substring.
+        required_full_fragments: ["chanel"],
       ),
   )
 }

@@ -76,7 +76,7 @@ fn push_item(
       core.UnifiedItem(
         id: "tuna:normalized:" <> service <> ":" <> normalized <> ":" <> raw_source_id,
         title: normalized,
-        artist: "tuna-normalized",
+        artist: raw_source_id,
         service: service,
         source_type: "item",
         source_id: normalized,
