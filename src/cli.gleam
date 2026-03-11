@@ -38,8 +38,8 @@ pub fn main() {
     ["csv", source_selector, "cache"] -> export_source_csv_simple(source_selector, True)
     ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
     ["fetch", source_selector, "cache"] -> fetch_source_simple(source_selector, True)
-    ["export", "all", "csv"] -> export_all_csv(False)
-    ["export", "all", "csv", "use-cache"] -> export_all_csv(True)
+    ["export", "all", "csv"] -> export_all_csv()
+    ["export", "all", "csv", "use-cache"] -> export_all_csv()
     ["export", "source", "csv", source_key, "depth", depth_text] ->
       export_source_csv(source_key, depth_text, False)
     ["export", "source", "csv", source_key, "depth", depth_text, "use-cache"] ->
@@ -303,12 +303,8 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
   }
 }
 
-fn export_all_csv(use_cache: Bool) {
-  let cache_mode =
-    case use_cache {
-      True -> cache.CacheUpsert
-      False -> cache.CacheOverride
-    }
+fn export_all_csv() {
+  let cache_mode = cache.CacheUpsert
   io.println(
     "Exporting all sources to CSV with cache "
     <> cache_mode_text(cache_mode)
@@ -321,28 +317,37 @@ fn export_all_csv(use_cache: Bool) {
   let tracks = list.map(all_items, to_track_view)
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
-  let _ = simplifile.write(csv, to: csv_path)
+  let csv_write_errors = write_output_file(csv_path, csv, "CSV written: ")
   let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
   let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
-  case deduplication.deduplicate_csv_file(csv_path) {
-    Ok(dedup_result) -> {
-      let _ =
-        simplifile.write(
-          deduplication.buckets_csv(dedup_result),
-          to: dedup_buckets_path,
-        )
-      let _ =
-        simplifile.write(
-          deduplication.ambiguities_csv(dedup_result),
-          to: dedup_ambiguities_path,
-        )
-      io.println("Dedup buckets CSV written: " <> dedup_buckets_path)
-      io.println("Dedup ambiguities CSV written: " <> dedup_ambiguities_path)
+  let output_validation_errors =
+    case csv_write_errors == [] {
+      False -> []
+      True ->
+        case deduplication.deduplicate_csv_file(csv_path) {
+          Ok(dedup_result) -> {
+            let dedup_buckets_write_errors =
+              write_output_file(
+                dedup_buckets_path,
+                deduplication.buckets_csv(dedup_result),
+                "Dedup buckets CSV written: ",
+              )
+            let dedup_ambiguities_write_errors =
+              write_output_file(
+                dedup_ambiguities_path,
+                deduplication.ambiguities_csv(dedup_result),
+                "Dedup ambiguities CSV written: ",
+              )
+            list.append(dedup_buckets_write_errors, dedup_ambiguities_write_errors)
+          }
+          Error(message) -> ["output: deduplication failed: " <> message]
+        }
     }
-    Error(message) -> io.println("Deduplication failed: " <> message)
-  }
   let validation_errors =
-    list.append(validate_source_runs(runs), validate_tuna_items(tuna_items))
+    validate_source_runs(runs)
+    |> list.append(validate_tuna_items(tuna_items))
+    |> list.append(csv_write_errors)
+    |> list.append(output_validation_errors)
   io.println(
     "Done. Exported "
     <> int.to_string(list.length(all_items))
@@ -357,6 +362,16 @@ fn export_all_csv(use_cache: Bool) {
       )
       list.each(validation_errors, fn(line) { io.println("  - " <> line) })
     }
+  }
+}
+
+fn write_output_file(path: String, content: String, success_label: String) -> List(String) {
+  case simplifile.write(content, to: path) {
+    Ok(_) -> {
+      io.println(success_label <> path)
+      []
+    }
+    Error(_) -> ["output: failed to write " <> path]
   }
 }
 
