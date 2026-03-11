@@ -6,11 +6,13 @@ import adapters/cache
 //// Each `SourceSpec` defines:
 //// - a stable entry point URL
 //// - a cache strategy for live adapter runs
+//// - a per-source output cap (`source_limit`)
 //// - depth assertions used by tests and `validate_all`
 ////
 //// Assertion semantics:
 //// - `min_depth_1_items`: lower bound for shallow resolution
 //// - `min_full_items`: lower bound for full traversal
+//// - `source_limit`: max items allowed in validated/exported full output, this is useful if you don't want to accidentally download the whole internet
 //// - `first_items_to_preserve`: early discovered ids that must survive deeper traversal
 //// - `anchor_fragments`: title fragments that should appear in shallow/deep outputs
 //// - `required_full_fragments`: title fragments that must appear in full output
@@ -18,6 +20,7 @@ pub type SourceAssertSpec {
   SourceAssertSpec(
     min_depth_1_items: Int,
     min_full_items: Int,
+    source_limit: Int,
     first_items_to_preserve: Int,
     anchor_fragments: List(String),
     required_full_fragments: List(String),
@@ -48,6 +51,7 @@ pub fn bandcamp() -> SourceSpec {
       SourceAssertSpec(
         min_depth_1_items: 1,
         min_full_items: 700,
+        source_limit: 4000,
         first_items_to_preserve: 3,
         // Stable fixture anchors from live Bandcamp profile traversal.
         anchor_fragments: ["Spore Spreader"],
@@ -74,6 +78,7 @@ pub fn soundcloud() -> SourceSpec {
       SourceAssertSpec(
         min_depth_1_items: 10,
         min_full_items: 1000,
+        source_limit: 4000,
         first_items_to_preserve: 3,
         // Stable fixture anchors from likes/reposts category traversal.
         anchor_fragments: [
@@ -97,6 +102,7 @@ pub fn spotify() -> SourceSpec {
       SourceAssertSpec(
         min_depth_1_items: 50,
         min_full_items: 1000,
+        source_limit: 4000,
         first_items_to_preserve: 3,
         // Liked tracks fixture anchors from Spotify authenticated traversal.
         anchor_fragments: ["Blask", "SOLD MY SOUL"],
@@ -115,6 +121,7 @@ pub fn youtube() -> SourceSpec {
       SourceAssertSpec(
         min_depth_1_items: 5,
         min_full_items: 1000,
+        source_limit: 4000,
         first_items_to_preserve: 3,
         // Ordered playlist prefix fragments from reference YouTube fixture.
         anchor_fragments: [

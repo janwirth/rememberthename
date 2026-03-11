@@ -116,6 +116,7 @@ fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
+    _,
     first_items_to_preserve,
     anchor_fragments,
     _,

@@ -1,4 +1,6 @@
+import gleam/float
 import gleam/list
+import gleam/order
 import gleam/string
 
 //// Source limit + validation processing.
@@ -96,30 +98,10 @@ fn insert_sorted(
 fn compare_track(a: CanonicalTrack, b: CanonicalTrack) -> Int {
   let CanonicalTrack(_, _, a_service, a_source_id, a_order, _) = a
   let CanonicalTrack(_, _, b_service, b_source_id, b_order, _) = b
-  case a_order < b_order {
-    True -> -1
-    False ->
-      case a_order > b_order {
-        True -> 1
-        False ->
-          case a_service < b_service {
-            True -> -1
-            False ->
-              case a_service > b_service {
-                True -> 1
-                False ->
-                  case a_source_id < b_source_id {
-                    True -> -1
-                    False ->
-                      case a_source_id > b_source_id {
-                        True -> 1
-                        False -> 0
-                      }
-                  }
-              }
-          }
-      }
-  }
+  float.compare(a_order, with: b_order)
+  |> order.break_tie(with: string.compare(a_service, b_service))
+  |> order.break_tie(with: string.compare(a_source_id, b_source_id))
+  |> order.to_int
 }
 
 fn apply_source_limits(

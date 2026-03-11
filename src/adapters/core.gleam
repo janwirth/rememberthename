@@ -129,7 +129,13 @@ pub fn resolve_profile_url(
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
 ) -> ResolveResult {
-  resolve_profile_url_with_debug(profile_url, depth, expand, fn(_) { Nil })
+  resolve_profile_url_with_debug_and_limit(
+    profile_url,
+    depth,
+    0,
+    expand,
+    fn(_) { Nil },
+  )
 }
 
 pub fn resolve_profile_url_with_debug(
@@ -138,8 +144,24 @@ pub fn resolve_profile_url_with_debug(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
+  resolve_profile_url_with_debug_and_limit(profile_url, depth, 0, expand, on_debug)
+}
+
+pub fn resolve_profile_url_with_debug_and_limit(
+  profile_url: String,
+  depth: DepthMode,
+  max_items: Int,
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> ResolveResult {
   case depth {
-    All -> resolve_profile_url_with_default_queue(profile_url, expand, on_debug)
+    All ->
+      resolve_profile_url_with_default_queue(
+        profile_url,
+        max_items,
+        expand,
+        on_debug,
+      )
     _ ->
       // Start traversal exactly once from the profile entry root.
       loop(
@@ -151,6 +173,7 @@ pub fn resolve_profile_url_with_debug(
         [],
         [],
         depth,
+        max_items,
         expand,
         on_debug,
       )
@@ -167,6 +190,7 @@ const queue_interval_ms = 333
 
 fn resolve_profile_url_with_default_queue(
   profile_url: String,
+  max_items: Int,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
@@ -191,6 +215,7 @@ fn resolve_profile_url_with_default_queue(
       [],
       0,
       0,
+      max_items,
       subject,
       expand,
       on_debug,
@@ -207,6 +232,7 @@ fn resolve_profile_url_with_default_queue(
       unresolved,
       starts,
       max_active,
+      max_items,
       subject,
       expand,
       on_debug,
@@ -233,6 +259,7 @@ fn start_workers(
   unresolved: List(AdapterNode),
   starts: Int,
   max_active: Int,
+  max_items: Int,
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
@@ -248,7 +275,7 @@ fn start_workers(
   Int,
   Int,
 ) {
-  case running >= queue_max_concurrency || queue == [] {
+  case running >= queue_max_concurrency || queue == [] || reached_item_limit(items, max_items) {
     True ->
       #(
         queue,
@@ -280,6 +307,7 @@ fn start_workers(
             unresolved,
             starts,
             max_active,
+            max_items,
             subject,
             expand,
             on_debug,
@@ -317,6 +345,7 @@ fn start_workers(
             unresolved,
             starts + 1,
             max_int(max_active, next_running),
+            max_items,
             subject,
             expand,
             on_debug,
@@ -338,11 +367,12 @@ fn concurrent_loop(
   unresolved: List(AdapterNode),
   starts: Int,
   max_active: Int,
+  max_items: Int,
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
-  case queue == [] && running == 0 {
+  case (queue == [] && running == 0) || reached_item_limit(items, max_items) {
     True -> ResolveResult(items, lists, unresolved)
     False -> {
       let #(queue, running, visited, item_seen, list_seen, items, lists, unresolved, starts, max_active) =
@@ -357,6 +387,7 @@ fn concurrent_loop(
           unresolved,
           starts,
           max_active,
+          max_items,
           subject,
           expand,
           on_debug,
@@ -380,7 +411,8 @@ fn concurrent_loop(
             <> " next="
             <> int.to_string(list.length(next_nodes)),
           )
-          let #(items, item_seen) = merge_items(items, item_seen, next_items)
+          let #(items, item_seen, limit_hit) =
+            merge_items(items, item_seen, next_items, max_items)
           let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
           let unresolved = list.append(unresolved, next_unresolved)
           emit_debug(
@@ -393,22 +425,28 @@ fn concurrent_loop(
             <> " unresolved="
             <> int.to_string(list.length(next_unresolved)),
           )
-          let queue = list.append(queue, with_level(next_nodes, level + 1))
-          concurrent_loop(
-            queue,
-            running - 1,
-            visited,
-            item_seen,
-            list_seen,
-            items,
-            lists,
-            unresolved,
-            starts,
-            max_active,
-            subject,
-            expand,
-            on_debug,
-          )
+          case limit_hit {
+            True -> ResolveResult(items, lists, unresolved)
+            False -> {
+              let queue = list.append(queue, with_level(next_nodes, level + 1))
+              concurrent_loop(
+                queue,
+                running - 1,
+                visited,
+                item_seen,
+                list_seen,
+                items,
+                lists,
+                unresolved,
+                starts,
+                max_active,
+                max_items,
+                subject,
+                expand,
+                on_debug,
+              )
+            }
+          }
         }
       }
     }
@@ -431,6 +469,7 @@ fn loop(
   lists: List(UnifiedCollection),
   unresolved: List(AdapterNode),
   depth: DepthMode,
+  max_items: Int,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
@@ -438,7 +477,7 @@ fn loop(
   // - queue for deterministic traversal order
   // - visited set for cycle safety
   // - item/list seen sets for deduplication
-  case queue == [] {
+  case queue == [] || reached_item_limit(items, max_items) {
     True -> ResolveResult(items, lists, unresolved)
     False -> {
       let current = result.unwrap(list.first(queue), #(PageNode(""), 0))
@@ -473,6 +512,7 @@ fn loop(
                 lists,
                 unresolved,
                 depth,
+                max_items,
                 expand,
                 on_debug,
               )
@@ -499,22 +539,28 @@ fn loop(
                 <> " next="
                 <> int.to_string(list.length(next_nodes)),
               )
-              let #(items, item_seen) = merge_items(items, item_seen, next_items)
+              let #(items, item_seen, limit_hit) =
+                merge_items(items, item_seen, next_items, max_items)
               let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)
-              loop(
-                queue,
-                visited,
-                item_seen,
-                list_seen,
-                items,
-                lists,
-                unresolved,
-                depth,
-                expand,
-                on_debug,
-              )
+              case limit_hit {
+                True -> ResolveResult(items, lists, unresolved)
+                False ->
+                  loop(
+                    queue,
+                    visited,
+                    item_seen,
+                    list_seen,
+                    items,
+                    lists,
+                    unresolved,
+                    depth,
+                    max_items,
+                    expand,
+                    on_debug,
+                  )
+              }
             }
           }
         }
@@ -550,19 +596,36 @@ fn merge_items(
   items: List(UnifiedItem),
   seen: set.Set(String),
   incoming: List(UnifiedItem),
-) -> #(List(UnifiedItem), set.Set(String)) {
+  max_items: Int,
+) -> #(List(UnifiedItem), set.Set(String), Bool) {
   list.fold(
     incoming,
-    #(items, seen),
+    #(items, seen, reached_item_limit(items, max_items)),
     fn(acc, item) {
-      let #(items, seen) = acc
-      let key = item_key(item)
-      case set.contains(seen, key) {
-        True -> #(items, seen)
-        False -> #(list.append(items, [item]), set.insert(seen, key))
+      let #(items, seen, limit_hit) = acc
+      case limit_hit {
+        True -> #(items, seen, True)
+        False -> {
+          let key = item_key(item)
+          case set.contains(seen, key) {
+            True -> #(items, seen, reached_item_limit(items, max_items))
+            False -> {
+              let next_items = list.append(items, [item])
+              let next_seen = set.insert(seen, key)
+              #(next_items, next_seen, reached_item_limit(next_items, max_items))
+            }
+          }
+        }
       }
     },
   )
+}
+
+fn reached_item_limit(items: List(UnifiedItem), max_items: Int) -> Bool {
+  case max_items > 0 {
+    True -> list.length(items) >= max_items
+    False -> False
+  }
 }
 
 fn merge_lists(

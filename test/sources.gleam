@@ -52,6 +52,7 @@ fn to_depth_assert_spec(
   let canonical_sources.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
+    _,
     first_items_to_preserve,
     anchor_fragments,
     required_full_fragments,

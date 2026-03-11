@@ -143,10 +143,29 @@ pub fn resolve_profile_with_debug(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug_limited(
+    profile,
+    depth,
+    config,
+    cache_mode,
+    0,
+    on_debug,
+  )
+}
+
+pub fn resolve_profile_with_debug_limited(
+  profile: SpotifyUserProfile,
+  depth: core.DepthMode,
+  config: SpotifyConfig,
+  cache_mode: cache.CacheMode,
+  max_items: Int,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   let SpotifyUserProfile(profile_url) = profile
-  core.resolve_profile_url_with_debug(
+  core.resolve_profile_url_with_debug_and_limit(
     profile_url,
     depth,
+    max_items,
     fn(node) { expand(node, config, cache_mode) },
     on_debug,
   )

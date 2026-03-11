@@ -54,6 +54,7 @@ fn validate_sources(
 
 fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
   let source_specs.SourceSpec(key, name, entry_point, cache_mode, assert_spec) = spec
+  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("")
   io.println("== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==")
   io.println("entry: " <> entry_point)
@@ -61,20 +62,25 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
 
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
-    resolve_source(key, entry_point, core.All, cache_mode, fn(line) {
+    resolve_source(key, entry_point, core.All, source_limit, cache_mode, fn(line) {
       io.println("[warmup] " <> line)
     })
 
   let depth_1 =
-    resolve_source(key, entry_point, core.Depth1, cache_mode, fn(_line) { Nil })
+    resolve_source(key, entry_point, core.Depth1, source_limit, cache_mode, fn(_line) {
+      Nil
+    })
   let depth_2 =
-    resolve_source(key, entry_point, core.Depth2, cache_mode, fn(_line) { Nil })
+    resolve_source(key, entry_point, core.Depth2, source_limit, cache_mode, fn(_line) {
+      Nil
+    })
   let depth_all =
-    resolve_source(key, entry_point, core.All, cache_mode, fn(line) {
+    resolve_source(key, entry_point, core.All, source_limit, cache_mode, fn(line) {
       io.println("[full] " <> line)
     })
 
-  let pass = validate_results(name, assert_spec, depth_1, depth_2, depth_all)
+  let pass =
+    validate_results(name, source_limit, assert_spec, depth_1, depth_2, depth_all)
   write_csv(key, depth_all)
   io.println(
     case pass {
@@ -89,25 +95,28 @@ fn resolve_source(
   key: String,
   entry_point: String,
   depth: core.DepthMode,
+  source_limit: Int,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug(
+      bandcamp_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
     "soundcloud" -> {
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug(
+      soundcloud_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
@@ -127,20 +136,22 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug(
+      spotify_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         config,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug(
+      youtube_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
@@ -149,6 +160,7 @@ fn resolve_source(
 
 fn validate_results(
   name: String,
+  source_limit: Int,
   assert_spec: source_specs.SourceAssertSpec,
   d1: core.ResolveResult,
   d2: core.ResolveResult,
@@ -157,6 +169,7 @@ fn validate_results(
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
+    _source_limit,
     first_items_to_preserve,
     anchor_fragments,
     required_full_fragments,
@@ -185,6 +198,7 @@ fn validate_results(
     list.all(required_full_fragments, fn(fragment) {
       has_title_fragment_ci(items_all, fragment)
     })
+  let source_limit_ok = iall <= source_limit
 
   io.println(name <> " checks:")
   io.println(check(min_depth_ok) <> " min depth-1 items")
@@ -194,6 +208,7 @@ fn validate_results(
   io.println(check(first_items_ok) <> " first items preserved")
   io.println(check(anchors_shallow_ok && anchors_full_ok) <> " anchor fragments present")
   io.println(check(required_full_ok) <> " required full fragments present")
+  io.println(check(source_limit_ok) <> " source limit <= " <> int.to_string(source_limit))
 
   min_depth_ok
   && min_full_ok
@@ -203,6 +218,7 @@ fn validate_results(
   && anchors_shallow_ok
   && anchors_full_ok
   && required_full_ok
+  && source_limit_ok
 }
 
 fn write_csv(key: String, result: core.ResolveResult) {
@@ -275,3 +291,4 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
     cache.CacheOverride -> "override"
   }
 }
+

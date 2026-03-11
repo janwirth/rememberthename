@@ -104,7 +104,8 @@ fn run_fetch(
   depth_label: String,
   cache_mode: cache.CacheMode,
 ) {
-  let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+  let source_specs.SourceSpec(key, name, entry_point, _, assert_spec) = source
+  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("Fetching source " <> int.to_string(source_index) <> ": " <> name)
   io.println("Depth: " <> depth_label)
   io.println("Cache: " <> cache_mode_text(cache_mode))
@@ -115,11 +116,13 @@ fn run_fetch(
       key,
       entry_point,
       depth,
+      source_limit,
       cache_mode,
       fn(line) { io.println(line) },
     )
 
-  let core.ResolveResult(items, lists, unresolved) = result
+  let core.ResolveResult(items, lists, unresolved) =
+    apply_source_limit(result, source_limit)
   io.println("")
   io.println(
     "Done. items="
@@ -175,32 +178,39 @@ fn collect_source_runs(
   case specs {
     [] -> acc
     [source, ..rest] -> {
-      let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+      let source_specs.SourceSpec(key, name, entry_point, _, assert_spec) = source
+      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
       io.println("  - " <> name)
       let depth_1 =
         resolve_source(
           key,
           entry_point,
           core.Depth1,
+          source_limit,
           cache.CacheOverride,
           fn(line) { io.println("    [" <> key <> "][d1] " <> line) },
         )
+      let depth_1 = apply_source_limit(depth_1, source_limit)
       let depth_2 =
         resolve_source(
           key,
           entry_point,
           core.Depth2,
+          source_limit,
           cache.CacheOverride,
           fn(line) { io.println("    [" <> key <> "][d2] " <> line) },
         )
+      let depth_2 = apply_source_limit(depth_2, source_limit)
       let depth_all =
         resolve_source(
           key,
           entry_point,
           core.All,
+          source_limit,
           cache.CacheOverride,
           fn(line) { io.println("    [" <> key <> "][all] " <> line) },
         )
+      let depth_all = apply_source_limit(depth_all, source_limit)
       collect_source_runs(
         rest,
         list.append(acc, [SourceRun(source, depth_1, depth_2, depth_all)]),
@@ -236,6 +246,7 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
+    source_limit,
     first_items_to_preserve,
     anchor_fragments,
     required_full_fragments,
@@ -266,6 +277,7 @@ fn validate_source_run(run: SourceRun) -> List(String) {
     list.all(required_full_fragments, fn(fragment) {
       has_title_fragment_ci(items_all, fragment)
     })
+  let source_limit_ok = iall <= source_limit
   []
   |> add_validation_error(
     !min_depth_ok,
@@ -294,6 +306,10 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   |> add_validation_error(
     !required_full_ok,
     key <> " (" <> name <> "): required full fragments failed",
+  )
+  |> add_validation_error(
+    !source_limit_ok,
+    key <> " (" <> name <> "): source limit exceeded (" <> int.to_string(source_limit) <> ")",
   )
 }
 
@@ -371,25 +387,28 @@ fn resolve_source(
   key: String,
   entry_point: String,
   depth: core.DepthMode,
+  source_limit: Int,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug(
+      bandcamp_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
     "soundcloud" -> {
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug(
+      soundcloud_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
@@ -409,20 +428,22 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug(
+      spotify_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         config,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug(
+      youtube_live_expander.resolve_profile_with_debug_limited(
         profile,
         depth,
         cache_mode,
+        source_limit,
         on_debug,
       )
     }
@@ -495,6 +516,22 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
 
 fn artifact_path(file_name: String) -> String {
   "output/" <> file_name
+}
+
+fn apply_source_limit(
+  result: core.ResolveResult,
+  source_limit: Int,
+) -> core.ResolveResult {
+  let core.ResolveResult(items, lists, unresolved) = result
+  case source_limit <= 0 {
+    True -> core.ResolveResult(items: [], lists: lists, unresolved: unresolved)
+    False ->
+      core.ResolveResult(
+        items: list.take(items, source_limit),
+        lists: lists,
+        unresolved: unresolved,
+      )
+  }
 }
 
 fn print_usage() {
