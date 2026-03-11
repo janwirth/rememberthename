@@ -10,6 +10,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import output/csv_writer
 import output/visual_output
 import simplifile
@@ -17,6 +18,15 @@ import source_specs
 
 @external(erlang, "cli_runtime_args", "argv")
 fn argv() -> List(String)
+
+type SourceRun {
+  SourceRun(
+    spec: source_specs.SourceSpec,
+    depth_1: core.ResolveResult,
+    depth_2: core.ResolveResult,
+    depth_all: core.ResolveResult,
+  )
+}
 
 pub fn main() {
   let args = normalize_args(argv())
@@ -131,40 +141,70 @@ fn run_fetch(
 
 fn export_all_csv() {
   io.println("Exporting all sources to CSV with cache override...")
-  let all_specs = source_specs.all()
-  let all_items =
-    collect_items_from_specs(all_specs, [])
-    |> list.append(collect_tuna_items())
+  let runs = collect_source_runs(source_specs.all(), [])
+  let adapter_items = source_run_items(runs)
+  let tuna_items = collect_tuna_items()
+  let all_items = list.append(adapter_items, tuna_items)
   let tracks = list.map(all_items, to_track_view)
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
   let _ = simplifile.write(csv, to: csv_path)
+  let validation_errors =
+    list.append(validate_source_runs(runs), validate_tuna_items(tuna_items))
   io.println(
     "Done. Exported "
     <> int.to_string(list.length(all_items))
     <> " items to "
     <> csv_path,
   )
+  case validation_errors == [] {
+    True -> io.println("Validation: PASS")
+    False -> {
+      io.println(
+        "Validation: FAIL (" <> int.to_string(list.length(validation_errors)) <> " errors)",
+      )
+      list.each(validation_errors, fn(line) { io.println("  - " <> line) })
+    }
+  }
 }
 
-fn collect_items_from_specs(
+fn collect_source_runs(
   specs: List(source_specs.SourceSpec),
-  acc: List(core.UnifiedItem),
-) -> List(core.UnifiedItem) {
+  acc: List(SourceRun),
+) -> List(SourceRun) {
   case specs {
     [] -> acc
     [source, ..rest] -> {
       let source_specs.SourceSpec(key, name, entry_point, _, _) = source
       io.println("  - " <> name)
-      let core.ResolveResult(items, _, _) =
+      let depth_1 =
+        resolve_source(
+          key,
+          entry_point,
+          core.Depth1,
+          cache.CacheOverride,
+          fn(line) { io.println("    [" <> key <> "][d1] " <> line) },
+        )
+      let depth_2 =
+        resolve_source(
+          key,
+          entry_point,
+          core.Depth2,
+          cache.CacheOverride,
+          fn(line) { io.println("    [" <> key <> "][d2] " <> line) },
+        )
+      let depth_all =
         resolve_source(
           key,
           entry_point,
           core.All,
           cache.CacheOverride,
-          fn(_line) { Nil },
+          fn(line) { io.println("    [" <> key <> "][all] " <> line) },
         )
-      collect_items_from_specs(rest, list.append(acc, items))
+      collect_source_runs(
+        rest,
+        list.append(acc, [SourceRun(source, depth_1, depth_2, depth_all)]),
+      )
     }
   }
 }
@@ -174,6 +214,157 @@ fn collect_tuna_items() -> List(core.UnifiedItem) {
   let core.ResolveResult(items, _, _) =
     tuna_normalized_source.resolve(core.All, cache.CacheOverride, fn(_line) { Nil })
   items
+}
+
+fn source_run_items(runs: List(SourceRun)) -> List(core.UnifiedItem) {
+  list.fold(runs, [], fn(acc, run) {
+    let SourceRun(_, _, _, depth_all) = run
+    let core.ResolveResult(items, _, _) = depth_all
+    list.append(acc, items)
+  })
+}
+
+fn validate_source_runs(runs: List(SourceRun)) -> List(String) {
+  list.fold(runs, [], fn(acc, run) {
+    list.append(acc, validate_source_run(run))
+  })
+}
+
+fn validate_source_run(run: SourceRun) -> List(String) {
+  let SourceRun(spec, depth_1, depth_2, depth_all) = run
+  let source_specs.SourceSpec(key, name, _, _, assert_spec) = spec
+  let source_specs.SourceAssertSpec(
+    min_depth_1_items,
+    min_full_items,
+    first_items_to_preserve,
+    anchor_fragments,
+    required_full_fragments,
+  ) = assert_spec
+  let #(i1, l1, u1) = counts(depth_1)
+  let #(i2, _, _) = counts(depth_2)
+  let #(iall, lall, uall) = counts(depth_all)
+  let items_1 = result_items(depth_1)
+  let items_2 = result_items(depth_2)
+  let items_all = result_items(depth_all)
+  let min_depth_ok = i1 >= min_depth_1_items
+  let min_full_ok = iall >= min_full_items
+  let monotonic_ok = i2 > i1 && iall >= i2
+  let consistency_ok = lall >= l1 && uall == u1
+  let first_ids = first_item_ids(depth_1, first_items_to_preserve)
+  let first_items_ok =
+    first_ids != [] && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
+  let anchors_shallow_ok =
+    list.all(anchor_fragments, fn(fragment) {
+      has_title_fragment(items_1, fragment) || has_title_fragment(items_2, fragment)
+    })
+  let anchors_full_ok =
+    list.all(anchor_fragments, fn(fragment) {
+      has_title_fragment(items_all, fragment)
+    })
+  let anchors_ok = anchors_shallow_ok && anchors_full_ok
+  let required_full_ok =
+    list.all(required_full_fragments, fn(fragment) {
+      has_title_fragment_ci(items_all, fragment)
+    })
+  []
+  |> add_validation_error(
+    !min_depth_ok,
+    key <> " (" <> name <> "): min depth-1 items failed",
+  )
+  |> add_validation_error(
+    !min_full_ok,
+    key <> " (" <> name <> "): min full items failed",
+  )
+  |> add_validation_error(
+    !monotonic_ok,
+    key <> " (" <> name <> "): depth monotonicity failed",
+  )
+  |> add_validation_error(
+    !consistency_ok,
+    key <> " (" <> name <> "): list/unresolved consistency failed",
+  )
+  |> add_validation_error(
+    !first_items_ok,
+    key <> " (" <> name <> "): first items preserved failed",
+  )
+  |> add_validation_error(
+    !anchors_ok,
+    key <> " (" <> name <> "): anchor fragments failed",
+  )
+  |> add_validation_error(
+    !required_full_ok,
+    key <> " (" <> name <> "): required full fragments failed",
+  )
+}
+
+fn validate_tuna_items(items: List(core.UnifiedItem)) -> List(String) {
+  case items == [] {
+    True -> ["tuna: no items returned"]
+    False ->
+      case list.all(items, fn(item) { item_source_id_ok(item) }) {
+        True -> []
+        False -> ["tuna: one or more items failed source_id constructor validation"]
+      }
+  }
+}
+
+fn item_source_id_ok(item: core.UnifiedItem) -> Bool {
+  let core.UnifiedItem(_, title, artist, service, _, source_id) = item
+  case core.track_item(service, source_id, title, artist) {
+    Ok(_) -> True
+    Error(_) -> False
+  }
+}
+
+fn add_validation_error(errors: List(String), condition: Bool, line: String) -> List(String) {
+  case condition {
+    True -> list.append(errors, [line])
+    False -> errors
+  }
+}
+
+fn result_items(result: core.ResolveResult) -> List(core.UnifiedItem) {
+  let core.ResolveResult(items, _, _) = result
+  items
+}
+
+fn counts(result: core.ResolveResult) -> #(Int, Int, Int) {
+  let core.ResolveResult(items, lists, unresolved) = result
+  #(list.length(items), list.length(lists), list.length(unresolved))
+}
+
+fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
+  result
+  |> result_items
+  |> list.take(count)
+  |> list.map(fn(item) {
+    let core.UnifiedItem(id, _, _, _, _, _) = item
+    id
+  })
+}
+
+fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
+  result
+  |> result_items
+  |> list.any(fn(item) {
+    let core.UnifiedItem(id, _, _, _, _, _) = item
+    id == wanted
+  })
+}
+
+fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
+  list.any(items, fn(item) {
+    let core.UnifiedItem(_, title, _, _, _, _) = item
+    string.contains(title, wanted)
+  })
+}
+
+fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
+  let wanted_lc = string.lowercase(wanted)
+  list.any(items, fn(item) {
+    let core.UnifiedItem(_, title, _, _, _, _) = item
+    string.contains(string.lowercase(title), wanted_lc)
+  })
 }
 
 fn resolve_source(
