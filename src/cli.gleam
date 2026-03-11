@@ -374,8 +374,8 @@ fn dedupe_latest_csv() {
   let input_path = artifact_path("all_items_latest.csv")
   let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
   let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
-  io.println("Deduplicating CSV (one bucket per track): " <> input_path)
-  case deduplication.one_bucket_per_track_csv_file(input_path) {
+  io.println("Deduplicating CSV (source/service + source_id): " <> input_path)
+  case deduplication.deduplicate_by_source_id_csv_file(input_path) {
     Ok(dedup_result) -> {
       let dedup_buckets_write_errors =
         write_output_file(

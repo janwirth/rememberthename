@@ -109,6 +109,13 @@ pub fn one_bucket_per_track_csv_file(path: String) -> Result(DeduplicationResult
   }
 }
 
+pub fn deduplicate_by_source_id_csv_file(path: String) -> Result(DeduplicationResult, String) {
+  case simplifile.read(from: path) {
+    Ok(content) -> deduplicate_by_source_id_csv(content)
+    Error(_) -> Error("Unable to read CSV file: " <> path)
+  }
+}
+
 pub fn deduplicate_csv(content: String) -> Result(DeduplicationResult, String) {
   case parse_csv_rows(content) {
     Error(msg) -> Error(msg)
@@ -142,6 +149,33 @@ pub fn one_bucket_per_track_csv(content: String) -> Result(DeduplicationResult, 
               let items = list.map(body, row_to_track_item)
               let buckets = one_bucket_per_track_buckets(items, 1, 1, [])
               Ok(DeduplicationResult(buckets, []))
+            }
+          }
+      }
+  }
+}
+
+pub fn deduplicate_by_source_id_csv(content: String) -> Result(DeduplicationResult, String) {
+  case parse_csv_rows(content) {
+    Error(msg) -> Error(msg)
+    Ok(rows) ->
+      case rows {
+        [] -> Error("CSV is empty")
+        [header, ..body] ->
+          case header == ["title", "artist", "service", "source_id", "tags"]
+            || header == ["title", "artist", "service", "source_id"] {
+            False -> Error("Unexpected CSV header")
+            True -> {
+              let items = list.map(body, row_to_track_item)
+              let counts_by_key = source_key_counts(items)
+              let State(buckets, _, _, _) =
+                list.fold(
+                  items,
+                  State([], [], 1, 1),
+                  fn(state, item) { insert_item_by_source_id(state, item) },
+                )
+              let sorted = sort_buckets_by_dedupe_count_desc(buckets, counts_by_key)
+              Ok(DeduplicationResult(sorted, []))
             }
           }
       }
@@ -350,6 +384,58 @@ fn one_bucket_per_track_buckets(
   }
 }
 
+fn insert_item_by_source_id(state: State, item: TrackItem) -> State {
+  let State(buckets, ambiguities, next_bucket_number, next_time) = state
+  let TrackItem(_, _, adapter, source_id, _, _) = item
+  let normalized_source_id = source_id_normalizer.normalize(adapter, source_id)
+  case match_by_source_id(buckets, adapter, normalized_source_id) {
+    Some(bucket) ->
+      merge_into_bucket(state, bucket, item, "source_id_only")
+    None ->
+      create_bucket_with_title_fallback(
+        State(
+          buckets: buckets,
+          ambiguities: ambiguities,
+          next_bucket_number: next_bucket_number,
+          next_time: next_time,
+        ),
+        item,
+      )
+  }
+}
+
+fn create_bucket_with_title_fallback(state: State, item: TrackItem) -> State {
+  let State(buckets, ambiguities, next_bucket_number, next_time) = state
+  let TrackItem(title, artist, _, source_id, _, assets) = item
+  let canonical_title =
+    case string.trim(title) == "" {
+      True ->
+        case string.trim(source_id) == "" {
+          True -> "unknown"
+          False -> source_id
+        }
+      False -> title
+    }
+  let inserted_at = time_token(next_time)
+  let source_link = source_link_from_item(item, inserted_at)
+  let bucket =
+    Bucket(
+      bucket_id: "bucket-" <> int.to_string(next_bucket_number),
+      title: canonical_title,
+      artist: artist,
+      source_links: [source_link],
+      assets: dedupe_assets(assets),
+      created_at: inserted_at,
+      updated_at: inserted_at,
+    )
+  State(
+    buckets: list.append(buckets, [bucket]),
+    ambiguities: ambiguities,
+    next_bucket_number: next_bucket_number + 1,
+    next_time: next_time + 1,
+  )
+}
+
 fn create_bucket(state: State, item: TrackItem) -> State {
   let State(buckets, ambiguities, next_bucket_number, next_time) = state
   let TrackItem(title, artist, _, _, _, assets) = item
@@ -371,6 +457,78 @@ fn create_bucket(state: State, item: TrackItem) -> State {
     next_bucket_number: next_bucket_number + 1,
     next_time: next_time + 1,
   )
+}
+
+fn source_key_counts(items: List(TrackItem)) -> Dict(String, Int) {
+  list.fold(items, dict.new(), fn(counts, item) {
+    let TrackItem(_, _, adapter, source_id, _, _) = item
+    let normalized_source_id = source_id_normalizer.normalize(adapter, source_id)
+    let key = dedupe_key(adapter, normalized_source_id)
+    let current =
+      case dict.get(counts, key) {
+        Ok(value) -> value
+        Error(_) -> 0
+      }
+    dict.insert(counts, key, current + 1)
+  })
+}
+
+fn bucket_source_key(bucket: Bucket) -> String {
+  let Bucket(_, _, _, source_links, _, _, _) = bucket
+  case source_links {
+    [SourceLink(adapter, source_id, _, _, _, _), .._] ->
+      dedupe_key(adapter, source_id)
+    [] -> dedupe_key("", "")
+  }
+}
+
+fn dedupe_key(adapter: String, source_id: String) -> String {
+  adapter <> "|" <> source_id
+}
+
+fn sort_buckets_by_dedupe_count_desc(
+  buckets: List(Bucket),
+  counts_by_key: Dict(String, Int),
+) -> List(Bucket) {
+  list.fold(buckets, [], fn(sorted, bucket) {
+    insert_bucket_sorted_by_count(sorted, bucket, counts_by_key)
+  })
+}
+
+fn insert_bucket_sorted_by_count(
+  sorted: List(Bucket),
+  bucket: Bucket,
+  counts_by_key: Dict(String, Int),
+) -> List(Bucket) {
+  case sorted {
+    [] -> [bucket]
+    [first, ..rest] ->
+      case bucket_should_precede_by_count(bucket, first, counts_by_key) {
+        True -> [bucket, ..sorted]
+        False -> [first, ..insert_bucket_sorted_by_count(rest, bucket, counts_by_key)]
+      }
+  }
+}
+
+fn bucket_dedupe_count(bucket: Bucket, counts_by_key: Dict(String, Int)) -> Int {
+  let key = bucket_source_key(bucket)
+  case dict.get(counts_by_key, key) {
+    Ok(value) -> value
+    Error(_) -> 0
+  }
+}
+
+fn bucket_should_precede_by_count(
+  candidate: Bucket,
+  existing: Bucket,
+  counts_by_key: Dict(String, Int),
+) -> Bool {
+  let candidate_count = bucket_dedupe_count(candidate, counts_by_key)
+  let existing_count = bucket_dedupe_count(existing, counts_by_key)
+  case candidate_count > existing_count {
+    True -> True
+    False -> False
+  }
 }
 
 fn merge_into_bucket(
