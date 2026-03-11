@@ -119,17 +119,16 @@ fn push_item(
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
   case normalized == "" {
     True -> acc
-    False -> [
-      core.UnifiedItem(
-        id: "tuna:normalized:" <> service <> ":" <> normalized <> ":" <> raw_source_id,
-        title: choose_title(preferred_title, normalized),
-        artist: choose_artist(tag_text, raw_source_id),
-        service: service,
-        source_type: "item",
-        source_id: normalized,
-      ),
-      ..acc
-    ]
+    False ->
+      case core.track_item(
+        service,
+        normalized,
+        choose_title(preferred_title, normalized),
+        choose_artist(tag_text, raw_source_id),
+      ) {
+        Ok(item) -> [item, ..acc]
+        Error(_) -> acc
+      }
   }
 }
 

@@ -211,28 +211,27 @@ fn cached_post_json(url: String, body: String, cache_mode: cache.CacheMode) -> S
   )
 }
 
-fn parse_items(json: String, kind: String) -> List(core.UnifiedItem) {
+fn parse_items(json: String, _kind: String) -> List(core.UnifiedItem) {
   let parts = string.split(json, "\"item_id\":")
   case parts {
     [] -> []
-    [_, ..rest] -> parse_item_parts(rest, kind, [])
+    [_, ..rest] -> parse_item_parts(rest, [])
   }
 }
 
 fn parse_category_payload(
   json: String,
-  kind: String,
+  _kind: String,
 ) -> #(List(core.UnifiedItem), List(core.AdapterNode)) {
   let parts = string.split(json, "\"item_id\":")
   case parts {
     [] -> #([], [])
-    [_, ..rest] -> parse_item_parts_with_album_nodes(rest, kind, [], [], 0)
+    [_, ..rest] -> parse_item_parts_with_album_nodes(rest, [], [], 0)
   }
 }
 
 fn parse_item_parts_with_album_nodes(
   parts: List(String),
-  kind: String,
   items_acc: List(core.UnifiedItem),
   nodes_acc: List(core.AdapterNode),
   album_nodes_added: Int,
@@ -246,17 +245,14 @@ fn parse_item_parts_with_album_nodes(
       let artist = extract_between(part, "\"band_name\":\"", "\"")
       let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
       case id == "" || item_type == "" || title == "" {
-        True -> parse_item_parts_with_album_nodes(rest, kind, items_acc, nodes_acc, album_nodes_added)
+        True -> parse_item_parts_with_album_nodes(rest, items_acc, nodes_acc, album_nodes_added)
         False -> {
-          let source = kind <> ":" <> item_type <> ":" <> id
-          let item =
-            core.UnifiedItem(
-              id: source,
-              title: decode(title),
-              artist: decode(default_if_empty(artist, "unknown")),
-              service: "bandcamp",
-              source_type: "item",
-              source_id: source,
+          let maybe_item =
+            core.track_item(
+              "bandcamp",
+              id,
+              decode(title),
+              decode(default_if_empty(artist, "unknown")),
             )
           let #(nodes_acc, album_nodes_added) =
             case item_type == "album" && item_url != "" && album_nodes_added < 2 {
@@ -269,8 +265,10 @@ fn parse_item_parts_with_album_nodes(
             }
           parse_item_parts_with_album_nodes(
             rest,
-            kind,
-            [item, ..items_acc],
+            case maybe_item {
+              Ok(item) -> [item, ..items_acc]
+              Error(_) -> items_acc
+            },
             nodes_acc,
             album_nodes_added,
           )
@@ -293,19 +291,18 @@ fn parse_tracklist_items(json: String, kind: String) -> List(core.UnifiedItem) {
 
 fn parse_track_title_parts(
   tracklists_segment: String,
-  kind: String,
+  _kind: String,
   acc: List(core.UnifiedItem),
 ) -> List(core.UnifiedItem) {
   let parts = string.split(tracklists_segment, "\"id\":")
   case parts {
     [] -> []
-    [_, ..rest] -> parse_track_id_parts(rest, kind, acc)
+    [_, ..rest] -> parse_track_id_parts(rest, acc)
   }
 }
 
 fn parse_track_id_parts(
   parts: List(String),
-  kind: String,
   acc: List(core.UnifiedItem),
 ) -> List(core.UnifiedItem) {
   case parts {
@@ -315,19 +312,22 @@ fn parse_track_id_parts(
       let title = extract_between(part, "\"title\":\"", "\"")
       let artist = extract_between(part, "\"artist\":\"", "\"")
       case track_id == "" || title == "" {
-        True -> parse_track_id_parts(rest, kind, acc)
+        True -> parse_track_id_parts(rest, acc)
         False -> {
-          let source = kind <> ":album_track:" <> track_id
-          let item =
-            core.UnifiedItem(
-              id: source,
-              title: decode(title),
-              artist: decode(default_if_empty(artist, "unknown")),
-              service: "bandcamp",
-              source_type: "item",
-              source_id: source,
+          let maybe_item =
+            core.track_item(
+              "bandcamp",
+              track_id,
+              decode(title),
+              decode(default_if_empty(artist, "unknown")),
             )
-          parse_track_id_parts(rest, kind, [item, ..acc])
+          parse_track_id_parts(
+            rest,
+            case maybe_item {
+              Ok(item) -> [item, ..acc]
+              Error(_) -> acc
+            },
+          )
         }
       }
     }
@@ -369,21 +369,21 @@ fn parse_album_track_titles(
       case title == "" {
         True -> parse_album_track_titles(rest, album_id, index + 1, acc)
         False -> {
-          let source_id =
+          let raw_source_id =
             case track_id {
-              "" -> "album_track:" <> album_id <> ":" <> int.to_string(index)
-              _ -> "album_track:" <> album_id <> ":" <> track_id
+              "" -> album_id <> ":" <> int.to_string(index)
+              _ -> track_id
             }
-          let item =
-            core.UnifiedItem(
-              id: source_id,
-              title: title,
-              artist: artist,
-              service: "bandcamp",
-              source_type: "item",
-              source_id: source_id,
-            )
-          parse_album_track_titles(rest, album_id, index + 1, [item, ..acc])
+          let maybe_item = core.track_item("bandcamp", raw_source_id, title, artist)
+          parse_album_track_titles(
+            rest,
+            album_id,
+            index + 1,
+            case maybe_item {
+              Ok(item) -> [item, ..acc]
+              Error(_) -> acc
+            },
+          )
         }
       }
     }
@@ -399,7 +399,6 @@ fn parse_entry_items(html: String) -> List(core.UnifiedItem) {
 
 fn parse_item_parts(
   parts: List(String),
-  kind: String,
   acc: List(core.UnifiedItem),
 ) -> List(core.UnifiedItem) {
   case parts {
@@ -410,19 +409,22 @@ fn parse_item_parts(
       let title = extract_between(part, "\"item_title\":\"", "\"")
       let artist = extract_between(part, "\"band_name\":\"", "\"")
       case id == "" || item_type == "" || title == "" {
-        True -> parse_item_parts(rest, kind, acc)
+        True -> parse_item_parts(rest, acc)
         False -> {
-          let source = kind <> ":" <> item_type <> ":" <> id
-          let item =
-            core.UnifiedItem(
-              id: source,
-              title: decode(title),
-              artist: decode(default_if_empty(artist, "unknown")),
-              service: "bandcamp",
-              source_type: "item",
-              source_id: source,
+          let maybe_item =
+            core.track_item(
+              "bandcamp",
+              id,
+              decode(title),
+              decode(default_if_empty(artist, "unknown")),
             )
-          parse_item_parts(rest, kind, [item, ..acc])
+          parse_item_parts(
+            rest,
+            case maybe_item {
+              Ok(item) -> [item, ..acc]
+              Error(_) -> acc
+            },
+          )
         }
       }
     }

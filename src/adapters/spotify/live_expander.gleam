@@ -421,20 +421,12 @@ fn parse_track_items(json: String) -> List(core.UnifiedItem) {
         [_, _, a] -> a
         _ -> "unknown"
       }
-    case track_id == "" {
-      True -> Error(Nil)
-      False ->
-        Ok(
-          core.UnifiedItem(
-            id: "spotify:item:" <> track_id,
-            title: normalize(title),
-            artist: normalize(default_if_empty(artist_name, "unknown")),
-            service: "spotify",
-            source_type: "item",
-            source_id: "spotify:item:" <> track_id,
-          ),
-        )
-    }
+    core.track_item(
+      "spotify",
+      track_id,
+      normalize(title),
+      normalize(default_if_empty(artist_name, "unknown")),
+    )
   })
 }
 

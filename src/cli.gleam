@@ -3,6 +3,7 @@ import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
+import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import gleam/int
 import gleam/io
@@ -21,6 +22,7 @@ pub fn main() {
   let args = normalize_args(argv())
   case args {
     ["list"] -> list_sources()
+    ["export", "all", "csv"] -> export_all_csv()
     ["source", "fetch", source_index_text, "depth", depth_text] ->
       fetch_source(source_index_text, depth_text, None)
     ["source", "fetch", source_index_text, "depth", depth_text, "cache", cache_mode_text] ->
@@ -120,10 +122,58 @@ fn run_fetch(
 
   let tracks = list.map(items, to_track_view)
   let csv = csv_writer.tracks_csv(tracks)
-  let csv_path =
-    "cli_result_" <> key <> "_depth_" <> sanitize_depth_label(depth_label) <> ".csv"
+  let csv_path = artifact_path(
+    "cli_result_" <> key <> "_depth_" <> sanitize_depth_label(depth_label) <> ".csv",
+  )
   let _ = simplifile.write(csv, to: csv_path)
   io.println("CSV written: " <> csv_path)
+}
+
+fn export_all_csv() {
+  io.println("Exporting all sources to CSV with cache override...")
+  let all_specs = source_specs.all()
+  let all_items =
+    collect_items_from_specs(all_specs, [])
+    |> list.append(collect_tuna_items())
+  let tracks = list.map(all_items, to_track_view)
+  let csv = csv_writer.tracks_csv(tracks)
+  let csv_path = artifact_path("all_items_latest.csv")
+  let _ = simplifile.write(csv, to: csv_path)
+  io.println(
+    "Done. Exported "
+    <> int.to_string(list.length(all_items))
+    <> " items to "
+    <> csv_path,
+  )
+}
+
+fn collect_items_from_specs(
+  specs: List(source_specs.SourceSpec),
+  acc: List(core.UnifiedItem),
+) -> List(core.UnifiedItem) {
+  case specs {
+    [] -> acc
+    [source, ..rest] -> {
+      let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+      io.println("  - " <> name)
+      let core.ResolveResult(items, _, _) =
+        resolve_source(
+          key,
+          entry_point,
+          core.All,
+          cache.CacheOverride,
+          fn(_line) { Nil },
+        )
+      collect_items_from_specs(rest, list.append(acc, items))
+    }
+  }
+}
+
+fn collect_tuna_items() -> List(core.UnifiedItem) {
+  io.println("  - Tuna")
+  let core.ResolveResult(items, _, _) =
+    tuna_normalized_source.resolve(core.All, cache.CacheOverride, fn(_line) { Nil })
+  items
 }
 
 fn resolve_source(
@@ -252,13 +302,19 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
   }
 }
 
+fn artifact_path(file_name: String) -> String {
+  "output/" <> file_name
+}
+
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
+  io.println("  cli export all csv")
   io.println("  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>]")
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
+  io.println("  gleam run -m cli -- export all csv")
   io.println("  gleam run -m cli -- source fetch 1 depth 1")
   io.println("  gleam run -m cli -- source fetch 2 depth full")
 }

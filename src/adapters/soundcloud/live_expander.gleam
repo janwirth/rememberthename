@@ -240,22 +240,16 @@ fn parse_tracks(
   let lines = parse_lines(cached_json_tracks_tsv(json, cache_mode))
   list.index_map(lines, fn(line, idx) {
     let cols = string.split(line, "\t")
-    let #(id, title, artist) =
+    let #(raw_source_id, title, artist) =
       case cols {
         [id, title, artist] -> #(id, title, artist)
         [id, title] -> #(id, title, "unknown")
         [id] -> #(id, "untitled", "unknown")
         _ -> #(kind <> ":" <> int.to_string(idx + 1), "untitled", "unknown")
       }
-    core.UnifiedItem(
-      id: kind <> ":" <> id,
-      title: title,
-      artist: artist,
-      service: "soundcloud",
-      source_type: "item",
-      source_id: kind <> ":" <> id,
-    )
+    core.track_item("soundcloud", raw_source_id, title, artist)
   })
+  |> list.filter_map(fn(item) { item })
 }
 
 fn cached_fetch_profile_body(url: String, cache_mode: cache.CacheMode) -> String {

@@ -33,6 +33,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/set
+import source_id_normalizer
 
 // Spec integration:
 // - Implements SPEC.md section 7.1 recursive queue model.
@@ -75,6 +76,29 @@ pub type UnifiedCollection {
     source_type: String,
     source_id: String,
   )
+}
+
+pub fn track_item(
+  service: String,
+  raw_source_id: String,
+  title: String,
+  artist: String,
+) -> Result(UnifiedItem, Nil) {
+  let source_id = source_id_normalizer.normalize(service, raw_source_id)
+  case source_id == "" {
+    True -> Error(Nil)
+    False ->
+      Ok(
+        UnifiedItem(
+          id: service <> ":item:" <> source_id,
+          title: title,
+          artist: artist,
+          service: service,
+          source_type: "item",
+          source_id: source_id,
+        ),
+      )
+  }
 }
 
 pub type ExpandResult {

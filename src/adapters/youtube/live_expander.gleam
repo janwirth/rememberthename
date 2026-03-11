@@ -180,27 +180,32 @@ fn parse_tracks(raw: String) -> List(core.UnifiedItem) {
       [video_id, title, artist] ->
         case video_id == "" {
           True -> acc
-          False -> list.append(acc, [make_item(video_id, title, artist)])
+          False ->
+            case make_item(video_id, title, artist) {
+              Ok(item) -> list.append(acc, [item])
+              Error(_) -> acc
+            }
         }
       [video_id, title] ->
         case video_id == "" {
           True -> acc
-          False -> list.append(acc, [make_item(video_id, title, "unknown")])
+          False ->
+            case make_item(video_id, title, "unknown") {
+              Ok(item) -> list.append(acc, [item])
+              Error(_) -> acc
+            }
         }
       _ -> acc
     }
   })
 }
 
-fn make_item(video_id: String, title: String, artist: String) -> core.UnifiedItem {
-  let source_id = "youtube:item:" <> video_id
-  core.UnifiedItem(
-    id: source_id,
-    title: normalize_text(title),
-    artist: normalize_text(default_if_empty(artist, "unknown")),
-    service: "youtube",
-    source_type: "item",
-    source_id: source_id,
+fn make_item(video_id: String, title: String, artist: String) -> Result(core.UnifiedItem, Nil) {
+  core.track_item(
+    "youtube",
+    video_id,
+    normalize_text(title),
+    normalize_text(default_if_empty(artist, "unknown")),
   )
 }
 
