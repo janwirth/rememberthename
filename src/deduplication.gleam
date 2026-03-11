@@ -102,6 +102,13 @@ pub fn deduplicate_csv_file(path: String) -> Result(DeduplicationResult, String)
   }
 }
 
+pub fn one_bucket_per_track_csv_file(path: String) -> Result(DeduplicationResult, String) {
+  case simplifile.read(from: path) {
+    Ok(content) -> one_bucket_per_track_csv(content)
+    Error(_) -> Error("Unable to read CSV file: " <> path)
+  }
+}
+
 pub fn deduplicate_csv(content: String) -> Result(DeduplicationResult, String) {
   case parse_csv_rows(content) {
     Error(msg) -> Error(msg)
@@ -115,6 +122,26 @@ pub fn deduplicate_csv(content: String) -> Result(DeduplicationResult, String) {
             True -> {
               let items = list.map(body, row_to_track_item)
               Ok(deduplicate(items))
+            }
+          }
+      }
+  }
+}
+
+pub fn one_bucket_per_track_csv(content: String) -> Result(DeduplicationResult, String) {
+  case parse_csv_rows(content) {
+    Error(msg) -> Error(msg)
+    Ok(rows) ->
+      case rows {
+        [] -> Error("CSV is empty")
+        [header, ..body] ->
+          case header == ["title", "artist", "service", "source_id", "tags"]
+            || header == ["title", "artist", "service", "source_id"] {
+            False -> Error("Unexpected CSV header")
+            True -> {
+              let items = list.map(body, row_to_track_item)
+              let buckets = one_bucket_per_track_buckets(items, 1, 1, [])
+              Ok(DeduplicationResult(buckets, []))
             }
           }
       }
@@ -141,7 +168,7 @@ pub fn buckets_csv(result: DeduplicationResult) -> String {
       |> list.map(csv_cell)
       |> string.join(",")
     })
-  string.join([header, ..rows], "\n")
+  string.join([header, ..rows], "\n") <> "\n"
 }
 
 pub fn ambiguities_csv(result: DeduplicationResult) -> String {
@@ -162,7 +189,7 @@ pub fn ambiguities_csv(result: DeduplicationResult) -> String {
       |> list.map(csv_cell)
       |> string.join(",")
     })
-  string.join([header, ..rows], "\n")
+  string.join([header, ..rows], "\n") <> "\n"
 }
 
 pub fn local_asset(
@@ -278,6 +305,47 @@ fn insert_item(state: State, item: TrackItem) -> State {
           )
         }
       }
+    }
+  }
+}
+
+fn one_bucket_per_track_buckets(
+  items: List(TrackItem),
+  next_bucket_number: Int,
+  next_time: Int,
+  acc: List(Bucket),
+) -> List(Bucket) {
+  case items {
+    [] -> list.reverse(acc)
+    [item, ..rest] -> {
+      let TrackItem(title, artist, _, source_id, _, assets) = item
+      let canonical_title =
+        case string.trim(title) == "" {
+          True ->
+            case string.trim(source_id) == "" {
+              True -> "unknown"
+              False -> source_id
+            }
+          False -> title
+        }
+      let inserted_at = time_token(next_time)
+      let source_link = source_link_from_item(item, inserted_at)
+      let bucket =
+        Bucket(
+          bucket_id: "bucket-" <> int.to_string(next_bucket_number),
+          title: canonical_title,
+          artist: artist,
+          source_links: [source_link],
+          assets: dedupe_assets(assets),
+          created_at: inserted_at,
+          updated_at: inserted_at,
+        )
+      one_bucket_per_track_buckets(
+        rest,
+        next_bucket_number + 1,
+        next_time + 1,
+        [bucket, ..acc],
+      )
     }
   }
 }

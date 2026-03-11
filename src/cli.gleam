@@ -34,6 +34,7 @@ pub fn main() {
   case args {
     [] -> show_easy_start()
     ["list"] -> list_sources()
+    ["dedupe"] -> dedupe_latest_csv()
     ["csv", source_selector] -> export_source_csv_simple(source_selector, False)
     ["csv", source_selector, "cache"] -> export_source_csv_simple(source_selector, True)
     ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
@@ -366,6 +367,40 @@ fn export_all_csv() {
       )
       list.each(validation_errors, fn(line) { io.println("  - " <> line) })
     }
+  }
+}
+
+fn dedupe_latest_csv() {
+  let input_path = artifact_path("all_items_latest.csv")
+  let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
+  let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
+  io.println("Deduplicating CSV (one bucket per track): " <> input_path)
+  case deduplication.one_bucket_per_track_csv_file(input_path) {
+    Ok(dedup_result) -> {
+      let dedup_buckets_write_errors =
+        write_output_file(
+          dedup_buckets_path,
+          deduplication.buckets_csv(dedup_result),
+          "Dedup buckets CSV written: ",
+        )
+      let dedup_ambiguities_write_errors =
+        write_output_file(
+          dedup_ambiguities_path,
+          deduplication.ambiguities_csv(dedup_result),
+          "Dedup ambiguities CSV written: ",
+        )
+      let errors = list.append(dedup_buckets_write_errors, dedup_ambiguities_write_errors)
+      case errors == [] {
+        True -> io.println("Validation: PASS")
+        False -> {
+          io.println(
+            "Validation: FAIL (" <> int.to_string(list.length(errors)) <> " errors)",
+          )
+          list.each(errors, fn(line) { io.println("  - " <> line) })
+        }
+      }
+    }
+    Error(message) -> io.println("Deduplication failed: " <> message)
   }
 }
 
@@ -878,6 +913,7 @@ fn artifact_path(file_name: String) -> String {
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
+  io.println("  cli dedupe")
   io.println("  cli csv <source_selector> [cache]")
   io.println("  cli fetch <source_selector> [cache]")
   io.println("  cli export all csv [use-cache]")
@@ -891,6 +927,7 @@ fn print_usage() {
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
+  io.println("  gleam run -m cli -- dedupe")
   io.println("  gleam run -m cli -- csv 1")
   io.println("  gleam run -m cli -- csv spotify")
   io.println("  gleam run -m cli -- csv spotify-2 cache")
