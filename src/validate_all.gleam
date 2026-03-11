@@ -243,7 +243,7 @@ fn write_csv(key: String, result: core.ResolveResult) {
     result_items(result)
     |> list.map(fn(item) {
       let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-      visual_output.TrackView(title, artist, service, source_id)
+      visual_output.TrackView(title, artist, service, source_id, "")
     })
   let path = "validate_all_" <> key <> "_full.csv"
   let _ = simplifile.write(csv_writer.tracks_csv(tracks), to: path)

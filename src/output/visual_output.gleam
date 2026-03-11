@@ -38,6 +38,7 @@
 /// - `artist`
 /// - `service`
 /// - `source_id`
+/// - `tags`
 ///
 /// ## 3) Terminal Output (Unicode Tree)
 ///
@@ -128,7 +129,13 @@ import gleam/string
 import output/tree_view
 
 pub type TrackView {
-  TrackView(title: String, artist: String, service: String, source_id: String)
+  TrackView(
+    title: String,
+    artist: String,
+    service: String,
+    source_id: String,
+    tags: String,
+  )
 }
 
 pub type ListView {
@@ -194,17 +201,17 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 }
 
 fn track_label(track: TrackView) -> String {
-  let TrackView(title, artist, _, _) = track
+  let TrackView(title, artist, _, _, _) = track
   title <> " - " <> artist <> missing_artist_suffix(artist)
 }
 
 pub fn track_csv_row(track: TrackView) -> List(String) {
-  let TrackView(title, artist, service, source_id) = track
-  [title, artist, service, source_id]
+  let TrackView(title, artist, service, source_id, tags) = track
+  [title, artist, service, source_id, tags]
 }
 
 fn full_track_label(track: TrackView) -> String {
-  let TrackView(title, artist, service, _) = track
+  let TrackView(title, artist, service, _, _) = track
   title
   <> " - "
   <> artist

@@ -314,7 +314,11 @@ fn export_all_csv() {
   let adapter_items = source_run_items(runs)
   let tuna_items = collect_tuna_items(cache_mode)
   let all_items = list.append(adapter_items, tuna_items)
-  let tracks = list.map(all_items, to_track_view)
+  let tracks =
+    list.append(
+      list.map(adapter_items, to_track_view),
+      list.map(tuna_items, to_tuna_track_view),
+    )
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
   let csv_write_errors = write_output_file(csv_path, csv, "CSV written: ")
@@ -669,7 +673,12 @@ fn resolve_source(
 
 fn to_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  visual_output.TrackView(title, artist, service, source_id)
+  visual_output.TrackView(title, artist, service, source_id, "")
+}
+
+fn to_tuna_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
+  let core.UnifiedItem(_, title, artist, service, _, source_id) = item
+  visual_output.TrackView(title, "", service, source_id, artist)
 }
 
 fn parse_depth(value: String) -> Result(core.DepthMode, Nil) {

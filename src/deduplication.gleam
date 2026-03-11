@@ -109,7 +109,8 @@ pub fn deduplicate_csv(content: String) -> Result(DeduplicationResult, String) {
       case rows {
         [] -> Error("CSV is empty")
         [header, ..body] ->
-          case header == ["title", "artist", "service", "source_id"] {
+          case header == ["title", "artist", "service", "source_id", "tags"]
+            || header == ["title", "artist", "service", "source_id"] {
             False -> Error("Unexpected CSV header")
             True -> {
               let items = list.map(body, row_to_track_item)
@@ -514,6 +515,15 @@ fn strip_common_punctuation(value: String) -> String {
 
 fn row_to_track_item(row: List(String)) -> TrackItem {
   case row {
+    [title, artist, adapter, source_id, _tags] ->
+      TrackItem(
+        title: title,
+        artist: artist,
+        adapter: adapter,
+        source_id: source_id,
+        raw_source_id: Some(source_id),
+        assets: [],
+      )
     [title, artist, adapter, source_id] ->
       TrackItem(
         title: title,

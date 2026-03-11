@@ -162,9 +162,10 @@ fn choose_title(preferred_title: String, fallback: String) -> String {
 }
 
 fn choose_artist(tag_text: String, fallback: String) -> String {
+  let _ = fallback
   case tag_text != "" {
     True -> tag_text
-    False -> fallback
+    False -> ""
   }
 }
 
