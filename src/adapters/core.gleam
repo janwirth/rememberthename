@@ -32,8 +32,8 @@
 import gleam/int
 import gleam/list
 import gleam/result
+import gleam/erlang/process
 import gleam/set
-import default_queue
 import source_id_normalizer
 
 // Spec integration:
@@ -152,100 +152,254 @@ pub fn resolve_profile_url_with_debug(
   }
 }
 
-type QueueTask {
-  QueueTask(node: AdapterNode, level: Int)
+type WorkerMsg {
+  WorkerDone(node: AdapterNode, level: Int, result: ExpandResult)
 }
 
-type QueueState {
-  QueueState(
-    visited: set.Set(String),
-    item_seen: set.Set(String),
-    list_seen: set.Set(String),
-    items: List(UnifiedItem),
-    lists: List(UnifiedCollection),
-    unresolved: List(AdapterNode),
-  )
-}
+const queue_max_concurrency = 3
+const queue_requests_per_second = 3
+const queue_interval_ms = 333
 
 fn resolve_profile_url_with_default_queue(
   profile_url: String,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
-  let policy = default_queue.QueuePolicy(max_concurrency: 3, requests_per_second: 3)
-  let initial_state =
-    QueueState(
-      visited: set.new(),
-      item_seen: set.new(),
-      list_seen: set.new(),
-      items: [],
-      lists: [],
-      unresolved: [],
+  let subject = process.new_subject()
+  emit_debug(
+    All,
+    on_debug,
+    "[queue] enabled mode=concurrent req_per_sec="
+    <> int.to_string(queue_requests_per_second)
+    <> " concurrency="
+    <> int.to_string(queue_max_concurrency),
+  )
+  let #(queue, running, visited, item_seen, list_seen, items, lists, unresolved, starts, max_active) =
+    start_workers(
+      [#(ProfileEntry(profile_url), 0)],
+      0,
+      set.new(),
+      set.new(),
+      set.new(),
+      [],
+      [],
+      [],
+      0,
+      0,
+      subject,
+      expand,
+      on_debug,
     )
-  let queue_run =
-    default_queue.run_default_queue_with_state(
-      [QueueTask(node: ProfileEntry(profile_url), level: 0)],
-      policy,
-      initial_state,
-      fn(task, state) { queue_execute_task(task, state, expand, on_debug) },
+  let ResolveResult(items, lists, unresolved) =
+    concurrent_loop(
+      queue,
+      running,
+      visited,
+      item_seen,
+      list_seen,
+      items,
+      lists,
+      unresolved,
+      starts,
+      max_active,
+      subject,
+      expand,
+      on_debug,
     )
-  let #(_, QueueState(_, _, _, items, lists, unresolved)) = queue_run
+  emit_debug(
+    All,
+    on_debug,
+    "[queue] done starts=" <> int.to_string(starts) <> " max_active=" <> int.to_string(max_active),
+  )
   ResolveResult(items, lists, unresolved)
 }
 
-fn queue_execute_task(
-  task: QueueTask,
-  state: QueueState,
+fn start_workers(
+  queue: List(#(AdapterNode, Int)),
+  running: Int,
+  visited: set.Set(String),
+  item_seen: set.Set(String),
+  list_seen: set.Set(String),
+  items: List(UnifiedItem),
+  lists: List(UnifiedCollection),
+  unresolved: List(AdapterNode),
+  starts: Int,
+  max_active: Int,
+  subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
-) -> #(QueueState, default_queue.TaskPlan(QueueTask, Nil, Nil)) {
-  let QueueTask(node, level) = task
-  let QueueState(visited, item_seen, list_seen, items, lists, unresolved) = state
-  let key = node_key(node)
-  case set.contains(visited, key) || !can_expand(level, All) {
+) -> #(
+  List(#(AdapterNode, Int)),
+  Int,
+  set.Set(String),
+  set.Set(String),
+  set.Set(String),
+  List(UnifiedItem),
+  List(UnifiedCollection),
+  List(AdapterNode),
+  Int,
+  Int,
+) {
+  case running >= queue_max_concurrency || queue == [] {
     True ->
       #(
-        state,
-        default_queue.TaskPlan(
-          duration_ms: 0,
-          outcome: default_queue.TaskOutcome(recurse: [], results: [], errors: []),
-        ),
+        queue,
+        running,
+        visited,
+        item_seen,
+        list_seen,
+        items,
+        lists,
+        unresolved,
+        starts,
+        max_active,
       )
     False -> {
-      let visited = set.insert(visited, key)
-      emit_debug(All, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
-      let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = expand(node)
-      emit_debug(
-        All,
-        on_debug,
-        "[fetched] node="
-        <> node_key(node)
-        <> " items="
-        <> int.to_string(list.length(next_items))
-        <> " lists="
-        <> int.to_string(list.length(next_lists))
-        <> " next="
-        <> int.to_string(list.length(next_nodes)),
-      )
-      let #(items, item_seen) = merge_items(items, item_seen, next_items)
-      let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
-      let unresolved = list.append(unresolved, next_unresolved)
-      let recurse = list.map(next_nodes, fn(next) { QueueTask(next, level + 1) })
-      #(
-        QueueState(
-          visited: visited,
-          item_seen: item_seen,
-          list_seen: list_seen,
-          items: items,
-          lists: lists,
-          unresolved: unresolved,
-        ),
-        default_queue.TaskPlan(
-          duration_ms: 0,
-          outcome: default_queue.TaskOutcome(recurse: recurse, results: [], errors: []),
-        ),
-      )
+      let current = result.unwrap(list.first(queue), #(PageNode(""), 0))
+      let rest = result.unwrap(list.rest(queue), [])
+      let #(node, level) = current
+      let key = node_key(node)
+      case set.contains(visited, key) || !can_expand(level, All) {
+        True ->
+          start_workers(
+            rest,
+            running,
+            visited,
+            item_seen,
+            list_seen,
+            items,
+            lists,
+            unresolved,
+            starts,
+            max_active,
+            subject,
+            expand,
+            on_debug,
+          )
+        False -> {
+          let visited = set.insert(visited, key)
+          emit_debug(All, on_debug, "[queue] start node=" <> key <> " level=" <> int.to_string(level))
+          emit_debug(All, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
+          let _ =
+            process.spawn_unlinked(fn() {
+              let payload = expand(node)
+              process.send(subject, WorkerDone(node: node, level: level, result: payload))
+            })
+          process.sleep(queue_interval_ms)
+          let next_running = running + 1
+          start_workers(
+            rest,
+            next_running,
+            visited,
+            item_seen,
+            list_seen,
+            items,
+            lists,
+            unresolved,
+            starts + 1,
+            max_int(max_active, next_running),
+            subject,
+            expand,
+            on_debug,
+          )
+        }
+      }
     }
+  }
+}
+
+fn concurrent_loop(
+  queue: List(#(AdapterNode, Int)),
+  running: Int,
+  visited: set.Set(String),
+  item_seen: set.Set(String),
+  list_seen: set.Set(String),
+  items: List(UnifiedItem),
+  lists: List(UnifiedCollection),
+  unresolved: List(AdapterNode),
+  starts: Int,
+  max_active: Int,
+  subject: process.Subject(WorkerMsg),
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> ResolveResult {
+  case queue == [] && running == 0 {
+    True -> ResolveResult(items, lists, unresolved)
+    False -> {
+      let #(queue, running, visited, item_seen, list_seen, items, lists, unresolved, starts, max_active) =
+        start_workers(
+          queue,
+          running,
+          visited,
+          item_seen,
+          list_seen,
+          items,
+          lists,
+          unresolved,
+          starts,
+          max_active,
+          subject,
+          expand,
+          on_debug,
+        )
+      case running == 0 {
+        True ->
+          ResolveResult(items, lists, unresolved)
+        False -> {
+          let message = process.receive_forever(subject)
+          let WorkerDone(node, level, payload) = message
+          let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = payload
+          emit_debug(
+            All,
+            on_debug,
+            "[fetched] node="
+            <> node_key(node)
+            <> " items="
+            <> int.to_string(list.length(next_items))
+            <> " lists="
+            <> int.to_string(list.length(next_lists))
+            <> " next="
+            <> int.to_string(list.length(next_nodes)),
+          )
+          let #(items, item_seen) = merge_items(items, item_seen, next_items)
+          let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
+          let unresolved = list.append(unresolved, next_unresolved)
+          emit_debug(
+            All,
+            on_debug,
+            "[queue] complete node="
+            <> node_key(node)
+            <> " pushed="
+            <> int.to_string(list.length(next_nodes))
+            <> " unresolved="
+            <> int.to_string(list.length(next_unresolved)),
+          )
+          let queue = list.append(queue, with_level(next_nodes, level + 1))
+          concurrent_loop(
+            queue,
+            running - 1,
+            visited,
+            item_seen,
+            list_seen,
+            items,
+            lists,
+            unresolved,
+            starts,
+            max_active,
+            subject,
+            expand,
+            on_debug,
+          )
+        }
+      }
+    }
+  }
+}
+
+fn max_int(a: Int, b: Int) -> Int {
+  case a > b {
+    True -> a
+    False -> b
   }
 }
 

@@ -24,7 +24,7 @@ pub fn resolve_standard_depths(
   resolve: fn(core.DepthMode, cache.CacheMode) -> core.ResolveResult,
 ) -> DepthResults {
   DepthResults(
-    depth_1: resolve(core.Depth1, cache.CacheIgnore),
+    depth_1: resolve(core.Depth1, cache.CacheUpsert),
     depth_all: resolve(core.All, cache.CacheUpsert),
   )
 }
