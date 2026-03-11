@@ -93,10 +93,30 @@ pub fn render_shows_all_once_when_total_tracks_is_six_or_less_test() {
     <> "    └── C - CC\n"
     <> "\n"
     <> "all tracks\n"
-    <> "└── all\n"
-    <> "    ├── A - AA [soundcloud]\n"
-    <> "    ├── B - BB [soundcloud]\n"
-    <> "    └── C - CC [bandcamp]"
+    <> "├── A - AA [soundcloud]\n"
+    <> "├── B - BB [soundcloud]\n"
+    <> "└── C - CC [bandcamp]"
+
+  visual_output.render(#(lists, flat_tracks))
+  |> should.equal(expected)
+}
+
+pub fn render_marks_tracks_with_missing_artist_test() {
+  let lists = [
+    visual_output.ListView(
+      "Missing Artist List",
+      [visual_output.TrackView("Track X", "", "youtube", "yt-x")],
+    ),
+  ]
+  let flat_tracks = [visual_output.TrackView("Track X", "", "youtube", "yt-x")]
+
+  let expected =
+    "lists\n"
+    <> "└── Missing Artist List (1)\n"
+    <> "    └── Track X -  (!missing artist)\n"
+    <> "\n"
+    <> "all tracks\n"
+    <> "└── Track X -  [youtube] (!missing artist)"
 
   visual_output.render(#(lists, flat_tracks))
   |> should.equal(expected)

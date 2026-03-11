@@ -1,4 +1,4 @@
-//// Spotify adapter documentation (merged from `SPOTIFY_SPEC.md`)
+//// Spotify adapter documentation.
 ////
 //// Scope and root inputs:
 //// - Supports authenticated Spotify likes traversal via profile entry roots.

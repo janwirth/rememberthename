@@ -1,5 +1,11 @@
 # Queue Spec
 
+Queue behavior is specified in code docs and shared timing spec:
+
+- `src/default_queue.gleam`
+- `PROVIDER_TIMING_SPEC.md`
+# Queue Spec
+
 Moved into code as module docs:
 
 - `src/default_queue.gleam`

@@ -7,7 +7,7 @@
 ////
 //// Accepted root input:
 //// - playlist URLs (`list=...`)
-//// - See YOUTUBE_SPEC.md for parsing rules.
+//// - playlist id is parsed from the `list=` query parameter.
 ////
 //// Traversal plan:
 //// 1) Expand profile root: fetch first playlist surface from HTML.
@@ -16,6 +16,7 @@
 //// Depth semantics (YOUTUBE_SPEC section 5):
 //// - Depth 1: first playlist surface.
 //// - Depth 2: one additional continuation level.
+//// - Deeper modes continue continuation-page traversal in order.
 import gleam/list
 import gleam/string
 import adapters/cache

@@ -37,10 +37,7 @@ import gleam/string
 import adapters/cache
 import adapters/core
 
-// Spec integration:
-// - BANDCAMP_SPEC.md source contract: opaque BandcampProfile + constructor.
-// - adapters.spec.md contract: one-node expansion into items/lists/next/unresolved.
-// - SPEC.md recursion/dedupe behavior is delegated to adapters/core.
+// Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
 @external(erlang, "soundcloud_http", "fetch")
 fn fetch(url: String) -> String
 @external(erlang, "soundcloud_http", "post_json")

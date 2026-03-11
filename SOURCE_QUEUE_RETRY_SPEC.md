@@ -1,5 +1,16 @@
 # Source Queue Retry Spec
 
+Platform/adapter timing and queue policy is centralized in:
+
+- `PROVIDER_TIMING_SPEC.md`
+
+Implementation docs/types:
+
+- `src/adapters/core.gleam`
+- `src/default_queue.gleam`
+- `src/platform_queue_policy.gleam`
+# Source Queue Retry Spec
+
 Moved into code as module docs and types:
 
 - `src/platform_queue_policy.gleam`

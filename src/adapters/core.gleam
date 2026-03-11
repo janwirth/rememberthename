@@ -1,15 +1,18 @@
 //// Unified adapter traversal core for rememberthename.
 ////
 //// Scope:
-//// - Backend-only recursive resolution for collection/profile roots.
+//// - Backend-only recursive resolution for service profile roots.
 //// - Deterministic traversal order, deduplication, and cycle safety.
 //// - Canonical normalized output nodes (`UnifiedItem`, `UnifiedCollection`).
+//// - No media/artwork fetching and no search behavior.
 ////
-//// Contract:
-//// - Adapters expose service-specific opaque profile entry types and constructor
-////   functions, then delegate recursion here through `resolve_profile_url`.
-//// - Adapters provide an `expand` function:
-////   `AdapterNode -> ExpandResult`.
+//// Adapter contract:
+//// - Adapters expose service-specific opaque profile types + constructors.
+//// - Root traversal starts at `ProfileEntry(profile_url)`.
+//// - Adapter `expand` keeps this shape:
+////   `AdapterNode -> ExpandResult(items, lists, next_nodes, unresolved)`.
+//// - Emitted `next_nodes` must keep deterministic order.
+//// - Partially resolved lists stay internal; exported lists are complete.
 ////
 //// Recursive queue model (tail-recursive):
 //// - State: `queue`, `visited`, `item_seen`, `list_seen`, accumulators.
@@ -29,6 +32,11 @@
 //// - Stable item/list identity key: `service:source_type:source_id`.
 //// - No duplicate canonical nodes in final output.
 //// - Unresolved traversal nodes are surfaced for diagnostics/tests.
+////
+//// Update stream expectations are handled by callers:
+//// - started
+//// - progress
+//// - completed
 import gleam/int
 import gleam/list
 import gleam/result
@@ -36,10 +44,7 @@ import gleam/erlang/process
 import gleam/set
 import source_id_normalizer
 
-// Spec integration:
-// - Implements SPEC.md section 7.1 recursive queue model.
-// - Shared canonical model and traversal contracts from adapters.spec.md.
-// - Entry node is a profile URL root; adapters provide service-specific constructors.
+// Shared traversal/runtime implementation used by all live adapters.
 pub type DepthMode {
   Depth1
   Depth2
@@ -209,7 +214,10 @@ fn resolve_profile_url_with_default_queue(
   emit_debug(
     All,
     on_debug,
-    "[queue] done starts=" <> int.to_string(starts) <> " max_active=" <> int.to_string(max_active),
+    "[queue] complete starts="
+    <> int.to_string(starts)
+    <> " max_active="
+    <> int.to_string(max_active),
   )
   ResolveResult(items, lists, unresolved)
 }
@@ -278,8 +286,19 @@ fn start_workers(
           )
         False -> {
           let visited = set.insert(visited, key)
-          emit_debug(All, on_debug, "[queue] start node=" <> key <> " level=" <> int.to_string(level))
-          emit_debug(All, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
+          emit_debug(
+            All,
+            on_debug,
+            "[queue] start node=" <> key <> " level=" <> int.to_string(level),
+          )
+          emit_debug(
+            All,
+            on_debug,
+            "[fetch] start node="
+            <> node_key(node)
+            <> " level="
+            <> int.to_string(level),
+          )
           let _ =
             process.spawn_unlinked(fn() {
               let payload = expand(node)
@@ -352,7 +371,7 @@ fn concurrent_loop(
           emit_debug(
             All,
             on_debug,
-            "[fetched] node="
+            "[fetch] complete node="
             <> node_key(node)
             <> " items="
             <> int.to_string(list.length(next_items))
@@ -459,12 +478,19 @@ fn loop(
               )
             }
             True -> {
-              emit_debug(depth, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
+              emit_debug(
+                depth,
+                on_debug,
+                "[fetch] start node="
+                <> node_key(node)
+                <> " level="
+                <> int.to_string(level),
+              )
               let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = expand(node)
               emit_debug(
                 depth,
                 on_debug,
-                "[fetched] node="
+                "[fetch] complete node="
                 <> node_key(node)
                 <> " items="
                 <> int.to_string(list.length(next_items))

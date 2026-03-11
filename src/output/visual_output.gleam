@@ -124,6 +124,7 @@
 /// - output renderer still MUST emit terminal view in Unicode tree format defined above
 import gleam/int
 import gleam/list
+import gleam/string
 import output/tree_view
 
 pub type TrackView {
@@ -179,9 +180,7 @@ fn all_tracks_section(tracks: List(TrackView)) -> tree_view.Section {
 }
 
 fn all_tracks_short_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
-  [
-    tree_view.Node("all", list.map(tracks, full_track_node)),
-  ]
+  list.map(tracks, full_track_node)
 }
 
 fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
@@ -196,7 +195,7 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 
 fn track_label(track: TrackView) -> String {
   let TrackView(title, artist, _, _) = track
-  title <> " - " <> artist
+  title <> " - " <> artist <> missing_artist_suffix(artist)
 }
 
 pub fn track_csv_row(track: TrackView) -> List(String) {
@@ -206,11 +205,24 @@ pub fn track_csv_row(track: TrackView) -> List(String) {
 
 fn full_track_label(track: TrackView) -> String {
   let TrackView(title, artist, service, _) = track
-  title <> " - " <> artist <> " [" <> service <> "]"
+  title
+  <> " - "
+  <> artist
+  <> " ["
+  <> service
+  <> "]"
+  <> missing_artist_suffix(artist)
 }
 
 fn full_track_node(track: TrackView) -> tree_view.Node {
   tree_view.Node(full_track_label(track), [])
+}
+
+fn missing_artist_suffix(artist: String) -> String {
+  case string.trim(artist) == "" {
+    True -> " (!missing artist)"
+    False -> ""
+  }
 }
 
 fn take_first(items: List(a), count: Int) -> List(a) {

@@ -43,10 +43,7 @@ import gleam/string
 import adapters/cache
 import adapters/core
 
-// Spec integration:
-// - SOUNDCLOUD_SPEC.md source contract: opaque SoundcloudProfile + constructor.
-// - adapters.spec.md contract: expand one node into items/lists/next/unresolved.
-// - SPEC.md recursion semantics are executed by adapters/core.resolve_profile_url.
+// Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
 pub opaque type SoundcloudProfile {
   SoundcloudProfile(profile_url: String)
 }

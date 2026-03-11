@@ -83,7 +83,11 @@ Per-job event stream is minimal and ordered:
 
 ## 5) Internally
 
-Structural recursion, in-order, no parallelism beyond adapter level.
+Structural recursion via shared core queue traversal.
+
+Shared adapter timing/runtime policy is defined in:
+
+- `PROVIDER_TIMING_SPEC.md`
 
 Recursive runtime model:
 - `resolve_profile(profile)` unwraps profile URL and initializes queue with `ProfileEntry(profile_url)`.

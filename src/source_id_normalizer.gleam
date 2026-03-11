@@ -1,5 +1,16 @@
 import gleam/string
 
+//// Shared source id normalizer used by adapters and import paths.
+////
+//// Implemented normalization:
+//// - spotify URL/URI forms -> canonical track id
+//// - youtube URL forms -> canonical video id
+//// - soundcloud/bandcamp canonical text cleanup
+//// - file/itunes passthrough cleanup
+////
+//// This module currently returns normalized id strings only.
+//// Legacy-import overlap fields (raw + normalized + confidence metadata)
+//// are not modeled here yet and must be carried by the importer layer.
 pub fn normalize(service: String, source_id: String) -> String {
   let cleaned = source_id |> string.trim
   case cleaned == "" {

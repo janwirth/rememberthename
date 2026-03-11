@@ -1,4 +1,7 @@
+import adapters/core
 import default_queue
+import gleam/erlang/process
+import gleam/list
 import gleeunit
 import gleeunit/should
 
@@ -57,4 +60,57 @@ pub fn recurse_tasks_appended_fifo_test() {
   let default_queue.QueueReport(results, _, starts, _, _) = report
   results |> should.equal([1, 2, 3])
   starts |> should.equal([0, 1, 2])
+}
+
+pub fn depth_all_debug_logs_order_and_content_test() {
+  let profile_url = "https://example.test/profile"
+  let debug_subject = process.new_subject()
+  let _ =
+    core.resolve_profile_url_with_debug(
+      profile_url,
+      core.All,
+      fn(_node) {
+        core.ExpandResult(
+          items: [
+            core.UnifiedItem(
+              id: "demo:item:1",
+              title: "Demo Song",
+              artist: "Demo Artist",
+              service: "demo",
+              source_type: "item",
+              source_id: "1",
+            ),
+          ],
+          lists: [],
+          next_nodes: [],
+          unresolved: [],
+        )
+      },
+      fn(line) { process.send(debug_subject, line) },
+    )
+  collect_debug_lines(debug_subject, 6, [])
+  |> should.equal([
+    "[queue] enabled mode=concurrent req_per_sec=3 concurrency=3",
+    "[queue] start node=profile:" <> profile_url <> " level=0",
+    "[fetch] start node=profile:" <> profile_url <> " level=0",
+    "[fetch] complete node=profile:"
+    <> profile_url
+    <> " items=1 lists=0 next=0",
+    "[queue] complete node=profile:" <> profile_url <> " pushed=0 unresolved=0",
+    "[queue] complete starts=1 max_active=1",
+  ])
+}
+
+fn collect_debug_lines(
+  subject: process.Subject(String),
+  remaining: Int,
+  acc: List(String),
+) -> List(String) {
+  case remaining <= 0 {
+    True -> list.reverse(acc)
+    False -> {
+      let line = process.receive_forever(subject)
+      collect_debug_lines(subject, remaining - 1, [line, ..acc])
+    }
+  }
 }
