@@ -33,6 +33,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/set
+import default_queue
 import source_id_normalizer
 
 // Spec integration:
@@ -132,19 +133,120 @@ pub fn resolve_profile_url_with_debug(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
-  // Start traversal exactly once from the profile entry root.
-  loop(
-    [#(ProfileEntry(profile_url), 0)],
-    set.new(),
-    set.new(),
-    set.new(),
-    [],
-    [],
-    [],
-    depth,
-    expand,
-    on_debug,
+  case depth {
+    All -> resolve_profile_url_with_default_queue(profile_url, expand, on_debug)
+    _ ->
+      // Start traversal exactly once from the profile entry root.
+      loop(
+        [#(ProfileEntry(profile_url), 0)],
+        set.new(),
+        set.new(),
+        set.new(),
+        [],
+        [],
+        [],
+        depth,
+        expand,
+        on_debug,
+      )
+  }
+}
+
+type QueueTask {
+  QueueTask(node: AdapterNode, level: Int)
+}
+
+type QueueState {
+  QueueState(
+    visited: set.Set(String),
+    item_seen: set.Set(String),
+    list_seen: set.Set(String),
+    items: List(UnifiedItem),
+    lists: List(UnifiedCollection),
+    unresolved: List(AdapterNode),
   )
+}
+
+fn resolve_profile_url_with_default_queue(
+  profile_url: String,
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> ResolveResult {
+  let policy = default_queue.QueuePolicy(max_concurrency: 3, requests_per_second: 3)
+  let initial_state =
+    QueueState(
+      visited: set.new(),
+      item_seen: set.new(),
+      list_seen: set.new(),
+      items: [],
+      lists: [],
+      unresolved: [],
+    )
+  let queue_run =
+    default_queue.run_default_queue_with_state(
+      [QueueTask(node: ProfileEntry(profile_url), level: 0)],
+      policy,
+      initial_state,
+      fn(task, state) { queue_execute_task(task, state, expand, on_debug) },
+    )
+  let #(_, QueueState(_, _, _, items, lists, unresolved)) = queue_run
+  ResolveResult(items, lists, unresolved)
+}
+
+fn queue_execute_task(
+  task: QueueTask,
+  state: QueueState,
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> #(QueueState, default_queue.TaskPlan(QueueTask, Nil, Nil)) {
+  let QueueTask(node, level) = task
+  let QueueState(visited, item_seen, list_seen, items, lists, unresolved) = state
+  let key = node_key(node)
+  case set.contains(visited, key) || !can_expand(level, All) {
+    True ->
+      #(
+        state,
+        default_queue.TaskPlan(
+          duration_ms: 0,
+          outcome: default_queue.TaskOutcome(recurse: [], results: [], errors: []),
+        ),
+      )
+    False -> {
+      let visited = set.insert(visited, key)
+      emit_debug(All, on_debug, "[fetch] node=" <> node_key(node) <> " level=" <> int.to_string(level))
+      let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) = expand(node)
+      emit_debug(
+        All,
+        on_debug,
+        "[fetched] node="
+        <> node_key(node)
+        <> " items="
+        <> int.to_string(list.length(next_items))
+        <> " lists="
+        <> int.to_string(list.length(next_lists))
+        <> " next="
+        <> int.to_string(list.length(next_nodes)),
+      )
+      let #(items, item_seen) = merge_items(items, item_seen, next_items)
+      let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
+      let unresolved = list.append(unresolved, next_unresolved)
+      let recurse = list.map(next_nodes, fn(next) { QueueTask(next, level + 1) })
+      #(
+        QueueState(
+          visited: visited,
+          item_seen: item_seen,
+          list_seen: list_seen,
+          items: items,
+          lists: lists,
+          unresolved: unresolved,
+        ),
+        default_queue.TaskPlan(
+          duration_ms: 0,
+          outcome: default_queue.TaskOutcome(recurse: recurse, results: [], errors: []),
+        ),
+      )
+    }
+  }
 }
 
 fn loop(

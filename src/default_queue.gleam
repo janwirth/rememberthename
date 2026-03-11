@@ -70,6 +70,22 @@ pub fn run_default_queue(
   policy: QueuePolicy,
   execute_task: fn(task) -> TaskPlan(task, result, error),
 ) -> QueueReport(result, error) {
+  let #(report, _) =
+    run_default_queue_with_state(
+      initial_tasks,
+      policy,
+      Nil,
+      fn(task, state) { #(state, execute_task(task)) },
+    )
+  report
+}
+
+pub fn run_default_queue_with_state(
+  initial_tasks: List(task),
+  policy: QueuePolicy,
+  initial_state: state,
+  execute_task: fn(task, state) -> #(state, TaskPlan(task, result, error)),
+) -> #(QueueReport(result, error), state) {
   let QueuePolicy(max_concurrency, requests_per_second) = normalize_policy(policy)
   loop(
     pending: initial_tasks,
@@ -78,11 +94,12 @@ pub fn run_default_queue(
     next_start_at_ms: 0,
     min_start_interval_ms: 1000 / requests_per_second,
     max_concurrency: max_concurrency,
-    execute_task: execute_task,
     results: [],
     errors: [],
     starts: [],
     max_active: 0,
+    state: initial_state,
+    execute_task_with_state: execute_task,
   )
 }
 
@@ -93,13 +110,14 @@ fn loop(
   next_start_at_ms next_start_at_ms: Int,
   min_start_interval_ms min_start_interval_ms: Int,
   max_concurrency max_concurrency: Int,
-  execute_task execute_task: fn(task) -> TaskPlan(task, result, error),
   results results: List(result),
   errors errors: List(error),
   starts starts: List(Int),
   max_active max_active: Int,
-) -> QueueReport(result, error) {
-  let #(active, pending, next_start_at_ms, starts, max_active) =
+  state state: state,
+  execute_task_with_state execute_task_with_state: fn(task, state) -> #(state, TaskPlan(task, result, error)),
+) -> #(QueueReport(result, error), state) {
+  let #(active, pending, next_start_at_ms, starts, max_active, state) =
     start_ready_tasks(
       active,
       pending,
@@ -107,18 +125,22 @@ fn loop(
       next_start_at_ms,
       min_start_interval_ms,
       max_concurrency,
-      execute_task,
       starts,
       max_active,
+      state,
+      execute_task_with_state,
     )
   case pending == [] && active == [] {
     True ->
-      QueueReport(
-        results: list.reverse(results),
-        errors: list.reverse(errors),
-        start_times_ms: list.reverse(starts),
-        elapsed_ms: now_ms,
-        max_active: max_active,
+      #(
+        QueueReport(
+          results: list.reverse(results),
+          errors: list.reverse(errors),
+          start_times_ms: list.reverse(starts),
+          elapsed_ms: now_ms,
+          max_active: max_active,
+        ),
+        state,
       )
     False -> {
       let next_finish_at_ms = earliest_finish(active)
@@ -141,11 +163,12 @@ fn loop(
         next_start_at_ms: next_start_at_ms,
         min_start_interval_ms: min_start_interval_ms,
         max_concurrency: max_concurrency,
-        execute_task: execute_task,
         results: results,
         errors: errors,
         starts: starts,
         max_active: max_active,
+        state: state,
+        execute_task_with_state: execute_task_with_state,
       )
     }
   }
@@ -158,13 +181,14 @@ fn start_ready_tasks(
   next_start_at_ms: Int,
   min_start_interval_ms: Int,
   max_concurrency: Int,
-  execute_task: fn(task) -> TaskPlan(task, result, error),
   starts: List(Int),
   max_active: Int,
-) -> #(List(ActiveTask(task, result, error)), List(task), Int, List(Int), Int) {
+  state: state,
+  execute_task_with_state: fn(task, state) -> #(state, TaskPlan(task, result, error)),
+) -> #(List(ActiveTask(task, result, error)), List(task), Int, List(Int), Int, state) {
   case pending, list.length(active) < max_concurrency && now_ms >= next_start_at_ms {
     [task, ..rest], True -> {
-      let plan = execute_task(task)
+      let #(state, plan) = execute_task_with_state(task, state)
       let TaskPlan(duration_ms, _) = plan
       let active =
         [
@@ -182,12 +206,13 @@ fn start_ready_tasks(
         now_ms + min_start_interval_ms,
         min_start_interval_ms,
         max_concurrency,
-        execute_task,
         [now_ms, ..starts],
         max_int(max_active, list.length(active)),
+        state,
+        execute_task_with_state,
       )
     }
-    _, _ -> #(active, pending, next_start_at_ms, starts, max_active)
+    _, _ -> #(active, pending, next_start_at_ms, starts, max_active, state)
   }
 }
 
