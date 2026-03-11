@@ -6,6 +6,9 @@ tracks_source_ids_json() ->
         Cmd =
             "gel -I tuna -b main query --output-format=json "
             "\"select (for t in default::Track union {"
+            " title := t.title,"
+            " normalized_title := t.title_any_ascii_fixed,"
+            " tags := (select t.tags { id, label } order by .label),"
             " spotify_id := (select t.spotify_source.spotify_id limit 1),"
             " youtube_id := (select t.youtube_source.youtube_id limit 1),"
             " soundcloud_id := (select <str>t.soundcloud_source.soundcloud_id limit 1),"

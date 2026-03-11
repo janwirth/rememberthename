@@ -6,6 +6,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/string
 import source_id_normalizer
 
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
@@ -31,8 +32,8 @@ pub fn resolve(
 
 fn cached_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
   cache.read_or_fetch(
-    "tuna_tracks_source_ids_json",
-    "tuna_main_default_track_sources",
+    "tuna_tracks_source_ids_enriched_json",
+    "tuna_main_default_track_sources_enriched",
     cache_mode,
     tracks_source_ids_json,
   )
@@ -47,18 +48,62 @@ fn decode_rows(payload: String) -> List(dynamic.Dynamic) {
 
 fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
   list.fold(rows, [], fn(acc, row) {
-    let acc = push_item(acc, "spotify", decode_path_or(row, ["spotify_id"], "", decode.string))
-    let acc = push_item(acc, "youtube", decode_path_or(row, ["youtube_id"], "", decode.string))
+    let preferred_title = row_preferred_title(row)
+    let tag_text = row_tags_text(row)
     let acc =
-      push_item(acc, "soundcloud", decode_path_or(row, ["soundcloud_id"], "", decode.string))
+      push_item(
+        acc,
+        "spotify",
+        decode_path_or(row, ["spotify_id"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
     let acc =
-      push_item(acc, "bandcamp", decode_path_or(row, ["bandcamp_track_id"], "", decode.string))
-    let acc = push_item(acc, "file", decode_path_or(row, ["dropped_path"], "", decode.string))
-    let acc = push_item(acc, "itunes", decode_path_or(row, ["itunes_track_id"], "", decode.string))
+      push_item(
+        acc,
+        "youtube",
+        decode_path_or(row, ["youtube_id"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
+    let acc =
+      push_item(
+        acc,
+        "soundcloud",
+        decode_path_or(row, ["soundcloud_id"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
+    let acc =
+      push_item(
+        acc,
+        "bandcamp",
+        decode_path_or(row, ["bandcamp_track_id"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
+    let acc =
+      push_item(
+        acc,
+        "file",
+        decode_path_or(row, ["dropped_path"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
+    let acc =
+      push_item(
+        acc,
+        "itunes",
+        decode_path_or(row, ["itunes_track_id"], "", decode.string),
+        preferred_title,
+        tag_text,
+      )
     push_item(
       acc,
       "itunes",
       decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
+      preferred_title,
+      tag_text,
     )
   })
   |> list.reverse
@@ -68,6 +113,8 @@ fn push_item(
   acc: List(core.UnifiedItem),
   service: String,
   raw_source_id: String,
+  preferred_title: String,
+  tag_text: String,
 ) -> List(core.UnifiedItem) {
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
   case normalized == "" {
@@ -75,14 +122,50 @@ fn push_item(
     False -> [
       core.UnifiedItem(
         id: "tuna:normalized:" <> service <> ":" <> normalized <> ":" <> raw_source_id,
-        title: normalized,
-        artist: raw_source_id,
+        title: choose_title(preferred_title, normalized),
+        artist: choose_artist(tag_text, raw_source_id),
         service: service,
         source_type: "item",
         source_id: normalized,
       ),
       ..acc
     ]
+  }
+}
+
+fn row_preferred_title(row: dynamic.Dynamic) -> String {
+  let normalized_title = decode_path_or(row, ["normalized_title"], "", decode.string)
+  case normalized_title != "" {
+    True -> normalized_title
+    False -> decode_path_or(row, ["title"], "", decode.string)
+  }
+}
+
+fn row_tags_text(row: dynamic.Dynamic) -> String {
+  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
+  |> list.map(fn(tag) {
+    let tag_id = decode_path_or(tag, ["id"], "", decode.string)
+    let tag_label = decode_path_or(tag, ["label"], "", decode.string)
+    case tag_label == "" {
+      True -> tag_id
+      False -> tag_label <> " (" <> tag_id <> ")"
+    }
+  })
+  |> list.filter(fn(part) { part != "" })
+  |> string.join(" | ")
+}
+
+fn choose_title(preferred_title: String, fallback: String) -> String {
+  case preferred_title != "" {
+    True -> preferred_title
+    False -> fallback
+  }
+}
+
+fn choose_artist(tag_text: String, fallback: String) -> String {
+  case tag_text != "" {
+    True -> tag_text
+    False -> fallback
   }
 }
 
