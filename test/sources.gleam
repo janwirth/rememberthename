@@ -42,8 +42,8 @@ pub fn youtube() -> SourceSpec {
 }
 
 fn from_canonical(spec: canonical_sources.SourceSpec) -> SourceSpec {
-  let canonical_sources.SourceSpec(_, _, entry_point, use_cache, assert_spec) = spec
-  SourceSpec(entry_point, use_cache, to_depth_assert_spec(assert_spec))
+  let canonical_sources.SourceSpec(_, _, entry_point, _, assert_spec) = spec
+  SourceSpec(entry_point, cache.CacheUpsert, to_depth_assert_spec(assert_spec))
 }
 
 fn to_depth_assert_spec(

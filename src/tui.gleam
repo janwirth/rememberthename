@@ -22,6 +22,7 @@ import shore/layout
 import shore/style
 import shore/ui
 import simplifile
+import source_specs
 import tui/helpers
 import tui/navigation as nav
 
@@ -1313,25 +1314,35 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = source.timing_spec
+  let queue_policy =
+    core.QueuePolicy(
+      max_concurrency: max_concurrency,
+      requests_per_second: requests_per_second,
+    )
   case source.key {
     "tuna_normalized" ->
       tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(source.entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug(
+      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
+        0,
+        queue_policy,
         on_debug,
       )
     }
     "soundcloud" -> {
       let profile =
         soundcloud_live_expander.soundcloud_profile(source.entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug(
+      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
+        0,
+        queue_policy,
         on_debug,
       )
     }
@@ -1356,20 +1367,24 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(source.entry_point)
-      spotify_live_expander.resolve_profile_with_debug(
+      spotify_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         config,
         cache_mode,
+        0,
+        queue_policy,
         on_debug,
       )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(source.entry_point)
-      youtube_live_expander.resolve_profile_with_debug(
+      youtube_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
+        0,
+        queue_policy,
         on_debug,
       )
     }

@@ -16,12 +16,7 @@
 ////    - seed category traversal: likes + reposts
 //// 2) Expand category node:
 ////    - fetch page tracks
-////    - collect playlist ids from page
 ////    - follow `next_href` until exhausted
-//// 3) After category pagination completes:
-////    - enqueue playlist list nodes
-//// 4) Expand playlist node:
-////    - emit full `UnifiedCollection` with track ids
 ////
 //// Normalization:
 //// - Emitted items/lists always include canonical
@@ -82,12 +77,31 @@ pub fn resolve_profile_with_debug_limited(
   max_items: Int,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug_limited_timed(
+    profile,
+    depth,
+    cache_mode,
+    max_items,
+    core.default_queue_policy(),
+    on_debug,
+  )
+}
+
+pub fn resolve_profile_with_debug_limited_timed(
+  profile: SoundcloudProfile,
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+  max_items: Int,
+  queue_policy: core.QueuePolicy,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   // Keep entry point specific: SoundcloudProfile -> profile_url traversal root.
   let SoundcloudProfile(profile_url) = profile
-  core.resolve_profile_url_with_debug_and_limit(
+  core.resolve_profile_url_with_debug_limit_and_queue_policy(
     profile_url,
     depth,
     max_items,
+    queue_policy,
     fn(node) { expand(node, cache_mode) },
     on_debug,
   )
@@ -133,21 +147,19 @@ fn expand_profile(profile_url: String, cache_mode: cache.CacheMode) -> core.Expa
 }
 
 fn expand_category(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
-  // Exhaust category pagination first; only then enqueue playlist nodes.
+  // Exhaust category pagination for likes/reposts only.
   let parts = string.split(ctx, "|")
   case parts {
-    [kind, url, client_id, acc_ids] -> {
+    [kind, url, client_id, _acc_ids] -> {
       let items = parse_tracks(url, kind, cache_mode)
       let page_body = cached_fetch_profile_body(url, cache_mode)
-      let page_playlist_ids = parse_lines(cached_json_playlist_ids(page_body, cache_mode))
-      let merged_playlist_ids = merge_ids(parse_csv(acc_ids), page_playlist_ids)
       let next_href = trim(cached_json_next_href(page_body, cache_mode))
       case next_href == "" {
         True ->
           core.ExpandResult(
             items: items,
             lists: [],
-            next_nodes: playlist_nodes(merged_playlist_ids, client_id),
+            next_nodes: [],
             unresolved: [],
           )
         False -> {
@@ -157,7 +169,7 @@ fn expand_category(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResul
             lists: [],
             next_nodes: [
               core.CategoryNode(
-                kind <> "|" <> next <> "|" <> client_id <> "|" <> csv(merged_playlist_ids),
+                kind <> "|" <> next <> "|" <> client_id <> "|",
               ),
             ],
             unresolved: [],
@@ -165,6 +177,8 @@ fn expand_category(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResul
         }
       }
     }
+    [kind, url, client_id] ->
+      expand_category(kind <> "|" <> url <> "|" <> client_id <> "|", cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -296,19 +310,6 @@ fn cached_json_tracks_tsv(json: String, cache_mode: cache.CacheMode) -> String {
   )
 }
 
-fn cached_json_playlist_ids(json: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "soundcloud_playlist_ids",
-    json,
-    cache_mode,
-    fn() {
-      decode_collection_entries(json)
-      |> collect_playlist_ids([])
-      |> string.join("\n")
-    },
-  )
-}
-
 fn cached_json_title(json: String, cache_mode: cache.CacheMode) -> String {
   cache.read_or_fetch(
     "soundcloud_title",
@@ -420,31 +421,6 @@ fn track_tuple_from_entry(entry: dynamic.Dynamic) -> Option(#(String, String, St
   }
 }
 
-fn playlist_id_from_entry(entry: dynamic.Dynamic) -> Option(String) {
-  case decode_path(entry, ["playlist", "id"], id_decoder()) {
-    Some(id) -> Some(id)
-    None ->
-      case decode_path_or(entry, ["kind"], "", decode.string) == "playlist" {
-        True -> decode_path(entry, ["id"], id_decoder())
-        False -> None
-      }
-  }
-}
-
-fn collect_playlist_ids(
-  entries: List(dynamic.Dynamic),
-  acc: List(String),
-) -> List(String) {
-  case entries {
-    [] -> list.reverse(acc)
-    [entry, ..rest] ->
-      case playlist_id_from_entry(entry) {
-        Some(id) -> collect_playlist_ids(rest, [id, ..acc])
-        None -> collect_playlist_ids(rest, acc)
-      }
-  }
-}
-
 fn collect_track_ids(tracks: List(dynamic.Dynamic), acc: List(String)) -> List(String) {
   case tracks {
     [] -> list.reverse(acc)
@@ -512,36 +488,6 @@ fn parse_lines(raw: String) -> List(String) {
     "" -> []
     _ -> list.filter(string.split(value, "\n"), fn(line) { line != "" })
   }
-}
-
-fn parse_csv(value: String) -> List(String) {
-  case trim(value) {
-    "" -> []
-    _ -> list.filter(string.split(value, ","), fn(part) { part != "" })
-  }
-}
-
-fn csv(values: List(String)) -> String {
-  string.join(values, ",")
-}
-
-fn merge_ids(a: List(String), b: List(String)) -> List(String) {
-  dedupe(list.append(a, b), [])
-}
-
-fn dedupe(values: List(String), acc: List(String)) -> List(String) {
-  case values {
-    [] -> list.reverse(acc)
-    [first, ..rest] ->
-      case list.contains(acc, first) {
-        True -> dedupe(rest, acc)
-        False -> dedupe(rest, [first, ..acc])
-      }
-  }
-}
-
-fn playlist_nodes(ids: List(String), client_id: String) -> List(core.AdapterNode) {
-  list.map(ids, fn(id) { core.ListNode("playlist|" <> id <> "|" <> client_id) })
 }
 
 fn trim(value: String) -> String {

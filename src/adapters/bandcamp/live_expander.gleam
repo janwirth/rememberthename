@@ -81,12 +81,31 @@ pub fn resolve_profile_with_debug_limited(
   max_items: Int,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug_limited_timed(
+    profile,
+    depth,
+    cache_mode,
+    max_items,
+    core.default_queue_policy(),
+    on_debug,
+  )
+}
+
+pub fn resolve_profile_with_debug_limited_timed(
+  profile: BandcampProfile,
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+  max_items: Int,
+  queue_policy: core.QueuePolicy,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   // Keep entry point specific: BandcampProfile -> profile_url traversal root.
   let BandcampProfile(profile_url) = profile
-  core.resolve_profile_url_with_debug_and_limit(
+  core.resolve_profile_url_with_debug_limit_and_queue_policy(
     profile_url,
     depth,
     max_items,
+    queue_policy,
     fn(node) { expand(node, cache_mode) },
     on_debug,
   )

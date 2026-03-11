@@ -161,11 +161,32 @@ pub fn resolve_profile_with_debug_limited(
   max_items: Int,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  resolve_profile_with_debug_limited_timed(
+    profile,
+    depth,
+    config,
+    cache_mode,
+    max_items,
+    core.default_queue_policy(),
+    on_debug,
+  )
+}
+
+pub fn resolve_profile_with_debug_limited_timed(
+  profile: SpotifyUserProfile,
+  depth: core.DepthMode,
+  config: SpotifyConfig,
+  cache_mode: cache.CacheMode,
+  max_items: Int,
+  queue_policy: core.QueuePolicy,
+  on_debug: fn(String) -> Nil,
+) -> core.ResolveResult {
   let SpotifyUserProfile(profile_url) = profile
-  core.resolve_profile_url_with_debug_and_limit(
+  core.resolve_profile_url_with_debug_limit_and_queue_policy(
     profile_url,
     depth,
     max_items,
+    queue_policy,
     fn(node) { expand(node, config, cache_mode) },
     on_debug,
   )
@@ -217,7 +238,7 @@ fn expand_profile(
         unresolved: [core.ProfileEntry(profile_url)],
       )
     False ->
-      emit_liked_tracks(token, 0, cache_mode)
+      emit_liked_tracks(token, user_id, 0, cache_mode)
   }
 }
 
@@ -338,7 +359,9 @@ fn expand_playlist_tracks(ctx: String, cache_mode: cache.CacheMode) -> core.Expa
   let parts = string.split(ctx, "|")
   case parts {
     ["likes", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str), cache_mode)
+      emit_liked_tracks(token, "likes", to_int(offset_str), cache_mode)
+    ["likes", cache_scope, token, offset_str] ->
+      emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -353,7 +376,9 @@ fn expand_track_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandRes
   let parts = string.split(ctx, "|")
   case parts {
     ["likes_page", token, offset_str] ->
-      emit_liked_tracks(token, to_int(offset_str), cache_mode)
+      emit_liked_tracks(token, "likes", to_int(offset_str), cache_mode)
+    ["likes_page", cache_scope, token, offset_str] ->
+      emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -366,10 +391,11 @@ fn expand_track_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandRes
 
 fn emit_liked_tracks(
   token: String,
+  cache_scope: String,
   offset: Int,
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
-  let json = cached_liked_tracks_json(token, offset, cache_mode)
+  let json = cached_liked_tracks_json(token, cache_scope, offset, cache_mode)
   let items = parse_track_items(cached_tracks_tsv(json, cache_mode))
   let collection =
     core.UnifiedCollection(
@@ -388,7 +414,8 @@ fn emit_liked_tracks(
   let next_offset = tracks_next_offset(json)
   let next_nodes =
     case next_offset != "" {
-      True -> [core.PageNode("likes_page|" <> token <> "|" <> next_offset)]
+      True ->
+        [core.PageNode("likes_page|" <> cache_scope <> "|" <> token <> "|" <> next_offset)]
       False -> []
     }
   core.ExpandResult(
@@ -401,12 +428,13 @@ fn emit_liked_tracks(
 
 fn cached_liked_tracks_json(
   token: String,
+  cache_scope: String,
   offset: Int,
   cache_mode: cache.CacheMode,
 ) -> String {
   cache.read_or_fetch(
     "spotify_liked_tracks_json",
-    token <> "|" <> int.to_string(offset),
+    cache_scope <> "|" <> int.to_string(offset),
     cache_mode,
     fn() { liked_tracks_json(token, offset) },
   )

@@ -1,12 +1,10 @@
-import adapters/cache
-
 //// Canonical integration source specs used by CLI, TUI, and validation runs.
 ////
 //// This module is the single source of truth for implemented source fixtures.
 //// Each `SourceSpec` defines:
 //// - a stable entry point URL
-//// - a cache strategy for live adapter runs
 //// - a per-source output cap (`source_limit`)
+//// - provider timing policy for `DepthAll` queue traversal
 //// - depth assertions used by tests and `validate_all`
 ////
 //// Assertion semantics:
@@ -27,12 +25,16 @@ pub type SourceAssertSpec {
   )
 }
 
+pub type SourceTimingSpec {
+  SourceTimingSpec(max_concurrency: Int, requests_per_second: Int)
+}
+
 pub type SourceSpec {
   SourceSpec(
     key: String,
     name: String,
     entry_point: String,
-    cache_mode: cache.CacheMode,
+    timing_spec: SourceTimingSpec,
     assert_spec: SourceAssertSpec,
   )
 }
@@ -46,7 +48,7 @@ pub fn bandcamp() -> SourceSpec {
     key: "bandcamp",
     name: "Bandcamp",
     entry_point: "https://bandcamp.com/janwirth",
-    cache_mode: cache.CacheUpsert,
+    timing_spec: SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 1,
@@ -73,7 +75,7 @@ pub fn soundcloud() -> SourceSpec {
     key: "soundcloud",
     name: "Soundcloud",
     entry_point: "https://soundcloud.com/tungstenselects",
-    cache_mode: cache.CacheUpsert,
+    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 10,
@@ -97,7 +99,7 @@ pub fn spotify() -> SourceSpec {
     key: "spotify",
     name: "Spotify",
     entry_point: "https://open.spotify.com/user/franzskuffka",
-    cache_mode: cache.CacheUpsert,
+    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 50,
@@ -116,7 +118,7 @@ pub fn youtube() -> SourceSpec {
     key: "youtube",
     name: "Youtube",
     entry_point: "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
-    cache_mode: cache.CacheUpsert,
+    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
     assert_spec:
       SourceAssertSpec(
         min_depth_1_items: 5,

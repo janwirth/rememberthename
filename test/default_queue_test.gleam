@@ -64,6 +64,7 @@ pub fn recurse_tasks_appended_fifo_test() {
 
 pub fn depth_all_debug_logs_order_and_content_test() {
   let profile_url = "https://example.test/profile"
+  let compact_profile = "example.test/.../profile"
   let debug_subject = process.new_subject()
   let _ =
     core.resolve_profile_url_with_debug(
@@ -91,12 +92,12 @@ pub fn depth_all_debug_logs_order_and_content_test() {
   collect_debug_lines(debug_subject, 6, [])
   |> should.equal([
     "[queue] enabled mode=concurrent req_per_sec=3 concurrency=3",
-    "[queue] start node=profile:" <> profile_url <> " level=0",
-    "[fetch] start node=profile:" <> profile_url <> " level=0",
+    "[queue] start node=profile:" <> compact_profile <> " level=0",
+    "[fetch] start node=profile:" <> compact_profile <> " level=0",
     "[fetch] complete node=profile:"
-    <> profile_url
+    <> compact_profile
     <> " items=1 lists=0 next=0",
-    "[queue] complete node=profile:" <> profile_url <> " pushed=0 unresolved=0",
+    "[queue] complete node=profile:" <> compact_profile <> " pushed=0 unresolved=0",
     "[queue] complete starts=1 max_active=1",
   ])
 }

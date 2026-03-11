@@ -5,6 +5,7 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import deduplication
 import gleam/int
 import gleam/io
 import gleam/list
@@ -31,12 +32,30 @@ type SourceRun {
 pub fn main() {
   let args = normalize_args(argv())
   case args {
+    [] -> show_easy_start()
     ["list"] -> list_sources()
-    ["export", "all", "csv"] -> export_all_csv()
+    ["csv", source_selector] -> export_source_csv_simple(source_selector, False)
+    ["csv", source_selector, "cache"] -> export_source_csv_simple(source_selector, True)
+    ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
+    ["fetch", source_selector, "cache"] -> fetch_source_simple(source_selector, True)
+    ["export", "all", "csv"] -> export_all_csv(False)
+    ["export", "all", "csv", "use-cache"] -> export_all_csv(True)
+    ["export", "source", "csv", source_key, "depth", depth_text] ->
+      export_source_csv(source_key, depth_text, False)
+    ["export", "source", "csv", source_key, "depth", depth_text, "use-cache"] ->
+      export_source_csv(source_key, depth_text, True)
     ["source", "fetch", source_index_text, "depth", depth_text] ->
-      fetch_source(source_index_text, depth_text, None)
+      fetch_source(source_index_text, depth_text, None, False)
+    ["source", "fetch", source_index_text, "depth", depth_text, "use-cache"] ->
+      fetch_source(source_index_text, depth_text, None, True)
     ["source", "fetch", source_index_text, "depth", depth_text, "cache", cache_mode_text] ->
-      fetch_source(source_index_text, depth_text, Some(cache_mode_text))
+      fetch_source(source_index_text, depth_text, Some(cache_mode_text), False)
+    ["source", "fetch", "id", source_key, "depth", depth_text] ->
+      fetch_source_by_id(source_key, depth_text, None, False)
+    ["source", "fetch", "id", source_key, "depth", depth_text, "use-cache"] ->
+      fetch_source_by_id(source_key, depth_text, None, True)
+    ["source", "fetch", "id", source_key, "depth", depth_text, "cache", cache_mode_text] ->
+      fetch_source_by_id(source_key, depth_text, Some(cache_mode_text), False)
     _ -> print_usage()
   }
 }
@@ -58,13 +77,18 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   case sources {
     [] -> Nil
     [source, ..rest] -> {
-      let source_specs.SourceSpec(_, name, entry_point, cache_mode, _) = source
+      let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+      let alias_rank = provider_rank_for_index(source_specs.all(), key, index, 1, 0)
       io.println(
         int.to_string(index)
         <> ". "
         <> name
-        <> " | cache="
-        <> cache_mode_text(cache_mode)
+        <> " | id="
+        <> key
+        <> " | alias="
+        <> key
+        <> "-"
+        <> int.to_string(alias_rank)
         <> " | "
         <> entry_point,
       )
@@ -73,10 +97,45 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   }
 }
 
+fn show_easy_start() {
+  list_sources()
+  io.println("")
+  print_usage()
+}
+
+fn export_source_csv_simple(source_selector: String, use_cache: Bool) {
+  case source_by_selector(source_specs.all(), source_selector) {
+    Error(_) -> io.println("Invalid source selector: " <> source_selector)
+    Ok(#(source_index, source)) -> {
+      let cache_mode =
+        case use_cache {
+          True -> cache.CacheUpsert
+          False -> cache.CacheOverride
+        }
+      run_fetch(source, source_index, core.All, "full", cache_mode)
+    }
+  }
+}
+
+fn fetch_source_simple(source_selector: String, use_cache: Bool) {
+  case source_by_selector(source_specs.all(), source_selector) {
+    Error(_) -> io.println("Invalid source selector: " <> source_selector)
+    Ok(#(source_index, source)) -> {
+      let cache_mode =
+        case use_cache {
+          True -> cache.CacheUpsert
+          False -> cache.CacheOverride
+        }
+      run_fetch(source, source_index, core.All, "full", cache_mode)
+    }
+  }
+}
+
 fn fetch_source(
   source_index_text: String,
   depth_text: String,
   cache_mode_text_arg: Option(String),
+  use_cache: Bool,
 ) {
   let source_index = int.parse(source_index_text) |> result.unwrap(or: -1)
   case source_at(source_specs.all(), source_index, 1) {
@@ -85,13 +144,43 @@ fn fetch_source(
       case parse_depth(depth_text) {
         Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
         Ok(depth) ->
-          case parse_cache_mode_arg(source, cache_mode_text_arg) {
+          case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
             Error(_) ->
               io.println(
                 "Invalid cache mode (use: upsert | ignore | override)",
               )
             Ok(cache_mode) ->
               run_fetch(source, source_index, depth, depth_text, cache_mode)
+          }
+      }
+  }
+}
+
+fn fetch_source_by_id(
+  source_key: String,
+  depth_text: String,
+  cache_mode_text_arg: Option(String),
+  use_cache: Bool,
+) {
+  case source_by_selector(source_specs.all(), source_key) {
+    Error(_) -> io.println("Invalid source id: " <> source_key)
+    Ok(#(source_index, source)) ->
+      case parse_depth(depth_text) {
+        Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Ok(depth) ->
+          case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
+            Error(_) ->
+              io.println(
+                "Invalid cache mode (use: upsert | ignore | override)",
+              )
+            Ok(cache_mode) ->
+              run_fetch(
+                source,
+                source_index,
+                depth,
+                depth_text,
+                cache_mode,
+              )
           }
       }
   }
@@ -104,7 +193,7 @@ fn run_fetch(
   depth_label: String,
   cache_mode: cache.CacheMode,
 ) {
-  let source_specs.SourceSpec(key, name, entry_point, _, assert_spec) = source
+  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("Fetching source " <> int.to_string(source_index) <> ": " <> name)
   io.println("Depth: " <> depth_label)
@@ -117,12 +206,12 @@ fn run_fetch(
       entry_point,
       depth,
       source_limit,
+      timing_spec,
       cache_mode,
       fn(line) { io.println(line) },
     )
 
-  let core.ResolveResult(items, lists, unresolved) =
-    apply_source_limit(result, source_limit)
+  let core.ResolveResult(items, lists, unresolved) = result
   io.println("")
   io.println(
     "Done. items="
@@ -140,18 +229,118 @@ fn run_fetch(
   )
   let _ = simplifile.write(csv, to: csv_path)
   io.println("CSV written: " <> csv_path)
+  print_runtime_validation(source, depth, cache_mode, result)
 }
 
-fn export_all_csv() {
-  io.println("Exporting all sources to CSV with cache override...")
-  let runs = collect_source_runs(source_specs.all(), [])
+fn print_runtime_validation(
+  source: source_specs.SourceSpec,
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+  depth_result: core.ResolveResult,
+) {
+  case depth {
+    core.All -> {
+      let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) = source
+      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+      let depth_1 =
+        resolve_source(
+          key,
+          entry_point,
+          core.Depth1,
+          source_limit,
+          timing_spec,
+          cache_mode,
+          fn(_line) { Nil },
+        )
+      let depth_2 =
+        resolve_source(
+          key,
+          entry_point,
+          core.Depth2,
+          source_limit,
+          timing_spec,
+          cache_mode,
+          fn(_line) { Nil },
+        )
+      let validation_errors =
+        validate_source_run(SourceRun(source, depth_1, depth_2, depth_result))
+      io.println("")
+      case validation_errors == [] {
+        True -> io.println("Validation: PASS")
+        False -> {
+          io.println(
+            "Validation: FAIL (" <> int.to_string(list.length(validation_errors)) <> " errors)",
+          )
+          list.each(validation_errors, fn(line) { io.println("  - " <> line) })
+        }
+      }
+    }
+    _ -> Nil
+  }
+}
+
+fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
+  case source_by_selector(source_specs.all(), source_key) {
+    Error(_) -> io.println("Invalid source id: " <> source_key)
+    Ok(#(source_index, source)) ->
+      case parse_depth(depth_text) {
+        Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Ok(depth) -> {
+          let cache_mode =
+            case use_cache {
+              True -> cache.CacheUpsert
+              False -> cache.CacheOverride
+            }
+          run_fetch(
+            source,
+            source_index,
+            depth,
+            depth_text,
+            cache_mode,
+          )
+        }
+      }
+  }
+}
+
+fn export_all_csv(use_cache: Bool) {
+  let cache_mode =
+    case use_cache {
+      True -> cache.CacheUpsert
+      False -> cache.CacheOverride
+    }
+  io.println(
+    "Exporting all sources to CSV with cache "
+    <> cache_mode_text(cache_mode)
+    <> "...",
+  )
+  let runs = collect_source_runs(source_specs.all(), [], cache_mode)
   let adapter_items = source_run_items(runs)
-  let tuna_items = collect_tuna_items()
+  let tuna_items = collect_tuna_items(cache_mode)
   let all_items = list.append(adapter_items, tuna_items)
   let tracks = list.map(all_items, to_track_view)
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
   let _ = simplifile.write(csv, to: csv_path)
+  let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
+  let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
+  case deduplication.deduplicate_csv_file(csv_path) {
+    Ok(dedup_result) -> {
+      let _ =
+        simplifile.write(
+          deduplication.buckets_csv(dedup_result),
+          to: dedup_buckets_path,
+        )
+      let _ =
+        simplifile.write(
+          deduplication.ambiguities_csv(dedup_result),
+          to: dedup_ambiguities_path,
+        )
+      io.println("Dedup buckets CSV written: " <> dedup_buckets_path)
+      io.println("Dedup ambiguities CSV written: " <> dedup_ambiguities_path)
+    }
+    Error(message) -> io.println("Deduplication failed: " <> message)
+  }
   let validation_errors =
     list.append(validate_source_runs(runs), validate_tuna_items(tuna_items))
   io.println(
@@ -174,11 +363,12 @@ fn export_all_csv() {
 fn collect_source_runs(
   specs: List(source_specs.SourceSpec),
   acc: List(SourceRun),
+  cache_mode: cache.CacheMode,
 ) -> List(SourceRun) {
   case specs {
     [] -> acc
     [source, ..rest] -> {
-      let source_specs.SourceSpec(key, name, entry_point, _, assert_spec) = source
+      let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = source
       let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
       io.println("  - " <> name)
       let depth_1 =
@@ -187,42 +377,43 @@ fn collect_source_runs(
           entry_point,
           core.Depth1,
           source_limit,
-          cache.CacheOverride,
+          timing_spec,
+          cache_mode,
           fn(line) { io.println("    [" <> key <> "][d1] " <> line) },
         )
-      let depth_1 = apply_source_limit(depth_1, source_limit)
       let depth_2 =
         resolve_source(
           key,
           entry_point,
           core.Depth2,
           source_limit,
-          cache.CacheOverride,
+          timing_spec,
+          cache_mode,
           fn(line) { io.println("    [" <> key <> "][d2] " <> line) },
         )
-      let depth_2 = apply_source_limit(depth_2, source_limit)
       let depth_all =
         resolve_source(
           key,
           entry_point,
           core.All,
           source_limit,
-          cache.CacheOverride,
+          timing_spec,
+          cache_mode,
           fn(line) { io.println("    [" <> key <> "][all] " <> line) },
         )
-      let depth_all = apply_source_limit(depth_all, source_limit)
       collect_source_runs(
         rest,
         list.append(acc, [SourceRun(source, depth_1, depth_2, depth_all)]),
+        cache_mode,
       )
     }
   }
 }
 
-fn collect_tuna_items() -> List(core.UnifiedItem) {
+fn collect_tuna_items(cache_mode: cache.CacheMode) -> List(core.UnifiedItem) {
   io.println("  - Tuna")
   let core.ResolveResult(items, _, _) =
-    tuna_normalized_source.resolve(core.All, cache.CacheOverride, fn(_line) { Nil })
+    tuna_normalized_source.resolve(core.All, cache_mode, fn(_line) { Nil })
   items
 }
 
@@ -388,27 +579,36 @@ fn resolve_source(
   entry_point: String,
   depth: core.DepthMode,
   source_limit: Int,
+  timing_spec: source_specs.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = timing_spec
+  let queue_policy =
+    core.QueuePolicy(
+      max_concurrency: max_concurrency,
+      requests_per_second: requests_per_second,
+    )
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug_limited(
+      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
     "soundcloud" -> {
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug_limited(
+      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
@@ -428,22 +628,24 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug_limited(
+      spotify_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         config,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug_limited(
+      youtube_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
@@ -489,11 +691,141 @@ fn source_at(
 fn parse_cache_mode_arg(
   source: source_specs.SourceSpec,
   maybe_cache_mode: Option(String),
+  use_cache: Bool,
 ) -> Result(cache.CacheMode, Nil) {
-  let source_specs.SourceSpec(_, _, _, default_mode, _) = source
-  case maybe_cache_mode {
-    None -> Ok(default_mode)
-    Some(value) -> parse_cache_mode(value)
+  let _ = source
+  case use_cache {
+    True -> Ok(cache.CacheUpsert)
+    False ->
+      case maybe_cache_mode {
+        None -> Ok(cache.CacheOverride)
+        Some(value) -> parse_cache_mode(value)
+      }
+  }
+}
+
+fn source_by_selector(
+  sources: List(source_specs.SourceSpec),
+  wanted: String,
+) -> Result(#(Int, source_specs.SourceSpec), Nil) {
+  let maybe_index =
+    case int.parse(wanted) {
+      Ok(index) -> Some(index)
+      Error(_) -> None
+    }
+  case maybe_index {
+    Some(index) ->
+      case source_at(sources, index, 1) {
+        Ok(source) -> Ok(#(index, source))
+        Error(_) -> Error(Nil)
+      }
+    None ->
+      case source_by_key_with_index(sources, wanted, 1) {
+        Ok(indexed) -> Ok(indexed)
+        Error(_) ->
+          case parse_provider_alias(wanted) {
+            Ok(#(provider_key, rank)) ->
+              source_by_provider_rank(sources, provider_key, rank, 1, 0)
+            Error(_) -> Error(Nil)
+          }
+      }
+  }
+}
+
+fn source_by_key_with_index(
+  sources: List(source_specs.SourceSpec),
+  wanted: String,
+  current: Int,
+) -> Result(#(Int, source_specs.SourceSpec), Nil) {
+  case sources {
+    [] -> Error(Nil)
+    [source, ..rest] -> {
+      let source_specs.SourceSpec(key, _, _, _, _) = source
+      case key == wanted {
+        True -> Ok(#(current, source))
+        False -> source_by_key_with_index(rest, wanted, current + 1)
+      }
+    }
+  }
+}
+
+fn source_by_provider_rank(
+  sources: List(source_specs.SourceSpec),
+  wanted_key: String,
+  wanted_rank: Int,
+  current: Int,
+  matched_rank: Int,
+) -> Result(#(Int, source_specs.SourceSpec), Nil) {
+  case sources {
+    [] -> Error(Nil)
+    [source, ..rest] -> {
+      let source_specs.SourceSpec(key, _, _, _, _) = source
+      case key == wanted_key && matched_rank + 1 == wanted_rank {
+        True -> Ok(#(current, source))
+        False ->
+          source_by_provider_rank(
+            rest,
+            wanted_key,
+            wanted_rank,
+            current + 1,
+            case key == wanted_key {
+              True -> matched_rank + 1
+              False -> matched_rank
+            },
+          )
+      }
+    }
+  }
+}
+
+fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
+  let parts = string.split(value, "-")
+  case list.reverse(parts) {
+    [rank_text, ..key_rev] ->
+      case key_rev == [] {
+        True -> Error(Nil)
+        False ->
+          case int.parse(rank_text) {
+            Ok(rank) ->
+              case rank >= 1 {
+                True -> Ok(#(string.join(list.reverse(key_rev), "-"), rank))
+                False -> Error(Nil)
+              }
+            Error(_) -> Error(Nil)
+          }
+      }
+    _ -> Error(Nil)
+  }
+}
+
+fn provider_rank_for_index(
+  sources: List(source_specs.SourceSpec),
+  wanted_key: String,
+  wanted_index: Int,
+  current_index: Int,
+  current_rank: Int,
+) -> Int {
+  case sources {
+    [] -> current_rank
+    [source, ..rest] -> {
+      let source_specs.SourceSpec(key, _, _, _, _) = source
+      let next_rank =
+        case key == wanted_key {
+          True -> current_rank + 1
+          False -> current_rank
+        }
+      case current_index == wanted_index {
+        True -> next_rank
+        False ->
+          provider_rank_for_index(
+            rest,
+            wanted_key,
+            wanted_index,
+            current_index + 1,
+            next_rank,
+          )
+      }
+    }
   }
 }
 
@@ -518,31 +850,33 @@ fn artifact_path(file_name: String) -> String {
   "output/" <> file_name
 }
 
-fn apply_source_limit(
-  result: core.ResolveResult,
-  source_limit: Int,
-) -> core.ResolveResult {
-  let core.ResolveResult(items, lists, unresolved) = result
-  case source_limit <= 0 {
-    True -> core.ResolveResult(items: [], lists: lists, unresolved: unresolved)
-    False ->
-      core.ResolveResult(
-        items: list.take(items, source_limit),
-        lists: lists,
-        unresolved: unresolved,
-      )
-  }
-}
 
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
-  io.println("  cli export all csv")
-  io.println("  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>]")
+  io.println("  cli csv <source_selector> [cache]")
+  io.println("  cli fetch <source_selector> [cache]")
+  io.println("  cli export all csv [use-cache]")
+  io.println("  cli export source csv <entry_point_id> depth <1|2|full> [use-cache]")
+  io.println(
+    "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>] [use-cache]",
+  )
+  io.println(
+    "  cli source fetch id <entry_point_id> depth <1|2|full> [cache <upsert|ignore|override>] [use-cache]",
+  )
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
+  io.println("  gleam run -m cli -- csv 1")
+  io.println("  gleam run -m cli -- csv spotify")
+  io.println("  gleam run -m cli -- csv spotify-2 cache")
+  io.println("  gleam run -m cli -- fetch 2")
+  io.println("  gleam run -m cli -- fetch youtube cache")
   io.println("  gleam run -m cli -- export all csv")
-  io.println("  gleam run -m cli -- source fetch 1 depth 1")
-  io.println("  gleam run -m cli -- source fetch 2 depth full")
+  io.println("  gleam run -m cli -- source fetch id spotify depth full use-cache")
+  io.println("")
+  io.println("Tip:")
+  io.println(
+    "  source_selector can be index (1), id (spotify), or provider alias (spotify-2).",
+  )
 }

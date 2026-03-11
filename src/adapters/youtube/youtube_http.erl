@@ -1,6 +1,6 @@
 -module(youtube_http).
 %% YouTube playlist fetch + continuation via HTTP requests.
-%% Spec: YOUTUBE_SPEC.md - depth1 first surface, depth2 continuation.
+%% Contract: depth1 first surface, depth2 continuation.
 -export([
     playlist_first_tsv/1,
     playlist_first_next_token/1,

@@ -53,7 +53,9 @@ fn validate_sources(
 }
 
 fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
-  let source_specs.SourceSpec(key, name, entry_point, cache_mode, assert_spec) = spec
+  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
+    spec
+  let cache_mode = cache.CacheUpsert
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("")
   io.println("== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==")
@@ -62,20 +64,24 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
 
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
-    resolve_source(key, entry_point, core.All, source_limit, cache_mode, fn(line) {
+    resolve_source(key, entry_point, core.All, source_limit, timing_spec, cache_mode, fn(line) {
       io.println("[warmup] " <> line)
     })
 
   let depth_1 =
-    resolve_source(key, entry_point, core.Depth1, source_limit, cache_mode, fn(_line) {
+    resolve_source(key, entry_point, core.Depth1, source_limit, timing_spec, cache_mode, fn(
+      _line,
+    ) {
       Nil
     })
   let depth_2 =
-    resolve_source(key, entry_point, core.Depth2, source_limit, cache_mode, fn(_line) {
+    resolve_source(key, entry_point, core.Depth2, source_limit, timing_spec, cache_mode, fn(
+      _line,
+    ) {
       Nil
     })
   let depth_all =
-    resolve_source(key, entry_point, core.All, source_limit, cache_mode, fn(line) {
+    resolve_source(key, entry_point, core.All, source_limit, timing_spec, cache_mode, fn(line) {
       io.println("[full] " <> line)
     })
 
@@ -96,27 +102,36 @@ fn resolve_source(
   entry_point: String,
   depth: core.DepthMode,
   source_limit: Int,
+  timing_spec: source_specs.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = timing_spec
+  let queue_policy =
+    core.QueuePolicy(
+      max_concurrency: max_concurrency,
+      requests_per_second: requests_per_second,
+    )
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug_limited(
+      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
     "soundcloud" -> {
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug_limited(
+      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
@@ -136,22 +151,24 @@ fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug_limited(
+      spotify_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         config,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug_limited(
+      youtube_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
         source_limit,
+        queue_policy,
         on_debug,
       )
     }

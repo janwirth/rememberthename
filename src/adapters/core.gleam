@@ -40,6 +40,7 @@
 import gleam/int
 import gleam/list
 import gleam/result
+import gleam/string
 import gleam/erlang/process
 import gleam/set
 import source_id_normalizer
@@ -52,6 +53,10 @@ pub type DepthMode {
   Depth10
   Depth20
   All
+}
+
+pub type QueuePolicy {
+  QueuePolicy(max_concurrency: Int, requests_per_second: Int)
 }
 
 pub type AdapterNode {
@@ -147,10 +152,32 @@ pub fn resolve_profile_url_with_debug(
   resolve_profile_url_with_debug_and_limit(profile_url, depth, 0, expand, on_debug)
 }
 
+pub fn default_queue_policy() -> QueuePolicy {
+  QueuePolicy(max_concurrency: 3, requests_per_second: 3)
+}
+
 pub fn resolve_profile_url_with_debug_and_limit(
   profile_url: String,
   depth: DepthMode,
   max_items: Int,
+  expand: fn(AdapterNode) -> ExpandResult,
+  on_debug: fn(String) -> Nil,
+) -> ResolveResult {
+  resolve_profile_url_with_debug_limit_and_queue_policy(
+    profile_url,
+    depth,
+    max_items,
+    default_queue_policy(),
+    expand,
+    on_debug,
+  )
+}
+
+pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
+  profile_url: String,
+  depth: DepthMode,
+  max_items: Int,
+  queue_policy: QueuePolicy,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
@@ -159,6 +186,7 @@ pub fn resolve_profile_url_with_debug_and_limit(
       resolve_profile_url_with_default_queue(
         profile_url,
         max_items,
+        queue_policy,
         expand,
         on_debug,
       )
@@ -184,24 +212,24 @@ type WorkerMsg {
   WorkerDone(node: AdapterNode, level: Int, result: ExpandResult)
 }
 
-const queue_max_concurrency = 3
-const queue_requests_per_second = 3
-const queue_interval_ms = 333
-
 fn resolve_profile_url_with_default_queue(
   profile_url: String,
   max_items: Int,
+  queue_policy: QueuePolicy,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
+  let QueuePolicy(max_concurrency, requests_per_second) =
+    normalize_queue_policy(queue_policy)
+  let queue_interval_ms = 1000 / requests_per_second
   let subject = process.new_subject()
   emit_debug(
     All,
     on_debug,
     "[queue] enabled mode=concurrent req_per_sec="
-    <> int.to_string(queue_requests_per_second)
+    <> int.to_string(requests_per_second)
     <> " concurrency="
-    <> int.to_string(queue_max_concurrency),
+    <> int.to_string(max_concurrency),
   )
   let #(queue, running, visited, item_seen, list_seen, items, lists, unresolved, starts, max_active) =
     start_workers(
@@ -216,6 +244,8 @@ fn resolve_profile_url_with_default_queue(
       0,
       0,
       max_items,
+      max_concurrency,
+      queue_interval_ms,
       subject,
       expand,
       on_debug,
@@ -233,6 +263,8 @@ fn resolve_profile_url_with_default_queue(
       starts,
       max_active,
       max_items,
+      max_concurrency,
+      queue_interval_ms,
       subject,
       expand,
       on_debug,
@@ -240,10 +272,7 @@ fn resolve_profile_url_with_default_queue(
   emit_debug(
     All,
     on_debug,
-    "[queue] complete starts="
-    <> int.to_string(starts)
-    <> " max_active="
-    <> int.to_string(max_active),
+    "[queue] complete",
   )
   ResolveResult(items, lists, unresolved)
 }
@@ -260,6 +289,8 @@ fn start_workers(
   starts: Int,
   max_active: Int,
   max_items: Int,
+  max_concurrency: Int,
+  queue_interval_ms: Int,
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
@@ -275,7 +306,7 @@ fn start_workers(
   Int,
   Int,
 ) {
-  case running >= queue_max_concurrency || queue == [] || reached_item_limit(items, max_items) {
+  case running >= max_concurrency || queue == [] || reached_item_limit(items, max_items) {
     True ->
       #(
         queue,
@@ -293,7 +324,7 @@ fn start_workers(
       let current = result.unwrap(list.first(queue), #(PageNode(""), 0))
       let rest = result.unwrap(list.rest(queue), [])
       let #(node, level) = current
-      let key = node_key(node)
+      let key = node_visit_key(node)
       case set.contains(visited, key) || !can_expand(level, All) {
         True ->
           start_workers(
@@ -308,6 +339,8 @@ fn start_workers(
             starts,
             max_active,
             max_items,
+            max_concurrency,
+            queue_interval_ms,
             subject,
             expand,
             on_debug,
@@ -317,13 +350,13 @@ fn start_workers(
           emit_debug(
             All,
             on_debug,
-            "[queue] start node=" <> key <> " level=" <> int.to_string(level),
+            "[queue] start node=" <> node_debug_label(node) <> " level=" <> int.to_string(level),
           )
           emit_debug(
             All,
             on_debug,
             "[fetch] start node="
-            <> node_key(node)
+            <> node_debug_label(node)
             <> " level="
             <> int.to_string(level),
           )
@@ -346,6 +379,8 @@ fn start_workers(
             starts + 1,
             max_int(max_active, next_running),
             max_items,
+            max_concurrency,
+            queue_interval_ms,
             subject,
             expand,
             on_debug,
@@ -368,12 +403,23 @@ fn concurrent_loop(
   starts: Int,
   max_active: Int,
   max_items: Int,
+  max_concurrency: Int,
+  queue_interval_ms: Int,
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
 ) -> ResolveResult {
-  case (queue == [] && running == 0) || reached_item_limit(items, max_items) {
-    True -> ResolveResult(items, lists, unresolved)
+  case queue == [] && running == 0 || reached_item_limit(items, max_items) {
+    True ->
+      case reached_item_limit(items, max_items) {
+        True ->
+          ResolveResult(
+            items,
+            lists,
+            with_limit_unresolved(unresolved, queue, max_items),
+          )
+        False -> ResolveResult(items, lists, unresolved)
+      }
     False -> {
       let #(queue, running, visited, item_seen, list_seen, items, lists, unresolved, starts, max_active) =
         start_workers(
@@ -388,6 +434,8 @@ fn concurrent_loop(
           starts,
           max_active,
           max_items,
+          max_concurrency,
+          queue_interval_ms,
           subject,
           expand,
           on_debug,
@@ -403,7 +451,7 @@ fn concurrent_loop(
             All,
             on_debug,
             "[fetch] complete node="
-            <> node_key(node)
+            <> node_debug_label(node)
             <> " items="
             <> int.to_string(list.length(next_items))
             <> " lists="
@@ -419,14 +467,22 @@ fn concurrent_loop(
             All,
             on_debug,
             "[queue] complete node="
-            <> node_key(node)
+            <> node_debug_label(node)
             <> " pushed="
             <> int.to_string(list.length(next_nodes))
             <> " unresolved="
             <> int.to_string(list.length(next_unresolved)),
           )
           case limit_hit {
-            True -> ResolveResult(items, lists, unresolved)
+            True -> {
+              let deferred =
+                list.append(queue, with_level(next_nodes, level + 1))
+              ResolveResult(
+                items,
+                lists,
+                with_limit_unresolved(unresolved, deferred, max_items),
+              )
+            }
             False -> {
               let queue = list.append(queue, with_level(next_nodes, level + 1))
               concurrent_loop(
@@ -441,6 +497,8 @@ fn concurrent_loop(
                 starts,
                 max_active,
                 max_items,
+                max_concurrency,
+                queue_interval_ms,
                 subject,
                 expand,
                 on_debug,
@@ -458,6 +516,14 @@ fn max_int(a: Int, b: Int) -> Int {
     True -> a
     False -> b
   }
+}
+
+fn normalize_queue_policy(policy: QueuePolicy) -> QueuePolicy {
+  let QueuePolicy(max_concurrency, requests_per_second) = policy
+  QueuePolicy(
+    max_concurrency: max_int(1, max_concurrency),
+    requests_per_second: max_int(1, requests_per_second),
+  )
 }
 
 fn loop(
@@ -478,12 +544,21 @@ fn loop(
   // - visited set for cycle safety
   // - item/list seen sets for deduplication
   case queue == [] || reached_item_limit(items, max_items) {
-    True -> ResolveResult(items, lists, unresolved)
+    True ->
+      case reached_item_limit(items, max_items) {
+        True ->
+          ResolveResult(
+            items,
+            lists,
+            with_limit_unresolved(unresolved, queue, max_items),
+          )
+        False -> ResolveResult(items, lists, unresolved)
+      }
     False -> {
       let current = result.unwrap(list.first(queue), #(PageNode(""), 0))
       let rest = result.unwrap(list.rest(queue), [])
       let #(node, level) = current
-      let key = node_key(node)
+      let key = node_visit_key(node)
       case set.contains(visited, key) {
         True -> {
           loop(
@@ -495,6 +570,7 @@ fn loop(
             lists,
             unresolved,
             depth,
+            max_items,
             expand,
             on_debug,
           )
@@ -522,7 +598,7 @@ fn loop(
                 depth,
                 on_debug,
                 "[fetch] start node="
-                <> node_key(node)
+                <> node_debug_label(node)
                 <> " level="
                 <> int.to_string(level),
               )
@@ -531,7 +607,7 @@ fn loop(
                 depth,
                 on_debug,
                 "[fetch] complete node="
-                <> node_key(node)
+                <> node_debug_label(node)
                 <> " items="
                 <> int.to_string(list.length(next_items))
                 <> " lists="
@@ -545,7 +621,12 @@ fn loop(
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)
               case limit_hit {
-                True -> ResolveResult(items, lists, unresolved)
+                True ->
+                  ResolveResult(
+                    items,
+                    lists,
+                    with_limit_unresolved(unresolved, queue, max_items),
+                  )
                 False ->
                   loop(
                     queue,
@@ -628,6 +709,26 @@ fn reached_item_limit(items: List(UnifiedItem), max_items: Int) -> Bool {
   }
 }
 
+fn with_limit_unresolved(
+  unresolved: List(AdapterNode),
+  deferred_queue: List(#(AdapterNode, Int)),
+  max_items: Int,
+) -> List(AdapterNode) {
+  let deferred_nodes = list.map(deferred_queue, fn(pair) { first(pair) })
+  list.append(
+    unresolved,
+    list.append(
+      deferred_nodes,
+      [PageNode("error:source_limit_reached:max_items=" <> int.to_string(max_items))],
+    ),
+  )
+}
+
+fn first(pair: #(a, b)) -> a {
+  let #(value, _) = pair
+  value
+}
+
 fn merge_lists(
   lists: List(UnifiedCollection),
   seen: set.Set(String),
@@ -657,11 +758,84 @@ fn collection_key(collection: UnifiedCollection) -> String {
   service <> ":" <> source_type <> ":" <> source_id
 }
 
-fn node_key(node: AdapterNode) -> String {
+fn node_visit_key(node: AdapterNode) -> String {
   case node {
     ProfileEntry(profile_url) -> "profile:" <> profile_url
     CategoryNode(id) -> "category:" <> id
     ListNode(id) -> "list:" <> id
     PageNode(id) -> "page:" <> id
+  }
+}
+
+fn node_debug_label(node: AdapterNode) -> String {
+  case node {
+    ProfileEntry(profile_url) -> "profile:" <> short_url(profile_url)
+    CategoryNode(id) -> "category:" <> compact_context(id)
+    ListNode(id) -> "list:" <> compact_context(id)
+    PageNode(id) -> "page:" <> compact_context(id)
+  }
+}
+
+fn compact_context(ctx: String) -> String {
+  let parts = string.split(ctx, "|")
+  case parts {
+    [first, second, third, ..] ->
+      compact_text(first) <> " | " <> compact_text(second) <> " | " <> compact_text(third)
+    [first, second, ..] -> compact_text(first) <> " | " <> compact_text(second)
+    [first, ..] -> compact_text(first)
+    _ -> compact_text(ctx)
+  }
+}
+
+fn compact_text(value: String) -> String {
+  case string.starts_with(value, "http://") || string.starts_with(value, "https://") {
+    True -> short_url(value)
+    False ->
+      case string.split(value, "|") {
+        [first, second, ..] -> first <> "|" <> second
+        [first, ..] -> first
+        _ -> value
+      }
+  }
+}
+
+fn short_url(url: String) -> String {
+  let without_scheme =
+    case string.split(url, "://") {
+      [_, rest, ..] -> rest
+      _ -> url
+    }
+  let host =
+    case string.split(without_scheme, "/") {
+      [first, ..] -> first
+      _ -> without_scheme
+    }
+  let path =
+    case string.split_once(without_scheme, "/") {
+      Ok(#(_, rest)) -> rest
+      Error(_) -> ""
+    }
+  let tail = last_non_empty(string.split(path, "/"))
+  case tail == "" {
+    True -> host
+    False -> host <> "/.../" <> strip_query(tail)
+  }
+}
+
+fn strip_query(value: String) -> String {
+  case string.split_once(value, "?") {
+    Ok(#(base, _)) -> base
+    Error(_) -> value
+  }
+}
+
+fn last_non_empty(parts: List(String)) -> String {
+  case list.reverse(parts) {
+    [] -> ""
+    [head, ..rest] ->
+      case head == "" {
+        True -> last_non_empty(list.reverse(rest))
+        False -> head
+      }
   }
 }

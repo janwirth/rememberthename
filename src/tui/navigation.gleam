@@ -9,6 +9,7 @@ pub type SourceEntry {
     name: String,
     entry_point: String,
     cache_mode: cache.CacheMode,
+    timing_spec: source_specs.SourceTimingSpec,
     min_depth_1_items: Int,
     min_full_items: Int,
     first_items_to_preserve: Int,
@@ -111,7 +112,7 @@ fn source_at(
 }
 
 fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
-  let source_specs.SourceSpec(key, name, entry_point, cache_mode, assert_spec) =
+  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
     spec
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
@@ -125,7 +126,8 @@ fn source_entry_from_spec(spec: source_specs.SourceSpec) -> SourceEntry {
     key: key,
     name: name,
     entry_point: entry_point,
-    cache_mode: cache_mode,
+    cache_mode: cache.CacheUpsert,
+    timing_spec: timing_spec,
     min_depth_1_items: min_depth_1_items,
     min_full_items: min_full_items,
     first_items_to_preserve: first_items_to_preserve,
@@ -139,6 +141,7 @@ fn tuna_normalized_source() -> SourceEntry {
     name: "Tuna Normalized IDs",
     entry_point: "gel:tuna/main::default::Track",
     cache_mode: cache.CacheUpsert,
+    timing_spec: source_specs.SourceTimingSpec(max_concurrency: 1, requests_per_second: 1),
     min_depth_1_items: 1,
     min_full_items: 1,
     first_items_to_preserve: 1,
