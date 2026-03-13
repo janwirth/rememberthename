@@ -27,6 +27,12 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
 
   string.contains(content, "\"tags\":[]")
   |> should.equal(True)
+
+  string.contains(content, "\"order\":1")
+  |> should.equal(True)
+
+  string.contains(content, "\"imported_date\":null")
+  |> should.equal(True)
 }
 
 pub fn tracks_json_exports_file_and_split_tag_list_test() {
@@ -46,6 +52,42 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
   string.contains(content, "\"file\":\"/tmp/track-b.mp3\"")
   |> should.equal(True)
 
-  string.contains(content, "\"tags\":[\"genre:house\",\"rating:8\"]")
+  string.contains(content, "\"tags\":[\"tag/genre/:house\",\":rating:8\"]")
+  |> should.equal(True)
+
+  string.contains(content, "\"order\":1")
+  |> should.equal(True)
+
+  string.contains(content, "\"imported_date\":null")
+  |> should.equal(True)
+}
+
+pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
+  let content =
+    cli.tracks_json([
+      visual_output.TrackView(
+        "Track Newest",
+        "Artist A",
+        "youtube",
+        "yt-new",
+        "youtube + profile",
+        "",
+        "",
+      ),
+      visual_output.TrackView(
+        "Track Older",
+        "Artist B",
+        "youtube",
+        "yt-old",
+        "youtube + profile",
+        "",
+        "",
+      ),
+    ])
+
+  string.contains(content, "\"source_id\":\"yt-new\",\"order\":2")
+  |> should.equal(True)
+
+  string.contains(content, "\"source_id\":\"yt-old\",\"order\":1")
   |> should.equal(True)
 }

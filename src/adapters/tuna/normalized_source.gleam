@@ -111,15 +111,73 @@ fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
         preferred_title,
         artist,
       )
-    push_item(
-      acc,
-      "itunes",
-      decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
-      preferred_title,
-      artist,
-    )
+    let acc =
+      push_item(
+        acc,
+        "itunes",
+        decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
+        preferred_title,
+        artist,
+      )
+    push_fishbone_item(acc, row, preferred_title, artist)
   })
   |> list.reverse
+}
+
+fn push_fishbone_item(
+  acc: List(core.UnifiedItem),
+  row: dynamic.Dynamic,
+  preferred_title: String,
+  artist: String,
+) -> List(core.UnifiedItem) {
+  let fishbone_platform =
+    decode_path_or(row, ["fishbone_source_platform"], "", decode.string)
+  let fishbone_source_id =
+    decode_path_or(row, ["fishbone_source_id"], "", decode.string)
+  let service = fishbone_service_for_platform(fishbone_platform)
+  case service == "" || fishbone_source_id == "" {
+    True -> acc
+    False ->
+      push_item(
+        acc,
+        service,
+        fishbone_source_id,
+        preferred_title,
+        artist,
+      )
+  }
+}
+
+fn fishbone_service_for_platform(platform: String) -> String {
+  let normalized = platform |> string.lowercase |> string.trim
+  case normalized {
+    "" -> ""
+    _ ->
+      case string.contains(normalized, "youtube") {
+        True -> "youtube"
+        False ->
+          case string.contains(normalized, "soundcloud") {
+            True -> "soundcloud"
+            False ->
+              case string.contains(normalized, "spotify") {
+                True -> "spotify"
+                False ->
+                  case string.contains(normalized, "bandcamp") {
+                    True -> "bandcamp"
+                    False ->
+                      case string.contains(normalized, "itunes") {
+                        True -> "itunes"
+                        False ->
+                          case string.contains(normalized, "file") {
+                            True -> "file"
+                            False -> "fishbone"
+                          }
+                      }
+                  }
+              }
+          }
+      }
+  }
 }
 
 fn push_item(

@@ -12,7 +12,7 @@ pub fn normalize_tuna_tags_overrides_existing_rating_tags_test() {
     ["genre:techno", "rating:2", "set:night", "Rating5"],
     4,
   )
-  |> should.equal("genre:techno | set:night | rating:4")
+  |> should.equal("tag/genre/:techno | tag/set/:night | :rating:4")
 }
 
 pub fn format_tuna_source_id_uses_source_type_prefix_test() {
@@ -29,8 +29,8 @@ pub fn export_tags_returns_empty_list_for_empty_input_test() {
 }
 
 pub fn export_tags_splits_pipe_separated_values_test() {
-  cli.export_tags("genre:house | rating:8 |  label:night ")
-  |> should.equal(["genre:house", "rating:8", "label:night"])
+  cli.export_tags("tag/genre/:house | :rating:8 |  tag/label/:night ")
+  |> should.equal(["tag/genre/:house", ":rating:8", "tag/label/:night"])
 }
 
 pub fn nullable_file_path_uses_none_for_empty_values_test() {
