@@ -285,7 +285,15 @@ fn run_fetch(
   )
 
   let adapter_id = adapter_id_for_source(key, entry_point)
-  let tracks = list.map(items, fn(item) { to_track_view(item, adapter_id) })
+  let tracks = case key == "tuna" {
+    True -> {
+      let metadata_rows = tuna_row_metadata(cache_mode)
+      list.map(items, fn(item) {
+        to_tuna_track_view(item, adapter_id, metadata_rows)
+      })
+    }
+    False -> list.map(items, fn(item) { to_track_view(item, adapter_id) })
+  }
   let content = tracks_json(tracks)
   let json_path =
     artifact_path(
@@ -585,12 +593,16 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   let items_all = result_items(depth_all)
   let min_depth_ok = i1 >= min_depth_1_items
   let min_full_ok = iall >= min_full_items
-  let monotonic_ok = i2 > i1 && iall >= i2
+  let monotonic_ok = case key == "tuna" {
+    True -> True
+    False -> i2 > i1 && iall >= i2
+  }
   let consistency_ok = lall >= l1 && uall == u1
   let first_ids = first_item_ids(depth_1, first_items_to_preserve)
-  let first_items_ok =
-    first_ids != []
-    && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
+  let first_items_ok = case first_items_to_preserve == 0 {
+    True -> True
+    False -> first_ids != [] && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
+  }
   let anchors_shallow_ok =
     list.all(anchor_fragments, fn(fragment) {
       has_title_fragment(items_1, fragment)
@@ -792,6 +804,7 @@ fn resolve_source(
         on_debug,
       )
     }
+    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
       youtube_live_expander.resolve_profile_with_debug_limited_timed(

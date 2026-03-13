@@ -41,7 +41,7 @@ pub type SourceSpec {
 }
 
 pub fn all() -> List(SourceSpec) {
-  [bandcamp(), soundcloud(), spotify(), youtube()]
+  [bandcamp(), soundcloud(), spotify(), youtube(), tuna()]
 }
 
 pub fn bandcamp() -> SourceSpec {
@@ -132,6 +132,23 @@ pub fn youtube() -> SourceSpec {
       ],
       // Full traversal includes titles with case-varying "chanel" substring.
       required_full_fragments: ["chanel"],
+    ),
+  )
+}
+
+pub fn tuna() -> SourceSpec {
+  SourceSpec(
+    key: "tuna",
+    name: "Tuna",
+    entry_point: "gel:tuna/main::default::Track",
+    timing_spec: SourceTimingSpec(max_concurrency: 1, requests_per_second: 1),
+    assert_spec: SourceAssertSpec(
+      min_depth_1_items: 0,
+      min_full_items: 10,
+      source_limit: 100000,
+      first_items_to_preserve: 0,
+      anchor_fragments: [],
+      required_full_fragments: [],
     ),
   )
 }
