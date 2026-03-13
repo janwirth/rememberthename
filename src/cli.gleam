@@ -65,7 +65,7 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   case sources {
     [] -> Nil
     [source, ..rest] -> {
-      let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+      let source_specs.SourceSpec(key, _, entry_point, _, _) = source
       let alias_rank =
         provider_rank_for_index(source_specs.all(), key, index, 1, 0)
       io.println(
@@ -86,84 +86,74 @@ fn show_easy_start() {
   print_usage()
 }
 
-fn export_source_json_simple(source_selector: String, use_cache: Bool) {
-  case source_by_selector(source_specs.all(), source_selector) {
-    Error(_) -> io.println("Invalid source selector: " <> source_selector)
-    Ok(#(source_index, source)) -> {
-      let cache_mode = case use_cache {
-        True -> cache.CacheReadOnly
-        False -> cache.CacheOverride
-      }
-      run_fetch(source, source_index, core.All, "full", cache_mode, True)
-    }
-  }
-}
-
 fn fetch_source_simple(source_selector: String, args: List(String)) {
   case parse_fetch_args(args) {
     Error(message) -> io.println(message)
-    Ok(#(depth_text, use_cache)) ->
-      fetch_source_simple_with_options(source_selector, depth_text, use_cache)
+    Ok(use_cache) -> fetch_source_simple_with_options(source_selector, use_cache)
   }
 }
 
 fn fetch_source_simple_with_options(
   source_selector: String,
-  depth_text: String,
   use_cache: Bool,
 ) {
-  case source_by_selector(source_specs.all(), source_selector) {
-    Error(_) -> io.println("Invalid source selector: " <> source_selector)
-    Ok(#(source_index, source)) -> {
-      case parse_depth(depth_text) {
-        Error(_) ->
-          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
-        Ok(depth) -> {
+  case source_selector == "all" {
+    True -> fetch_all_sources(use_cache)
+    False ->
+      case source_by_selector(source_specs.all(), source_selector) {
+        Error(_) -> io.println("Invalid source selector: " <> source_selector)
+        Ok(#(source_index, source)) -> {
           let cache_mode = case use_cache {
             True -> cache.CacheReadOnly
             False -> cache.CacheOverride
           }
-          run_fetch(source, source_index, depth, depth_text, cache_mode, True)
+          run_fetch(source, source_index, core.All, "full", cache_mode, True)
         }
       }
+  }
+}
+
+fn fetch_all_sources(use_cache: Bool) {
+  let cache_mode = case use_cache {
+    True -> cache.CacheReadOnly
+    False -> cache.CacheOverride
+  }
+  io.println(color("Fetching all sources...", ansi_bright_cyan()))
+  fetch_all_sources_loop(source_specs.all(), 1, cache_mode)
+}
+
+fn fetch_all_sources_loop(
+  sources: List(source_specs.SourceSpec),
+  index: Int,
+  cache_mode: cache.CacheMode,
+) {
+  case sources {
+    [] -> Nil
+    [source, ..rest] -> {
+      run_fetch(source, index, core.All, "full", cache_mode, True)
+      io.println("")
+      fetch_all_sources_loop(rest, index + 1, cache_mode)
     }
   }
 }
 
-fn parse_fetch_args(args: List(String)) -> Result(#(String, Bool), String) {
+fn parse_fetch_args(args: List(String)) -> Result(Bool, String) {
   case args {
-    [] -> Ok(#("full", False))
+    [] -> Ok(False)
     [arg1] ->
-      case parse_fetch_depth(arg1) {
-        Ok(depth) -> Ok(#(depth, False))
+      case parse_fetch_cache_pref(arg1) {
+        Ok(use_cache) -> Ok(use_cache)
         Error(_) ->
-          case parse_fetch_cache_pref(arg1) {
-            Ok(use_cache) -> Ok(#("full", use_cache))
-            Error(_) -> Error("Invalid fetch args. Use: cli fetch <source> [1|2|full] [override-cache|use-cache]")
-          }
+          Error(
+            "Invalid fetch arg: "
+            <> arg1
+            <> " (use: override-cache | use-cache)",
+          )
       }
-    [arg1, arg2] ->
-      case parse_fetch_depth(arg1) {
-        Ok(depth) ->
-          case parse_fetch_cache_pref(arg2) {
-            Ok(use_cache) -> Ok(#(depth, use_cache))
-            Error(_) ->
-              Error(
-                "Invalid cache mode: " <> arg2 <> " (use: override-cache | use-cache)",
-              )
-          }
-        Error(_) -> Error("Invalid fetch depth: " <> arg1 <> " (use: 1 | 2 | full)")
-      }
-    _ -> Error("Too many fetch args. Use: cli fetch <source> [1|2|full] [override-cache|use-cache]")
-  }
-}
-
-fn parse_fetch_depth(value: String) -> Result(String, Nil) {
-  case value {
-    "1" -> Ok("1")
-    "2" -> Ok("2")
-    "full" -> Ok("full")
-    _ -> Error(Nil)
+    _ ->
+      Error(
+        "Too many fetch args. Use: cli fetch <source> [override-cache|use-cache]",
+      )
   }
 }
 
@@ -175,70 +165,6 @@ fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
   }
 }
 
-fn fetch_source(
-  source_index_text: String,
-  depth_text: String,
-  cache_mode_text_arg: Option(String),
-  use_cache: Bool,
-) {
-  let source_index = int.parse(source_index_text) |> result.unwrap(or: -1)
-  case source_at(source_specs.all(), source_index, 1) {
-    Error(_) -> io.println("Invalid source index: " <> source_index_text)
-    Ok(source) ->
-      case parse_depth(depth_text) {
-        Error(_) ->
-          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
-        Ok(depth) ->
-          case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
-            Error(_) ->
-              io.println(
-                "Invalid cache mode (use: upsert | ignore | override | readonly)",
-              )
-            Ok(cache_mode) ->
-              run_fetch(
-                source,
-                source_index,
-                depth,
-                depth_text,
-                cache_mode,
-                True,
-              )
-          }
-      }
-  }
-}
-
-fn fetch_source_by_id(
-  source_key: String,
-  depth_text: String,
-  cache_mode_text_arg: Option(String),
-  use_cache: Bool,
-) {
-  case source_by_selector(source_specs.all(), source_key) {
-    Error(_) -> io.println("Invalid source id: " <> source_key)
-    Ok(#(source_index, source)) ->
-      case parse_depth(depth_text) {
-        Error(_) ->
-          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
-        Ok(depth) ->
-          case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
-            Error(_) ->
-              io.println(
-                "Invalid cache mode (use: upsert | ignore | override | readonly)",
-              )
-            Ok(cache_mode) ->
-              run_fetch(
-                source,
-                source_index,
-                depth,
-                depth_text,
-                cache_mode,
-                True,
-              )
-          }
-      }
-  }
-}
 
 fn run_fetch(
   source: source_specs.SourceSpec,
@@ -391,189 +317,6 @@ fn validation_run_for_depth(
   }
 }
 
-fn export_source_json(source_key: String, depth_text: String, use_cache: Bool) {
-  case source_by_selector(source_specs.all(), source_key) {
-    Error(_) -> io.println("Invalid source id: " <> source_key)
-    Ok(#(source_index, source)) ->
-      case parse_depth(depth_text) {
-        Error(_) ->
-          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
-        Ok(depth) -> {
-          let cache_mode = case use_cache {
-            True -> cache.CacheReadOnly
-            False -> cache.CacheOverride
-          }
-          run_fetch(source, source_index, depth, depth_text, cache_mode, True)
-        }
-      }
-  }
-}
-
-fn export_all_json(use_cache: Bool) {
-  let cache_mode = case use_cache {
-    True -> cache.CacheReadOnly
-    False -> cache.CacheOverride
-  }
-  io.println(
-    "Exporting all sources to JSON with cache "
-    <> cache_mode_text(cache_mode)
-    <> "...",
-  )
-  let runs = collect_source_runs(source_specs.all(), [], cache_mode)
-  let adapter_items = source_run_items(runs)
-  let tuna_cache_mode = tuna_export_cache_mode(cache_mode)
-  let tuna_items = collect_tuna_items(tuna_cache_mode)
-  let all_items = list.append(adapter_items, tuna_items)
-  let tuna_metadata_rows = tuna_row_metadata(tuna_cache_mode)
-  let tracks =
-    list.append(
-      source_run_track_views(runs),
-      list.map(tuna_items, fn(item) {
-        to_tuna_track_view(item, tuna_adapter_id(), tuna_metadata_rows)
-      }),
-    )
-  let content = tracks_json(tracks)
-  let json_path = artifact_path("all_items_latest.json")
-  let json_write_errors = write_output_file(json_path, content, "JSON written: ")
-  let validation_errors =
-    validate_source_runs(runs)
-    |> list.append(validate_tuna_items(tuna_items))
-    |> list.append(validate_tuna_export_ratings(tracks))
-    |> list.append(json_write_errors)
-  io.println(
-    "Done. Exported "
-    <> int.to_string(list.length(all_items))
-    <> " items to "
-    <> json_path,
-  )
-  case validation_errors == [] {
-    True -> io.println("Validation: PASS")
-    False -> {
-      io.println(
-        "Validation: FAIL ("
-        <> int.to_string(list.length(validation_errors))
-        <> " errors)",
-      )
-      list.each(validation_errors, fn(line) { io.println("  - " <> line) })
-    }
-  }
-}
-
-fn tuna_export_cache_mode(cache_mode: cache.CacheMode) -> cache.CacheMode {
-  case cache_mode {
-    // Tuna source IDs + ratings come from local gel data, and stale cache
-    // can silently drop rating values. Refresh on export for correctness.
-    cache.CacheReadOnly -> cache.CacheOverride
-    _ -> cache_mode
-  }
-}
-
-fn write_output_file(
-  path: String,
-  content: String,
-  success_label: String,
-) -> List(String) {
-  case simplifile.write(content, to: path) {
-    Ok(_) -> {
-      io.println(success_label <> path)
-      []
-    }
-    Error(_) -> ["output: failed to write " <> path]
-  }
-}
-
-fn collect_source_runs(
-  specs: List(source_specs.SourceSpec),
-  acc: List(SourceRun),
-  cache_mode: cache.CacheMode,
-) -> List(SourceRun) {
-  case specs {
-    [] -> acc
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(
-        key,
-        name,
-        entry_point,
-        timing_spec,
-        assert_spec,
-      ) = source
-      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) =
-        assert_spec
-      io.println("  - " <> name)
-      let depth_1 =
-        resolve_source(
-          key,
-          entry_point,
-          core.Depth1,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(line) { io.println("    [" <> key <> "][d1] " <> line) },
-        )
-      let depth_2 =
-        resolve_source(
-          key,
-          entry_point,
-          core.Depth2,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(line) { io.println("    [" <> key <> "][d2] " <> line) },
-        )
-      let depth_all =
-        resolve_source(
-          key,
-          entry_point,
-          core.All,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(line) { io.println("    [" <> key <> "][all] " <> line) },
-        )
-      collect_source_runs(
-        rest,
-        list.append(acc, [SourceRun(source, depth_1, depth_2, depth_all)]),
-        cache_mode,
-      )
-    }
-  }
-}
-
-fn collect_tuna_items(cache_mode: cache.CacheMode) -> List(core.UnifiedItem) {
-  io.println("  - Tuna")
-  let core.ResolveResult(items, _, _) =
-    tuna_normalized_source.resolve(core.All, cache_mode, fn(_line) { Nil })
-  items
-}
-
-fn source_run_items(runs: List(SourceRun)) -> List(core.UnifiedItem) {
-  list.fold(runs, [], fn(acc, run) {
-    let SourceRun(_, _, _, depth_all) = run
-    let core.ResolveResult(items, _, _) = depth_all
-    list.append(acc, items)
-  })
-}
-
-fn source_run_track_views(
-  runs: List(SourceRun),
-) -> List(visual_output.TrackView) {
-  list.fold(runs, [], fn(acc, run) {
-    let SourceRun(source, _, _, depth_all) = run
-    let source_specs.SourceSpec(key, _, entry_point, _, _) = source
-    let core.ResolveResult(items, _, _) = depth_all
-    let adapter_id = adapter_id_for_source(key, entry_point)
-    let track_views =
-      list.map(items, fn(item) { to_track_view(item, adapter_id) })
-    list.append(acc, track_views)
-  })
-}
-
-fn validate_source_runs(runs: List(SourceRun)) -> List(String) {
-  list.fold(runs, [], fn(acc, run) {
-    list.append(acc, validate_source_run(run))
-  })
-}
-
 fn validate_source_run(run: SourceRun) -> List(String) {
   let SourceRun(spec, depth_1, depth_2, depth_all) = run
   let source_specs.SourceSpec(key, name, _, _, assert_spec) = spec
@@ -656,27 +399,6 @@ fn validate_source_run(run: SourceRun) -> List(String) {
       <> int.to_string(source_limit)
       <> ")",
   )
-}
-
-fn validate_tuna_items(items: List(core.UnifiedItem)) -> List(String) {
-  case items == [] {
-    True -> ["tuna: no items returned"]
-    False ->
-      case list.all(items, fn(item) { item_source_id_ok(item) }) {
-        True -> []
-        False -> [
-          "tuna: one or more items failed source_id constructor validation",
-        ]
-      }
-  }
-}
-
-fn item_source_id_ok(item: core.UnifiedItem) -> Bool {
-  let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  case core.track_item(service, source_id, title, artist) {
-    Ok(_) -> True
-    Error(_) -> False
-  }
 }
 
 fn add_validation_error(
@@ -855,10 +577,6 @@ type TunaRowMetadata {
   )
 }
 
-fn tuna_adapter_id() -> String {
-  adapter_id_for_source("tuna", "gel:tuna/main::default::Track")
-}
-
 fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
   source_type <> " + " <> entry_point
 }
@@ -910,7 +628,7 @@ fn cached_tuna_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
     "tuna_tracks_source_ids_enriched_json",
     "tuna_main_default_track_sources_enriched",
     cache_mode,
-    tracks_source_ids_json,
+    fn() { tracks_source_ids_json() },
   )
 }
 
@@ -984,56 +702,6 @@ pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
   string.join(list.append(normalized_tags, [rating_tag]), " | ")
 }
 
-fn validate_tuna_export_ratings(tracks: List(visual_output.TrackView)) -> List(String) {
-  let count = count_tracks_with_rating_above(tracks, 30)
-  case count >= 10 {
-    True -> []
-    False ->
-      [
-        "tuna export: expected at least 10 tracks with rating > 30, got "
-        <> int.to_string(count),
-      ]
-  }
-}
-
-fn count_tracks_with_rating_above(
-  tracks: List(visual_output.TrackView),
-  threshold: Int,
-) -> Int {
-  list.fold(tracks, 0, fn(acc, track) {
-    case track_has_rating_above(track, threshold) {
-      True -> acc + 1
-      False -> acc
-    }
-  })
-}
-
-fn track_has_rating_above(track: visual_output.TrackView, threshold: Int) -> Bool {
-  let visual_output.TrackView(_, _, _, _, _, _, tags) = track
-  export_tags(tags)
-  |> list.any(fn(tag) {
-    case rating_value_from_tag(tag) {
-      Some(value) -> value > threshold
-      None -> False
-    }
-  })
-}
-
-fn rating_value_from_tag(tag: String) -> Option(Int) {
-  case string.starts_with(string.lowercase(tag), "rating:") {
-    True ->
-      case string.split_once(tag, ":") {
-        Ok(#(_, value_text)) ->
-          case int.parse(string.trim(value_text)) {
-            Ok(value) -> Some(value)
-            Error(_) -> None
-          }
-        Error(_) -> None
-      }
-    False -> None
-  }
-}
-
 pub fn format_tuna_source_id(service: String, source_id: String) -> String {
   let _ = service
   source_id
@@ -1069,15 +737,6 @@ fn decode_path_or(
   |> result.unwrap(fallback)
 }
 
-fn parse_depth(value: String) -> Result(core.DepthMode, Nil) {
-  case value {
-    "1" -> Ok(core.Depth1)
-    "2" -> Ok(core.Depth2)
-    "full" -> Ok(core.All)
-    _ -> Error(Nil)
-  }
-}
-
 fn sanitize_depth_label(value: String) -> String {
   case value {
     "full" -> "full"
@@ -1096,22 +755,6 @@ fn source_at(
       case current == wanted {
         True -> Ok(source)
         False -> source_at(rest, wanted, current + 1)
-      }
-  }
-}
-
-fn parse_cache_mode_arg(
-  source: source_specs.SourceSpec,
-  maybe_cache_mode: Option(String),
-  use_cache: Bool,
-) -> Result(cache.CacheMode, Nil) {
-  let _ = source
-  case use_cache {
-    True -> Ok(cache.CacheReadOnly)
-    False ->
-      case maybe_cache_mode {
-        None -> Ok(cache.CacheOverride)
-        Some(value) -> parse_cache_mode(value)
       }
   }
 }
@@ -1239,17 +882,6 @@ fn provider_rank_for_index(
   }
 }
 
-fn parse_cache_mode(value: String) -> Result(cache.CacheMode, Nil) {
-  case value {
-    "upsert" -> Ok(cache.CacheUpsert)
-    "ignore" -> Ok(cache.CacheIgnore)
-    "override" -> Ok(cache.CacheOverride)
-    "readonly" -> Ok(cache.CacheReadOnly)
-    "read-only" -> Ok(cache.CacheReadOnly)
-    _ -> Error(Nil)
-  }
-}
-
 fn cache_mode_text(value: cache.CacheMode) -> String {
   case value {
     cache.CacheUpsert -> "upsert"
@@ -1334,23 +966,20 @@ fn print_exit_signal() {
 fn print_usage() {
   io.println(color("Usage:", ansi_bright_cyan()))
   io.println(
-    "  cli fetch <source> [1|2|full] [override-cache|use-cache]",
+    "  cli fetch <source> [override-cache|use-cache]",
   )
   io.println("")
   io.println(color("Examples:", ansi_bright_cyan()))
   io.println(
-    "  gleam run -m cli -- fetch spotify                   # default depth=full, cache=override",
+    "  gleam run -m cli -- fetch spotify                 # full depth, override cache",
   )
   io.println(
-    "  gleam run -m cli -- fetch spotify 1                 # depth 1",
-  )
-  io.println(
-    "  gleam run -m cli -- fetch spotify full use-cache    # read from cache",
+    "  gleam run -m cli -- fetch spotify use-cache       # full depth from cache",
   )
   io.println("")
   io.println(color("Tip:", ansi_bright_cyan()))
   io.println(
-    "  source can be index (1), id (spotify), or provider alias (spotify-2).",
+    "  source can be all, index (1), id (spotify), or provider alias (spotify-2).",
   )
 }
 
