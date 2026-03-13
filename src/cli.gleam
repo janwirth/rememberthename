@@ -51,9 +51,8 @@ pub fn run(args: List(String)) {
     ["json", source_selector] -> export_source_json_simple(source_selector, False)
     ["json", source_selector, "cache"] ->
       export_source_json_simple(source_selector, True)
-    ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
-    ["fetch", source_selector, "cache"] ->
-      fetch_source_simple(source_selector, True)
+    ["fetch", source_selector, ..rest] ->
+      fetch_source_simple(source_selector, rest)
     ["export", "all", "json"] -> export_all_json(False)
     ["export", "all", "json", "use-cache"] -> export_all_json(True)
     ["export", "source", "json", source_key, "depth", depth_text] ->
@@ -117,13 +116,13 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
       io.println(
         int.to_string(index)
         <> ". "
-        <> name
-        <> " | id="
-        <> key
-        <> " | alias="
         <> key
         <> "-"
         <> int.to_string(alias_rank)
+        <> " | "
+        <> name
+        <> " | id="
+        <> key
         <> " | "
         <> entry_point,
       )
@@ -227,16 +226,79 @@ fn export_source_json_simple(source_selector: String, use_cache: Bool) {
   }
 }
 
-fn fetch_source_simple(source_selector: String, use_cache: Bool) {
+fn fetch_source_simple(source_selector: String, args: List(String)) {
+  case parse_fetch_args(args) {
+    Error(message) -> io.println(message)
+    Ok(#(depth_text, use_cache)) ->
+      fetch_source_simple_with_options(source_selector, depth_text, use_cache)
+  }
+}
+
+fn fetch_source_simple_with_options(
+  source_selector: String,
+  depth_text: String,
+  use_cache: Bool,
+) {
   case source_by_selector(source_specs.all(), source_selector) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
-      let cache_mode = case use_cache {
-        True -> cache.CacheReadOnly
-        False -> cache.CacheOverride
+      case parse_depth(depth_text) {
+        Error(_) ->
+          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Ok(depth) -> {
+          let cache_mode = case use_cache {
+            True -> cache.CacheReadOnly
+            False -> cache.CacheOverride
+          }
+          run_fetch(source, source_index, depth, depth_text, cache_mode, True)
+        }
       }
-      run_fetch(source, source_index, core.All, "full", cache_mode, False)
     }
+  }
+}
+
+fn parse_fetch_args(args: List(String)) -> Result(#(String, Bool), String) {
+  case args {
+    [] -> Ok(#("full", False))
+    [arg1] ->
+      case parse_fetch_depth(arg1) {
+        Ok(depth) -> Ok(#(depth, False))
+        Error(_) ->
+          case parse_fetch_cache_pref(arg1) {
+            Ok(use_cache) -> Ok(#("full", use_cache))
+            Error(_) -> Error("Invalid fetch args. Use: cli fetch <source> [1|2|full] [override-cache|use-cache]")
+          }
+      }
+    [arg1, arg2] ->
+      case parse_fetch_depth(arg1) {
+        Ok(depth) ->
+          case parse_fetch_cache_pref(arg2) {
+            Ok(use_cache) -> Ok(#(depth, use_cache))
+            Error(_) ->
+              Error(
+                "Invalid cache mode: " <> arg2 <> " (use: override-cache | use-cache)",
+              )
+          }
+        Error(_) -> Error("Invalid fetch depth: " <> arg1 <> " (use: 1 | 2 | full)")
+      }
+    _ -> Error("Too many fetch args. Use: cli fetch <source> [1|2|full] [override-cache|use-cache]")
+  }
+}
+
+fn parse_fetch_depth(value: String) -> Result(String, Nil) {
+  case value {
+    "1" -> Ok("1")
+    "2" -> Ok("2")
+    "full" -> Ok("full")
+    _ -> Error(Nil)
+  }
+}
+
+fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
+  case value {
+    "use-cache" -> Ok(True)
+    "override-cache" -> Ok(False)
+    _ -> Error(Nil)
   }
 }
 
@@ -266,7 +328,7 @@ fn fetch_source(
                 depth,
                 depth_text,
                 cache_mode,
-                False,
+                True,
               )
           }
       }
@@ -298,7 +360,7 @@ fn fetch_source_by_id(
                 depth,
                 depth_text,
                 cache_mode,
-                False,
+                True,
               )
           }
       }
@@ -1378,33 +1440,20 @@ fn print_exit_signal() {
 
 fn print_usage() {
   io.println("Usage:")
-  io.println("  cli list")
-  io.println("  cli inspect <search_query>")
-  io.println("  cli json <source_selector> [cache]")
-  io.println("  cli fetch <source_selector> [cache]")
-  io.println("  cli export all json [use-cache]")
-  io.println(
-    "  cli export source json <entry_point_id> depth <1|2|full> [use-cache]",
-  )
-  io.println(
-    "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override|readonly>] [use-cache]",
-  )
-  io.println(
-    "  cli source fetch id <entry_point_id> depth <1|2|full> [cache <upsert|ignore|override|readonly>] [use-cache]",
-  )
+  io.println("  cli list                                  # list sources with addressable aliases")
+  io.println("  cli inspect <query>                       # search sqlite cache and show 200-char context")
+  io.println("  cli fetch <source> [1|2|full] [override-cache|use-cache]  # exports + validates")
+  io.println("  cli export all json [use-cache]           # full export for every source")
+  io.println("  cli json <source> [cache]                 # legacy alias for full export")
+  io.println("  cli source fetch ...                      # legacy advanced mode")
   io.println("")
   io.println("Examples:")
-  io.println("  gleam run -m cli -- list")
-  io.println("  gleam run -m cli -- inspect \"playlist\"")
-  io.println("  gleam run -m cli -- json 1")
-  io.println("  gleam run -m cli -- json spotify")
-  io.println("  gleam run -m cli -- json spotify-2 cache")
-  io.println("  gleam run -m cli -- fetch 2")
-  io.println("  gleam run -m cli -- fetch youtube cache")
-  io.println("  gleam run -m cli -- export all json")
-  io.println(
-    "  gleam run -m cli -- source fetch id spotify depth full use-cache",
-  )
+  io.println("  gleam run -m cli -- list                            # discover source aliases")
+  io.println("  gleam run -m cli -- fetch spotify                   # default: depth full + override-cache")
+  io.println("  gleam run -m cli -- fetch spotify 1                # depth 1 + override-cache")
+  io.println("  gleam run -m cli -- fetch spotify full use-cache   # cache-only read")
+  io.println("  gleam run -m cli -- inspect \"playlist\"            # cache search snippets")
+  io.println("  gleam run -m cli -- export all json use-cache      # export all with cache")
   io.println("")
   io.println("Tip:")
   io.println(
