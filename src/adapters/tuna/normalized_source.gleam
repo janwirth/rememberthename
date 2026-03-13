@@ -6,6 +6,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/string
 import source_id_normalizer
 
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
@@ -39,10 +40,22 @@ fn cached_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
 }
 
 fn decode_rows(payload: String) -> List(dynamic.Dynamic) {
-  case json.parse(payload, decode.dynamic) {
+  case json.parse(sanitize_json_payload(payload), decode.dynamic) {
     Error(_) -> []
     Ok(value) ->
       decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
+  }
+}
+
+fn sanitize_json_payload(payload: String) -> String {
+  let cleaned = string.trim(payload)
+  case string.split_once(cleaned, "[") {
+    Ok(#(_, after)) -> "[" <> after
+    Error(_) ->
+      case string.split_once(cleaned, "{") {
+        Ok(#(_, after)) -> "{" <> after
+        Error(_) -> cleaned
+      }
   }
 }
 

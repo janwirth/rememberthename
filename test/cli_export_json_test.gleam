@@ -39,13 +39,13 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
         "1685501811",
         "tuna + fishbone",
         "/tmp/track-b.mp3",
-        "genre:house | rating8",
+        "genre:house | rating:8",
       ),
     ])
 
   string.contains(content, "\"file\":\"/tmp/track-b.mp3\"")
   |> should.equal(True)
 
-  string.contains(content, "\"tags\":[\"genre:house\",\"rating8\"]")
+  string.contains(content, "\"tags\":[\"genre:house\",\"rating:8\"]")
   |> should.equal(True)
 }

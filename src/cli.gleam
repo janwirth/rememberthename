@@ -16,6 +16,7 @@ import gleam/result
 import gleam/string
 import output/visual_output
 import simplifile
+import source_id_normalizer
 import source_specs
 
 @external(erlang, "cli_runtime_args", "argv")
@@ -388,9 +389,10 @@ fn export_all_json(use_cache: Bool) {
   )
   let runs = collect_source_runs(source_specs.all(), [], cache_mode)
   let adapter_items = source_run_items(runs)
-  let tuna_items = collect_tuna_items(cache_mode)
+  let tuna_cache_mode = tuna_export_cache_mode(cache_mode)
+  let tuna_items = collect_tuna_items(tuna_cache_mode)
   let all_items = list.append(adapter_items, tuna_items)
-  let tuna_metadata_rows = tuna_row_metadata()
+  let tuna_metadata_rows = tuna_row_metadata(tuna_cache_mode)
   let tracks =
     list.append(
       source_run_track_views(runs),
@@ -404,6 +406,7 @@ fn export_all_json(use_cache: Bool) {
   let validation_errors =
     validate_source_runs(runs)
     |> list.append(validate_tuna_items(tuna_items))
+    |> list.append(validate_tuna_export_ratings(tracks))
     |> list.append(json_write_errors)
   io.println(
     "Done. Exported "
@@ -421,6 +424,15 @@ fn export_all_json(use_cache: Bool) {
       )
       list.each(validation_errors, fn(line) { io.println("  - " <> line) })
     }
+  }
+}
+
+fn tuna_export_cache_mode(cache_mode: cache.CacheMode) -> cache.CacheMode {
+  case cache_mode {
+    // Tuna source IDs + ratings come from local gel data, and stale cache
+    // can silently drop rating values. Refresh on export for correctness.
+    cache.CacheReadOnly -> cache.CacheOverride
+    _ -> cache_mode
   }
 }
 
@@ -814,8 +826,8 @@ fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
   source_type <> " + " <> entry_point
 }
 
-fn tuna_row_metadata() -> List(TunaRowMetadata) {
-  let payload = tracks_source_ids_json()
+fn tuna_row_metadata(cache_mode: cache.CacheMode) -> List(TunaRowMetadata) {
+  let payload = cached_tuna_tracks_source_ids_json(cache_mode)
   let rows = decode_dynamic_rows(payload)
   list.fold(rows, [], fn(acc, row) {
     let file_path = decode_path_or(row, ["file_path"], "", decode.string)
@@ -856,6 +868,15 @@ fn tuna_row_metadata() -> List(TunaRowMetadata) {
   })
 }
 
+fn cached_tuna_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
+  cache.read_or_fetch(
+    "tuna_tracks_source_ids_enriched_json",
+    "tuna_main_default_track_sources_enriched",
+    cache_mode,
+    tracks_source_ids_json,
+  )
+}
+
 fn push_tuna_metadata(
   acc: List(TunaRowMetadata),
   row: dynamic.Dynamic,
@@ -864,7 +885,8 @@ fn push_tuna_metadata(
   file_path: String,
   tags: String,
 ) -> List(TunaRowMetadata) {
-  let source_id = decode_path_or(row, [id_key], "", decode.string)
+  let raw_source_id = decode_path_or(row, [id_key], "", decode.string)
+  let source_id = normalize_tuna_metadata_source_id(service, raw_source_id)
   case source_id == "" {
     True -> acc
     False ->
@@ -881,6 +903,13 @@ fn push_tuna_metadata(
           ])
       }
   }
+}
+
+pub fn normalize_tuna_metadata_source_id(
+  service: String,
+  source_id: String,
+) -> String {
+  source_id_normalizer.normalize(service, source_id)
 }
 
 fn tuna_metadata_for(
@@ -909,7 +938,7 @@ fn tuna_tag_labels(row: dynamic.Dynamic) -> List(String) {
 }
 
 pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
-  let rating_tag = "rating" <> int.to_string(rating)
+  let rating_tag = "rating:" <> int.to_string(rating)
   let normalized_tags =
     tags
     |> list.filter(fn(tag) {
@@ -918,16 +947,78 @@ pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
   string.join(list.append(normalized_tags, [rating_tag]), " | ")
 }
 
+fn validate_tuna_export_ratings(tracks: List(visual_output.TrackView)) -> List(String) {
+  let count = count_tracks_with_rating_above(tracks, 30)
+  case count >= 10 {
+    True -> []
+    False ->
+      [
+        "tuna export: expected at least 10 tracks with rating > 30, got "
+        <> int.to_string(count),
+      ]
+  }
+}
+
+fn count_tracks_with_rating_above(
+  tracks: List(visual_output.TrackView),
+  threshold: Int,
+) -> Int {
+  list.fold(tracks, 0, fn(acc, track) {
+    case track_has_rating_above(track, threshold) {
+      True -> acc + 1
+      False -> acc
+    }
+  })
+}
+
+fn track_has_rating_above(track: visual_output.TrackView, threshold: Int) -> Bool {
+  let visual_output.TrackView(_, _, _, _, _, _, tags) = track
+  export_tags(tags)
+  |> list.any(fn(tag) {
+    case rating_value_from_tag(tag) {
+      Some(value) -> value > threshold
+      None -> False
+    }
+  })
+}
+
+fn rating_value_from_tag(tag: String) -> Option(Int) {
+  case string.starts_with(string.lowercase(tag), "rating:") {
+    True ->
+      case string.split_once(tag, ":") {
+        Ok(#(_, value_text)) ->
+          case int.parse(string.trim(value_text)) {
+            Ok(value) -> Some(value)
+            Error(_) -> None
+          }
+        Error(_) -> None
+      }
+    False -> None
+  }
+}
+
 pub fn format_tuna_source_id(service: String, source_id: String) -> String {
   let _ = service
   source_id
 }
 
 fn decode_dynamic_rows(payload: String) -> List(dynamic.Dynamic) {
-  case json.parse(payload, decode.dynamic) {
+  case json.parse(sanitize_json_payload(payload), decode.dynamic) {
     Error(_) -> []
     Ok(value) ->
       decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
+  }
+}
+
+fn sanitize_json_payload(payload: String) -> String {
+  let cleaned = string.trim(payload)
+  case string.split_once(cleaned, "[") {
+    Ok(#(_, after)) -> "[" <> after
+    Error(_) ->
+      case string.split_once(cleaned, "{") {
+        Ok(#(_, after)) -> "{" <> after
+        Error(_) -> cleaned
+      }
   }
 }
 
