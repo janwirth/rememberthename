@@ -31,7 +31,9 @@ pub fn normalize(service: String, source_id: String) -> String {
 
 fn normalize_spotify(raw: String) -> String {
   let without_prefix = strip_prefix(raw, "spotify:item:")
-  let from_uri = strip_prefix(without_prefix, "spotify:track:")
+  let without_track_prefix = strip_prefix(without_prefix, "spotify:track:")
+  let without_service_prefix = strip_prefix(without_track_prefix, "spotify:")
+  let from_uri = strip_prefix(without_service_prefix, "track:")
   case string.contains(from_uri, "open.spotify.com/") {
     True -> {
       let as_track = extract_after_marker(from_uri, "/track/")
@@ -44,18 +46,20 @@ fn normalize_spotify(raw: String) -> String {
 
 fn normalize_youtube(raw: String) -> String {
   let without_prefix = strip_prefix(raw, "youtube:item:")
-  case string.contains(without_prefix, "youtu.be/") {
+  let without_service_prefix = strip_prefix(without_prefix, "youtube:")
+  case string.contains(without_service_prefix, "youtu.be/") {
     True -> {
-      let short = extract_after_marker(without_prefix, "youtu.be/")
+      let short = extract_after_marker(without_service_prefix, "youtu.be/")
       first_before_char(short, "?")
     }
     False ->
-      case string.contains(without_prefix, "watch?v=") {
+      case string.contains(without_service_prefix, "watch?v=") {
         True -> {
-          let watch = extract_after_marker(without_prefix, "watch?v=")
+          let watch =
+            extract_after_marker(without_service_prefix, "watch?v=")
           first_before_char(watch, "&")
         }
-        False -> without_prefix
+        False -> without_service_prefix
       }
   }
 }
@@ -63,12 +67,14 @@ fn normalize_youtube(raw: String) -> String {
 fn normalize_soundcloud(raw: String) -> String {
   raw
   |> strip_prefix("soundcloud:item:")
+  |> strip_prefix("soundcloud:")
   |> strip_prefix("track:")
 }
 
 fn normalize_bandcamp(raw: String) -> String {
   raw
   |> strip_prefix("bandcamp:item:")
+  |> strip_prefix("bandcamp:")
   |> string.trim
 }
 
@@ -79,6 +85,7 @@ fn normalize_file(raw: String) -> String {
 fn normalize_itunes(raw: String) -> String {
   raw
   |> strip_prefix("itunes:item:")
+  |> strip_prefix("itunes:")
   |> string.trim
 }
 

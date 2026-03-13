@@ -14,7 +14,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import output/csv_writer
 import output/visual_output
 import simplifile
 import source_specs
@@ -42,18 +41,18 @@ pub fn run(args: List(String)) {
   case args {
     [] -> show_easy_start()
     ["list"] -> list_sources()
-    ["csv", source_selector] -> export_source_csv_simple(source_selector, False)
-    ["csv", source_selector, "cache"] ->
-      export_source_csv_simple(source_selector, True)
+    ["json", source_selector] -> export_source_json_simple(source_selector, False)
+    ["json", source_selector, "cache"] ->
+      export_source_json_simple(source_selector, True)
     ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
     ["fetch", source_selector, "cache"] ->
       fetch_source_simple(source_selector, True)
-    ["export", "all", "csv"] -> export_all_csv(False)
-    ["export", "all", "csv", "use-cache"] -> export_all_csv(True)
-    ["export", "source", "csv", source_key, "depth", depth_text] ->
-      export_source_csv(source_key, depth_text, False)
-    ["export", "source", "csv", source_key, "depth", depth_text, "use-cache"] ->
-      export_source_csv(source_key, depth_text, True)
+    ["export", "all", "json"] -> export_all_json(False)
+    ["export", "all", "json", "use-cache"] -> export_all_json(True)
+    ["export", "source", "json", source_key, "depth", depth_text] ->
+      export_source_json(source_key, depth_text, False)
+    ["export", "source", "json", source_key, "depth", depth_text, "use-cache"] ->
+      export_source_json(source_key, depth_text, True)
     ["source", "fetch", source_index_text, "depth", depth_text] ->
       fetch_source(source_index_text, depth_text, None, False)
     ["source", "fetch", source_index_text, "depth", depth_text, "use-cache"] ->
@@ -132,7 +131,7 @@ fn show_easy_start() {
   print_usage()
 }
 
-fn export_source_csv_simple(source_selector: String, use_cache: Bool) {
+fn export_source_json_simple(source_selector: String, use_cache: Bool) {
   case source_by_selector(source_specs.all(), source_selector) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
@@ -263,17 +262,17 @@ fn run_fetch(
 
   let adapter_id = adapter_id_for_source(key, entry_point)
   let tracks = list.map(items, fn(item) { to_track_view(item, adapter_id) })
-  let csv = csv_writer.tracks_csv(tracks)
-  let csv_path =
+  let content = tracks_json(tracks)
+  let json_path =
     artifact_path(
       "cli_result_"
       <> key
       <> "_depth_"
       <> sanitize_depth_label(depth_label)
-      <> ".csv",
+      <> ".json",
     )
-  let _ = simplifile.write(csv, to: csv_path)
-  io.println("CSV written: " <> csv_path)
+  let _ = simplifile.write(content, to: json_path)
+  io.println("JSON written: " <> json_path)
   print_runtime_validation(source, depth, cache_mode, result, always_validate)
 }
 
@@ -359,7 +358,7 @@ fn validation_run_for_depth(
   }
 }
 
-fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
+fn export_source_json(source_key: String, depth_text: String, use_cache: Bool) {
   case source_by_selector(source_specs.all(), source_key) {
     Error(_) -> io.println("Invalid source id: " <> source_key)
     Ok(#(source_index, source)) ->
@@ -377,13 +376,13 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
   }
 }
 
-fn export_all_csv(use_cache: Bool) {
+fn export_all_json(use_cache: Bool) {
   let cache_mode = case use_cache {
     True -> cache.CacheReadOnly
     False -> cache.CacheOverride
   }
   io.println(
-    "Exporting all sources to CSV with cache "
+    "Exporting all sources to JSON with cache "
     <> cache_mode_text(cache_mode)
     <> "...",
   )
@@ -399,18 +398,18 @@ fn export_all_csv(use_cache: Bool) {
         to_tuna_track_view(item, tuna_adapter_id(), tuna_metadata_rows)
       }),
     )
-  let csv = csv_writer.tracks_csv(tracks)
-  let csv_path = artifact_path("all_items_latest.csv")
-  let csv_write_errors = write_output_file(csv_path, csv, "CSV written: ")
+  let content = tracks_json(tracks)
+  let json_path = artifact_path("all_items_latest.json")
+  let json_write_errors = write_output_file(json_path, content, "JSON written: ")
   let validation_errors =
     validate_source_runs(runs)
     |> list.append(validate_tuna_items(tuna_items))
-    |> list.append(csv_write_errors)
+    |> list.append(json_write_errors)
   io.println(
     "Done. Exported "
     <> int.to_string(list.length(all_items))
     <> " items to "
-    <> csv_path,
+    <> json_path,
   )
   case validation_errors == [] {
     True -> io.println("Validation: PASS")
@@ -791,7 +790,7 @@ fn to_tuna_track_view(
     title,
     artist,
     service,
-    format_tuna_source_id(service, source_id),
+    source_id,
     adapter_id,
     download,
     tags,
@@ -920,7 +919,8 @@ pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
 }
 
 pub fn format_tuna_source_id(service: String, source_id: String) -> String {
-  service <> ":" <> source_id
+  let _ = service
+  source_id
 }
 
 fn decode_dynamic_rows(payload: String) -> List(dynamic.Dynamic) {
@@ -1148,6 +1148,53 @@ fn queue_policy_for_cache_mode(
   }
 }
 
+pub fn tracks_json(tracks: List(visual_output.TrackView)) -> String {
+  json.array(tracks, of: track_json) |> json.to_string
+}
+
+fn track_json(track: visual_output.TrackView) -> json.Json {
+  let visual_output.TrackView(
+    title,
+    artist,
+    service,
+    source_id,
+    adapter_id,
+    download,
+    tags,
+  ) = track
+  json.object([
+    #("title", json.string(title)),
+    #("artist", json.string(artist)),
+    #("service", json.string(service)),
+    #("source_id", json.string(source_id)),
+    #("adapter_id", json.string(adapter_id)),
+    #("file", nullable_file_json(download)),
+    #("tags", json.array(export_tags(tags), of: json.string)),
+  ])
+}
+
+pub fn export_tags(tags: String) -> List(String) {
+  tags
+  |> string.split("|")
+  |> list.map(string.trim)
+  |> list.filter(fn(tag) { tag != "" })
+}
+
+pub fn nullable_file_path(path: String) -> Option(String) {
+  let cleaned = string.trim(path)
+  case cleaned == "" {
+    True -> None
+    False -> Some(cleaned)
+  }
+}
+
+fn nullable_file_json(path: String) -> json.Json {
+  case nullable_file_path(path) {
+    Some(value) -> json.string(value)
+    None -> json.null()
+  }
+}
+
 fn artifact_path(file_name: String) -> String {
   "output/" <> file_name
 }
@@ -1159,11 +1206,11 @@ fn print_exit_signal() {
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
-  io.println("  cli csv <source_selector> [cache]")
+  io.println("  cli json <source_selector> [cache]")
   io.println("  cli fetch <source_selector> [cache]")
-  io.println("  cli export all csv [use-cache]")
+  io.println("  cli export all json [use-cache]")
   io.println(
-    "  cli export source csv <entry_point_id> depth <1|2|full> [use-cache]",
+    "  cli export source json <entry_point_id> depth <1|2|full> [use-cache]",
   )
   io.println(
     "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override|readonly>] [use-cache]",
@@ -1174,12 +1221,12 @@ fn print_usage() {
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
-  io.println("  gleam run -m cli -- csv 1")
-  io.println("  gleam run -m cli -- csv spotify")
-  io.println("  gleam run -m cli -- csv spotify-2 cache")
+  io.println("  gleam run -m cli -- json 1")
+  io.println("  gleam run -m cli -- json spotify")
+  io.println("  gleam run -m cli -- json spotify-2 cache")
   io.println("  gleam run -m cli -- fetch 2")
   io.println("  gleam run -m cli -- fetch youtube cache")
-  io.println("  gleam run -m cli -- export all csv")
+  io.println("  gleam run -m cli -- export all json")
   io.println(
     "  gleam run -m cli -- source fetch id spotify depth full use-cache",
   )

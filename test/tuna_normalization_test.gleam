@@ -1,6 +1,7 @@
 import cli
 import gleeunit
 import gleeunit/should
+import gleam/option.{None, Some}
 
 pub fn main() {
   gleeunit.main()
@@ -16,8 +17,28 @@ pub fn normalize_tuna_tags_overrides_existing_rating_tags_test() {
 
 pub fn format_tuna_source_id_uses_source_type_prefix_test() {
   cli.format_tuna_source_id("spotify", "5n4uWPmWMbg4XLzrkck25e")
-  |> should.equal("spotify:5n4uWPmWMbg4XLzrkck25e")
+  |> should.equal("5n4uWPmWMbg4XLzrkck25e")
 
   cli.format_tuna_source_id("file", "/Users/janwirth/track.mp3")
-  |> should.equal("file:/Users/janwirth/track.mp3")
+  |> should.equal("/Users/janwirth/track.mp3")
+}
+
+pub fn export_tags_returns_empty_list_for_empty_input_test() {
+  cli.export_tags("") |> should.equal([])
+  cli.export_tags("   ") |> should.equal([])
+}
+
+pub fn export_tags_splits_pipe_separated_values_test() {
+  cli.export_tags("genre:house | rating8 |  label:night ")
+  |> should.equal(["genre:house", "rating8", "label:night"])
+}
+
+pub fn nullable_file_path_uses_none_for_empty_values_test() {
+  cli.nullable_file_path("") |> should.equal(None)
+  cli.nullable_file_path("   ") |> should.equal(None)
+}
+
+pub fn nullable_file_path_preserves_non_empty_values_test() {
+  cli.nullable_file_path("/tmp/set.mp3")
+  |> should.equal(Some("/tmp/set.mp3"))
 }
