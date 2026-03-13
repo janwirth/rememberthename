@@ -18,7 +18,6 @@ import output/visual_output
 import simplifile
 import source_id_normalizer
 import source_specs
-import sqlight
 
 @external(erlang, "cli_runtime_args", "argv")
 fn argv() -> List(String)
@@ -35,10 +34,6 @@ type SourceRun {
   )
 }
 
-type CacheInspectRow {
-  CacheInspectRow(namespace: String, key_hash: String, context: String)
-}
-
 pub fn main() {
   run(normalize_args(argv()))
 }
@@ -46,48 +41,8 @@ pub fn main() {
 pub fn run(args: List(String)) {
   case args {
     [] -> show_easy_start()
-    ["list"] -> list_sources()
-    ["inspect", search_query] -> inspect_cache(search_query)
-    ["json", source_selector] -> export_source_json_simple(source_selector, False)
-    ["json", source_selector, "cache"] ->
-      export_source_json_simple(source_selector, True)
     ["fetch", source_selector, ..rest] ->
       fetch_source_simple(source_selector, rest)
-    ["export", "all", "json"] -> export_all_json(False)
-    ["export", "all", "json", "use-cache"] -> export_all_json(True)
-    ["export", "source", "json", source_key, "depth", depth_text] ->
-      export_source_json(source_key, depth_text, False)
-    ["export", "source", "json", source_key, "depth", depth_text, "use-cache"] ->
-      export_source_json(source_key, depth_text, True)
-    ["source", "fetch", source_index_text, "depth", depth_text] ->
-      fetch_source(source_index_text, depth_text, None, False)
-    ["source", "fetch", source_index_text, "depth", depth_text, "use-cache"] ->
-      fetch_source(source_index_text, depth_text, None, True)
-    [
-      "source",
-      "fetch",
-      source_index_text,
-      "depth",
-      depth_text,
-      "cache",
-      cache_mode_text,
-    ] ->
-      fetch_source(source_index_text, depth_text, Some(cache_mode_text), False)
-    ["source", "fetch", "id", source_key, "depth", depth_text] ->
-      fetch_source_by_id(source_key, depth_text, None, False)
-    ["source", "fetch", "id", source_key, "depth", depth_text, "use-cache"] ->
-      fetch_source_by_id(source_key, depth_text, None, True)
-    [
-      "source",
-      "fetch",
-      "id",
-      source_key,
-      "depth",
-      depth_text,
-      "cache",
-      cache_mode_text,
-    ] ->
-      fetch_source_by_id(source_key, depth_text, Some(cache_mode_text), False)
     _ -> print_usage()
   }
   print_exit_signal()
@@ -102,7 +57,7 @@ fn normalize_args(args: List(String)) -> List(String) {
 
 fn list_sources() {
   let sources = source_specs.all()
-  io.println("Sources:")
+  io.println(color("Sources:", ansi_bright_cyan()))
   list_sources_loop(sources, 1)
 }
 
@@ -114,15 +69,9 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
       let alias_rank =
         provider_rank_for_index(source_specs.all(), key, index, 1, 0)
       io.println(
-        int.to_string(index)
-        <> ". "
-        <> key
+        key
         <> "-"
         <> int.to_string(alias_rank)
-        <> " | "
-        <> name
-        <> " | id="
-        <> key
         <> " | "
         <> entry_point,
       )
@@ -135,82 +84,6 @@ fn show_easy_start() {
   list_sources()
   io.println("")
   print_usage()
-}
-
-fn inspect_cache(search_query: String) {
-  let query_text = string.trim(search_query)
-  case query_text == "" {
-    True -> io.println("inspect query cannot be empty")
-    False ->
-      case sqlight.open(cache.cache_db_uri()) {
-        Error(_) -> io.println("cache inspect failed: cannot open sqlite cache")
-        Ok(conn) -> {
-          let rows = read_cache_inspect_rows(conn, query_text)
-          let total_cache_size_bytes = read_cache_total_size_bytes(conn)
-          let _ = sqlight.close(conn)
-          io.println(
-            "Cache inspect for \""
-            <> query_text
-            <> "\" | hits="
-            <> int.to_string(list.length(rows))
-            <> " | total_cache_size="
-            <> int.to_string(total_cache_size_bytes)
-            <> " bytes",
-          )
-          list.each(rows, print_cache_inspect_row)
-        }
-      }
-  }
-}
-
-fn read_cache_inspect_rows(
-  conn: sqlight.Connection,
-  query_text: String,
-) -> List(CacheInspectRow) {
-  sqlight.query(
-    "select namespace, key_hash, trim(substr(value, max(1, instr(lower(value), lower(?)) - 100), 200)) from adapter_cache where instr(lower(value), lower(?)) > 0 order by namespace, key_hash",
-    on: conn,
-    with: [sqlight.text(query_text), sqlight.text(query_text)],
-    expecting: cache_inspect_row_decoder(),
-  )
-  |> result.unwrap([])
-}
-
-fn read_cache_total_size_bytes(conn: sqlight.Connection) -> Int {
-  sqlight.query(
-    "select coalesce(sum(length(value)), 0) from adapter_cache",
-    on: conn,
-    with: [],
-    expecting: total_size_decoder(),
-  )
-  |> result.unwrap([0])
-  |> list.first
-  |> result.unwrap(0)
-}
-
-fn total_size_decoder() -> decode.Decoder(Int) {
-  use size <- decode.field(0, decode.int)
-  decode.success(size)
-}
-
-fn cache_inspect_row_decoder() -> decode.Decoder(CacheInspectRow) {
-  use namespace <- decode.field(0, decode.string)
-  use key_hash <- decode.field(1, decode.string)
-  use context <- decode.field(2, decode.string)
-  decode.success(CacheInspectRow(namespace, key_hash, context))
-}
-
-fn print_cache_inspect_row(row: CacheInspectRow) {
-  let CacheInspectRow(namespace, key_hash, context) = row
-  io.println(
-    "- source="
-    <> namespace
-    <> " | key="
-    <> key_hash
-    <> " | context=\""
-    <> context
-    <> "\"",
-  )
 }
 
 fn export_source_json_simple(source_selector: String, use_cache: Bool) {
@@ -378,9 +251,14 @@ fn run_fetch(
   let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
     source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-  io.println("Fetching source " <> int.to_string(source_index) <> ": " <> name)
-  io.println("Depth: " <> depth_label)
-  io.println("Cache: " <> cache_mode_text(cache_mode))
+  io.println(
+    color(
+      "Fetching source " <> int.to_string(source_index) <> ": " <> name,
+      ansi_bright_cyan(),
+    ),
+  )
+  io.println(color("Depth: ", ansi_yellow()) <> depth_label)
+  io.println(color("Cache: ", ansi_yellow()) <> cache_mode_text(cache_mode))
   io.println("")
 
   let result =
@@ -397,7 +275,8 @@ fn run_fetch(
   let core.ResolveResult(items, lists, unresolved) = result
   io.println("")
   io.println(
-    "Done. items="
+    color("Done.", ansi_green())
+    <> " items="
     <> int.to_string(list.length(items))
     <> " lists="
     <> int.to_string(list.length(lists))
@@ -417,7 +296,7 @@ fn run_fetch(
       <> ".json",
     )
   let _ = simplifile.write(content, to: json_path)
-  io.println("JSON written: " <> json_path)
+  io.println(color("JSON written: ", ansi_green()) <> json_path)
   print_runtime_validation(source, depth, cache_mode, result, always_validate)
 }
 
@@ -436,10 +315,11 @@ fn print_runtime_validation(
       let validation_errors = validate_source_run(run)
       io.println("")
       case validation_errors == [] {
-        True -> io.println("Validation: PASS")
+        True -> io.println(color("Validation: PASS", ansi_green()))
         False -> {
           io.println(
-            "Validation: FAIL ("
+            color("Validation: FAIL", ansi_red())
+            <> " ("
             <> int.to_string(list.length(validation_errors))
             <> " errors)",
           )
@@ -1439,24 +1319,48 @@ fn print_exit_signal() {
 }
 
 fn print_usage() {
-  io.println("Usage:")
-  io.println("  cli list                                  # list sources with addressable aliases")
-  io.println("  cli inspect <query>                       # search sqlite cache and show 200-char context")
-  io.println("  cli fetch <source> [1|2|full] [override-cache|use-cache]  # exports + validates")
-  io.println("  cli export all json [use-cache]           # full export for every source")
-  io.println("  cli json <source> [cache]                 # legacy alias for full export")
-  io.println("  cli source fetch ...                      # legacy advanced mode")
-  io.println("")
-  io.println("Examples:")
-  io.println("  gleam run -m cli -- list                            # discover source aliases")
-  io.println("  gleam run -m cli -- fetch spotify                   # default: depth full + override-cache")
-  io.println("  gleam run -m cli -- fetch spotify 1                # depth 1 + override-cache")
-  io.println("  gleam run -m cli -- fetch spotify full use-cache   # cache-only read")
-  io.println("  gleam run -m cli -- inspect \"playlist\"            # cache search snippets")
-  io.println("  gleam run -m cli -- export all json use-cache      # export all with cache")
-  io.println("")
-  io.println("Tip:")
+  io.println(color("Usage:", ansi_bright_cyan()))
   io.println(
-    "  source_selector can be index (1), id (spotify), or provider alias (spotify-2).",
+    "  cli fetch <source> [1|2|full] [override-cache|use-cache]",
   )
+  io.println("")
+  io.println(color("Examples:", ansi_bright_cyan()))
+  io.println(
+    "  gleam run -m cli -- fetch spotify                   # default depth=full, cache=override",
+  )
+  io.println(
+    "  gleam run -m cli -- fetch spotify 1                 # depth 1",
+  )
+  io.println(
+    "  gleam run -m cli -- fetch spotify full use-cache    # read from cache",
+  )
+  io.println("")
+  io.println(color("Tip:", ansi_bright_cyan()))
+  io.println(
+    "  source can be index (1), id (spotify), or provider alias (spotify-2).",
+  )
+}
+
+fn color(text: String, code: String) -> String {
+  code <> text <> ansi_reset()
+}
+
+fn ansi_reset() -> String {
+  "\u{001b}[0m"
+}
+
+fn ansi_bright_cyan() -> String {
+  "\u{001b}[96m"
+}
+
+fn ansi_yellow() -> String {
+  "\u{001b}[33m"
+}
+
+fn ansi_green() -> String {
+  "\u{001b}[32m"
+}
+
+fn ansi_red() -> String {
+  "\u{001b}[31m"
 }
