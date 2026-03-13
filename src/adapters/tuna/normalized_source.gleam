@@ -1,5 +1,6 @@
 import adapters/cache
 import adapters/core
+import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
@@ -12,14 +13,35 @@ import source_id_normalizer
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
 fn tracks_source_ids_json() -> String
 
+pub type ExportMetadata {
+  ExportMetadata(file_path: String, tags: String, imported_date: Int)
+}
+
+pub type ResolveWithMetadataResult {
+  ResolveWithMetadataResult(
+    resolve_result: core.ResolveResult,
+    export_metadata: dict.Dict(String, ExportMetadata),
+  )
+}
+
 pub fn resolve(
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  let ResolveWithMetadataResult(result, _) =
+    resolve_with_metadata(depth, cache_mode, on_debug)
+  result
+}
+
+pub fn resolve_with_metadata(
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+  on_debug: fn(String) -> Nil,
+) -> ResolveWithMetadataResult {
   let payload = cached_tracks_source_ids_json(cache_mode)
   let rows = decode_rows(payload)
-  let all_items = rows_to_items(rows)
+  let #(all_items, all_metadata) = rows_to_items_with_metadata(rows)
   let items = apply_depth_limit(all_items, depth)
   on_debug(
     "[tuna] normalized_source_ids total="
@@ -27,7 +49,10 @@ pub fn resolve(
     <> " returned="
     <> int.to_string(list.length(items)),
   )
-  core.ResolveResult(items: items, lists: [], unresolved: [])
+  ResolveWithMetadataResult(
+    resolve_result: core.ResolveResult(items: items, lists: [], unresolved: []),
+    export_metadata: all_metadata,
+  )
 }
 
 fn cached_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
@@ -59,77 +84,121 @@ fn sanitize_json_payload(payload: String) -> String {
   }
 }
 
-fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
-  list.fold(rows, [], fn(acc, row) {
+fn rows_to_items_with_metadata(
+  rows: List(dynamic.Dynamic),
+) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
+  list.fold(rows, #([], dict.new()), fn(acc, row) {
     let preferred_title = row_preferred_title(row)
     let artist = row_artist(row)
+    let file_path = decode_path_or(row, ["file_path"], "", decode.string)
+    let tags = row_tags_with_rating(row)
+    let imported_date = row_compact_imported_date(row)
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "spotify",
         decode_path_or(row, ["spotify_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "youtube",
         decode_path_or(row, ["youtube_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "soundcloud",
         decode_path_or(row, ["soundcloud_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "bandcamp",
         decode_path_or(row, ["bandcamp_track_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "file",
         decode_path_or(row, ["file_path"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "itunes",
         decode_path_or(row, ["itunes_track_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
     let acc =
-      push_item(
+      push_item_with_metadata(
         acc,
         "itunes",
         decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
-    push_fishbone_item(acc, row, preferred_title, artist)
+    push_fishbone_item_with_metadata(
+      acc,
+      row,
+      preferred_title,
+      artist,
+      file_path,
+      tags,
+      imported_date,
+    )
   })
-  |> list.reverse
+  |> map_items_reverse
 }
 
-fn push_fishbone_item(
-  acc: List(core.UnifiedItem),
+fn map_items_reverse(
+  value: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
+) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
+  let #(items, metadata) = value
+  #(list.reverse(items), metadata)
+}
+
+fn push_fishbone_item_with_metadata(
+  acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
   row: dynamic.Dynamic,
   preferred_title: String,
   artist: String,
-) -> List(core.UnifiedItem) {
+  file_path: String,
+  tags: String,
+  imported_date: Int,
+) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
   let fishbone_platform =
     decode_path_or(row, ["fishbone_source_platform"], "", decode.string)
   let fishbone_source_id =
@@ -138,12 +207,15 @@ fn push_fishbone_item(
   case service == "" || fishbone_source_id == "" {
     True -> acc
     False ->
-      push_item(
+      push_item_with_metadata(
         acc,
         service,
         fishbone_source_id,
         preferred_title,
         artist,
+        file_path,
+        tags,
+        imported_date,
       )
   }
 }
@@ -180,13 +252,17 @@ fn fishbone_service_for_platform(platform: String) -> String {
   }
 }
 
-fn push_item(
-  acc: List(core.UnifiedItem),
+fn push_item_with_metadata(
+  acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
   service: String,
   raw_source_id: String,
   preferred_title: String,
   artist: String,
-) -> List(core.UnifiedItem) {
+  file_path: String,
+  tags: String,
+  imported_date: Int,
+) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
+  let #(items, metadata) = acc
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
   case normalized == "" {
     True -> acc
@@ -199,9 +275,107 @@ fn push_item(
           choose_artist(artist),
         )
       {
-        Ok(item) -> [item, ..acc]
+        Ok(item) -> {
+          let key = metadata_key(service, normalized)
+          let metadata =
+            dict.insert(
+              metadata,
+              key,
+              ExportMetadata(file_path, tags, imported_date),
+            )
+          #([item, ..items], metadata)
+        }
         Error(_) -> acc
       }
+  }
+}
+
+fn metadata_key(service: String, source_id: String) -> String {
+  service <> ":" <> source_id
+}
+
+fn row_compact_imported_date(row: dynamic.Dynamic) -> Int {
+  decode_path_or(row, ["date_added"], "", decode.string)
+  |> compact_datetime_to_int
+}
+
+fn row_tags_with_rating(row: dynamic.Dynamic) -> String {
+  let rating = decode_path_or(row, ["rating"], 0, decode.int)
+  normalize_tags_with_rating(row_tag_labels(row), rating)
+}
+
+fn row_tag_labels(row: dynamic.Dynamic) -> List(String) {
+  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
+  |> list.fold([], fn(acc, tag) {
+    let label = decode_path_or(tag, ["label"], "", decode.string)
+    let emoji = decode_path_or(tag, ["emoji"], "", decode.string)
+    case label != "" {
+      True -> list.append(acc, [encode_tag_token(label, emoji)])
+      False -> acc
+    }
+  })
+}
+
+fn normalize_tags_with_rating(tags: List(String), rating: Int) -> String {
+  let rating_tag = ":rating:" <> int.to_string(rating)
+  let normalized_tags =
+    tags
+    |> list.filter(fn(tag) {
+      let #(label, _) = decode_tag_token(tag)
+      !string.starts_with(string.lowercase(label), "rating")
+    })
+    |> list.map(format_export_tag)
+  string.join(list.append(normalized_tags, [rating_tag]), " | ")
+}
+
+fn encode_tag_token(label: String, emoji: String) -> String {
+  label <> "\u{001F}" <> emoji
+}
+
+fn decode_tag_token(token: String) -> #(String, String) {
+  case string.split_once(token, "\u{001F}") {
+    Ok(#(label, emoji)) -> #(string.trim(label), string.trim(emoji))
+    Error(_) -> #(string.trim(token), "")
+  }
+}
+
+fn format_export_tag(token: String) -> String {
+  let #(label, emoji) = decode_tag_token(token)
+  let #(category, value) = split_tag_label(label)
+  "tag/" <> category <> "/" <> emoji <> ":" <> value
+}
+
+fn split_tag_label(label: String) -> #(String, String) {
+  case string.split_once(label, ":") {
+    Ok(#(category, value)) ->
+      #(normalized_tag_part(category), normalized_tag_part(value))
+    Error(_) -> #("label", normalized_tag_part(label))
+  }
+}
+
+fn normalized_tag_part(value: String) -> String {
+  let trimmed = string.trim(value)
+  case trimmed == "" {
+    True -> "unknown"
+    False -> trimmed
+  }
+}
+
+fn compact_datetime_to_int(value: String) -> Int {
+  let digits =
+    value
+    |> string.to_graphemes
+    |> list.filter(fn(char) {
+      case int.parse(char) {
+        Ok(_) -> True
+        Error(_) -> False
+      }
+    })
+    |> list.take(14)
+    |> string.concat
+  case int.parse(digits) {
+    Ok(number) -> number
+    Error(_) -> 0
   }
 }
 

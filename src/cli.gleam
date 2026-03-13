@@ -5,8 +5,6 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
-import gleam/dynamic
-import gleam/dynamic/decode
 import gleam/dict
 import gleam/int
 import gleam/io
@@ -25,9 +23,6 @@ fn argv() -> List(String)
 
 @external(erlang, "cli_runtime_args", "now_ms")
 fn now_ms() -> Int
-
-@external(erlang, "tuna_runtime", "tracks_source_ids_json")
-fn tracks_source_ids_json() -> String
 
 type SourceRun {
   SourceRun(
@@ -178,6 +173,7 @@ fn run_fetch(
   cache_mode: cache.CacheMode,
   always_validate: Bool,
 ) {
+  let run_start_ms = now_ms()
   let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
     source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
@@ -191,29 +187,44 @@ fn run_fetch(
   io.println(color("Cache: ", ansi_yellow()) <> cache_mode_text(cache_mode))
   io.println("")
 
-  let result =
-    resolve_source(
-      key,
-      entry_point,
-      depth,
-      source_limit,
-      timing_spec,
-      cache_mode,
-      fn(line) { io.println(line) },
-    )
+  let resolve_start_ms = now_ms()
+  let #(result, tuna_export_metadata) = case key == "tuna" {
+    True -> {
+      let tuna_normalized_source.ResolveWithMetadataResult(
+        resolve_result,
+        export_metadata,
+      ) =
+        tuna_normalized_source.resolve_with_metadata(depth, cache_mode, fn(line) {
+          io.println(line)
+        })
+      #(resolve_result, Some(export_metadata))
+    }
+    False ->
+      #(
+        resolve_source(
+          key,
+          entry_point,
+          depth,
+          source_limit,
+          timing_spec,
+          cache_mode,
+          fn(line) { io.println(line) },
+        ),
+        None,
+      )
+  }
+  let resolve_elapsed_ms = now_ms() - resolve_start_ms
 
   let core.ResolveResult(items, lists, unresolved) = result
   let adapter_id = adapter_id_for_source(key, entry_point)
-  let export_start_ms = now_ms()
-  let #(tracks, imported_dates) = case key == "tuna" {
-    True -> {
-      let #(metadata_index, imported_dates) = tuna_export_metadata(cache_mode)
+  let #(tracks, imported_dates) = case tuna_export_metadata {
+    Some(metadata_index) -> {
       let tracks = list.map(items, fn(item) {
         to_tuna_track_view(item, adapter_id, metadata_index)
       })
-      #(tracks, imported_dates)
+      #(tracks, imported_dates_for_items(items, metadata_index))
     }
-    False -> #(list.map(items, fn(item) { to_track_view(item, adapter_id) }), dict.new())
+    None -> #(list.map(items, fn(item) { to_track_view(item, adapter_id) }), dict.new())
   }
   let files_count = count_tracks_with_file(tracks)
   io.println("")
@@ -232,6 +243,7 @@ fn run_fetch(
     tracks_json_with_imported_dates(
       tracks,
       imported_dates,
+      key != "tuna",
     )
   let json_path =
     artifact_path(
@@ -241,6 +253,7 @@ fn run_fetch(
       <> sanitize_depth_label(depth_label)
       <> ".json",
     )
+  let export_start_ms = now_ms()
   let _ = simplifile.write(content, to: json_path)
   let export_elapsed_ms = now_ms() - export_start_ms
   io.println(color("JSON written: ", ansi_green()) <> json_path)
@@ -249,7 +262,25 @@ fn run_fetch(
     <> int.to_string(export_elapsed_ms)
     <> "ms",
   )
+  let validation_start_ms = now_ms()
   print_runtime_validation(source, depth, cache_mode, result, always_validate)
+  let validation_elapsed_ms = now_ms() - validation_start_ms
+  let total_elapsed_ms = now_ms() - run_start_ms
+  io.println(
+    color("Resolve duration: ", ansi_yellow())
+    <> int.to_string(resolve_elapsed_ms)
+    <> "ms",
+  )
+  io.println(
+    color("Validation duration: ", ansi_yellow())
+    <> int.to_string(validation_elapsed_ms)
+    <> "ms",
+  )
+  io.println(
+    color("Total duration: ", ansi_yellow())
+    <> int.to_string(total_elapsed_ms)
+    <> "ms",
+  )
 }
 
 fn print_runtime_validation(
@@ -291,16 +322,34 @@ fn validation_run_for_depth(
   let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
     source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+  let derive_tuna_shallow = fn(all_result: core.ResolveResult, wanted_depth: core.DepthMode) {
+    let core.ResolveResult(all_items, _, _) = all_result
+    let depth_items = case wanted_depth {
+      core.Depth1 -> list.take(all_items, 5)
+      core.Depth2 -> list.take(all_items, 10)
+      core.Depth3 -> list.take(all_items, 20)
+      _ -> all_items
+    }
+    core.ResolveResult(items: depth_items, lists: [], unresolved: [])
+  }
+  let tuna_all_result = case key == "tuna" && depth == core.All {
+    True -> Some(depth_result)
+    False -> None
+  }
   let resolve_depth = fn(mode: core.DepthMode) {
-    resolve_source(
-      key,
-      entry_point,
-      mode,
-      source_limit,
-      timing_spec,
-      cache_mode,
-      fn(_line) { Nil },
-    )
+    case tuna_all_result {
+      Some(all_result) -> derive_tuna_shallow(all_result, mode)
+      None ->
+        resolve_source(
+          key,
+          entry_point,
+          mode,
+          source_limit,
+          timing_spec,
+          cache_mode,
+          fn(_line) { Nil },
+        )
+    }
   }
 
   case depth {
@@ -570,10 +619,10 @@ fn to_track_view(
 fn to_tuna_track_view(
   item: core.UnifiedItem,
   adapter_id: String,
-  metadata_index: dict.Dict(String, TunaRowMetadata),
+  metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
 ) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  let TunaRowMetadata(_, _, download, tags, _) =
+  let tuna_normalized_source.ExportMetadata(download, tags, _) =
     tuna_metadata_for(metadata_index, service, source_id)
   visual_output.TrackView(
     title,
@@ -586,215 +635,8 @@ fn to_tuna_track_view(
   )
 }
 
-type TunaRowMetadata {
-  TunaRowMetadata(
-    service: String,
-    source_id: String,
-    file_path: String,
-    tags: String,
-    imported_date: Int,
-  )
-}
-
 fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
   source_type <> " + " <> entry_point
-}
-
-fn tuna_export_metadata(
-  cache_mode: cache.CacheMode,
-) -> #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)) {
-  let payload = cached_tuna_tracks_source_ids_json(cache_mode)
-  let rows = decode_dynamic_rows(payload)
-  list.fold(rows, #(dict.new(), dict.new()), fn(acc, row) {
-    let file_path = decode_path_or(row, ["file_path"], "", decode.string)
-    let imported_date =
-      decode_path_or(row, ["date_added"], "", decode.string)
-      |> compact_datetime_to_int
-    let tags = tuna_tags_with_rating(row)
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "spotify",
-        "spotify_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "youtube",
-        "youtube_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "soundcloud",
-        "soundcloud_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "bandcamp",
-        "bandcamp_track_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "file",
-        "file_path",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "itunes",
-        "itunes_track_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    let acc =
-      push_tuna_metadata(
-        acc,
-        row,
-        "itunes",
-        "itunes_persistent_track_id",
-        file_path,
-        tags,
-        imported_date,
-      )
-    push_tuna_metadata_from_fishbone(acc, row, file_path, tags, imported_date)
-  })
-}
-
-fn push_tuna_metadata_from_fishbone(
-  acc: #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)),
-  row: dynamic.Dynamic,
-  file_path: String,
-  tags: String,
-  imported_date: Int,
-) -> #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)) {
-  let platform =
-    decode_path_or(row, ["fishbone_source_platform"], "", decode.string)
-  let fishbone_source_id =
-    decode_path_or(row, ["fishbone_source_id"], "", decode.string)
-  let service = fishbone_service_for_platform(platform)
-  push_tuna_metadata_value(
-    acc,
-    service,
-    fishbone_source_id,
-    file_path,
-    tags,
-    imported_date,
-  )
-}
-
-fn fishbone_service_for_platform(platform: String) -> String {
-  let normalized = platform |> string.lowercase |> string.trim
-  case normalized {
-    "" -> ""
-    _ ->
-      case string.contains(normalized, "youtube") {
-        True -> "youtube"
-        False ->
-          case string.contains(normalized, "soundcloud") {
-            True -> "soundcloud"
-            False ->
-              case string.contains(normalized, "spotify") {
-                True -> "spotify"
-                False ->
-                  case string.contains(normalized, "bandcamp") {
-                    True -> "bandcamp"
-                    False ->
-                      case string.contains(normalized, "itunes") {
-                        True -> "itunes"
-                        False ->
-                          case string.contains(normalized, "file") {
-                            True -> "file"
-                            False -> "fishbone"
-                          }
-                      }
-                  }
-              }
-          }
-      }
-  }
-}
-
-fn push_tuna_metadata_value(
-  acc: #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)),
-  service: String,
-  raw_source_id: String,
-  file_path: String,
-  tags: String,
-  imported_date: Int,
-) -> #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)) {
-  let source_id = normalize_tuna_metadata_source_id(service, raw_source_id)
-  case service == "" || source_id == "" {
-    True -> acc
-    False -> {
-      let #(metadata_index, imported_dates) = acc
-      let key = tuna_metadata_key(service, source_id)
-      let metadata_index =
-        dict.insert(
-          metadata_index,
-          key,
-          TunaRowMetadata(service, source_id, file_path, tags, imported_date),
-        )
-      let imported_dates = case imported_date > 0 {
-        True -> dict.insert(imported_dates, key, imported_date)
-        False -> imported_dates
-      }
-      #(metadata_index, imported_dates)
-    }
-  }
-}
-
-fn push_tuna_metadata(
-  acc: #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)),
-  row: dynamic.Dynamic,
-  service: String,
-  id_key: String,
-  file_path: String,
-  tags: String,
-  imported_date: Int,
-) -> #(dict.Dict(String, TunaRowMetadata), dict.Dict(String, Int)) {
-  let raw_source_id = decode_path_or(row, [id_key], "", decode.string)
-  push_tuna_metadata_value(
-    acc,
-    service,
-    raw_source_id,
-    file_path,
-    tags,
-    imported_date,
-  )
-}
-
-fn cached_tuna_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "tuna_tracks_source_ids_enriched_json",
-    "tuna_main_default_track_sources_enriched",
-    cache_mode,
-    fn() { tracks_source_ids_json() },
-  )
 }
 
 pub fn normalize_tuna_metadata_source_id(
@@ -805,32 +647,30 @@ pub fn normalize_tuna_metadata_source_id(
 }
 
 fn tuna_metadata_for(
-  metadata_index: dict.Dict(String, TunaRowMetadata),
+  metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
   service: String,
   source_id: String,
-) -> TunaRowMetadata {
+) -> tuna_normalized_source.ExportMetadata {
   metadata_index
   |> dict.get(tuna_metadata_key(service, source_id))
-  |> result.unwrap(TunaRowMetadata(service, source_id, "", "", 0))
+  |> result.unwrap(tuna_normalized_source.ExportMetadata("", "", 0))
 }
 
 fn tuna_metadata_key(service: String, source_id: String) -> String {
   service <> ":" <> source_id
 }
 
-fn tuna_tags_with_rating(row: dynamic.Dynamic) -> String {
-  let rating = decode_path_or(row, ["rating"], 0, decode.int)
-  normalize_tuna_tags(tuna_tag_labels(row), rating)
-}
-
-fn tuna_tag_labels(row: dynamic.Dynamic) -> List(String) {
-  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
-  |> list.fold([], fn(acc, tag) {
-    let label = decode_path_or(tag, ["label"], "", decode.string)
-    let emoji = decode_path_or(tag, ["emoji"], "", decode.string)
-    case label != "" {
-      True -> list.append(acc, [encode_tuna_tag_token(label, emoji)])
-      False -> acc
+fn imported_dates_for_items(
+  items: List(core.UnifiedItem),
+  metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
+) -> dict.Dict(String, Int) {
+  list.fold(items, dict.new(), fn(acc, item) {
+    let core.UnifiedItem(_, _, _, service, _, source_id) = item
+    case dict.get(metadata_index, tuna_metadata_key(service, source_id)) {
+      Ok(tuna_normalized_source.ExportMetadata(_, _, imported_date))
+        if imported_date > 0 ->
+        dict.insert(acc, tuna_metadata_key(service, source_id), imported_date)
+      _ -> acc
     }
   })
 }
@@ -845,10 +685,6 @@ pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
     })
     |> list.map(format_export_tag)
   string.join(list.append(normalized_tags, [rating_tag]), " | ")
-}
-
-fn encode_tuna_tag_token(label: String, emoji: String) -> String {
-  label <> "\u{001F}" <> emoji
 }
 
 fn decode_tuna_tag_token(token: String) -> #(String, String) {
@@ -883,36 +719,6 @@ fn normalized_tag_part(value: String) -> String {
 pub fn format_tuna_source_id(service: String, source_id: String) -> String {
   let _ = service
   source_id
-}
-
-fn decode_dynamic_rows(payload: String) -> List(dynamic.Dynamic) {
-  case json.parse(sanitize_json_payload(payload), decode.dynamic) {
-    Error(_) -> []
-    Ok(value) ->
-      decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
-  }
-}
-
-fn sanitize_json_payload(payload: String) -> String {
-  let cleaned = string.trim(payload)
-  case string.split_once(cleaned, "[") {
-    Ok(#(_, after)) -> "[" <> after
-    Error(_) ->
-      case string.split_once(cleaned, "{") {
-        Ok(#(_, after)) -> "{" <> after
-        Error(_) -> cleaned
-      }
-  }
-}
-
-fn decode_path_or(
-  data: dynamic.Dynamic,
-  path: List(String),
-  fallback: a,
-  decoder: decode.Decoder(a),
-) -> a {
-  decode.run(data, decode.optionally_at(path, fallback, decoder))
-  |> result.unwrap(fallback)
 }
 
 fn sanitize_depth_label(value: String) -> String {
@@ -1087,42 +893,36 @@ fn queue_policy_for_cache_mode(
 }
 
 pub fn tuna_export_duration_ms(cache_mode: cache.CacheMode) -> Int {
-  let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
-    source_specs.tuna()
-  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-  let result =
-    resolve_source(
-      key,
-      entry_point,
-      core.All,
-      source_limit,
-      timing_spec,
-      cache_mode,
-      fn(_line) { Nil },
-    )
+  let source_specs.SourceSpec(key, _, entry_point, _, _) = source_specs.tuna()
+  let tuna_normalized_source.ResolveWithMetadataResult(result, metadata_index) =
+    tuna_normalized_source.resolve_with_metadata(core.All, cache_mode, fn(_line) {
+      Nil
+    })
   let core.ResolveResult(items, _, _) = result
   let adapter_id = adapter_id_for_source(key, entry_point)
-  let export_start_ms = now_ms()
-  let #(metadata_index, imported_dates) = tuna_export_metadata(cache_mode)
   let tracks = list.map(items, fn(item) {
     to_tuna_track_view(item, adapter_id, metadata_index)
   })
-  let _ = tracks_json_with_imported_dates(tracks, imported_dates)
+  let imported_dates = imported_dates_for_items(items, metadata_index)
+  let content = tracks_json_with_imported_dates(tracks, imported_dates, False)
+  let export_start_ms = now_ms()
+  let _ = simplifile.write(content, to: artifact_path("tuna_export_perf_probe.json"))
   now_ms() - export_start_ms
 }
 
 pub fn tracks_json(tracks: List(visual_output.TrackView)) -> String {
-  tracks_json_with_imported_dates(tracks, dict.new())
+  tracks_json_with_imported_dates(tracks, dict.new(), True)
 }
 
 fn tracks_json_with_imported_dates(
   tracks: List(visual_output.TrackView),
   imported_dates: dict.Dict(String, Int),
+  normalize_tags: Bool,
 ) -> String {
   tracks
   |> tracks_with_order(list.length(tracks))
   |> json.array(of: fn(track_with_order) {
-    track_json_with_order(track_with_order, imported_dates)
+    track_json_with_order(track_with_order, imported_dates, normalize_tags)
   })
   |> json.to_string
 }
@@ -1140,6 +940,7 @@ fn tracks_with_order(
 fn track_json_with_order(
   track_with_order: #(visual_output.TrackView, Int),
   imported_dates: dict.Dict(String, Int),
+  normalize_tags: Bool,
 ) -> json.Json {
   let #(track, order) = track_with_order
   let visual_output.TrackView(
@@ -1164,16 +965,25 @@ fn track_json_with_order(
     #("imported_date", nullable_int_json(imported_date)),
     #("adapter_id", json.string(adapter_id)),
     #("file", nullable_file_json(download)),
-    #("tags", json.array(export_tags(tags), of: json.string)),
+    #("tags", json.array(export_tags_with_mode(tags, normalize_tags), of: json.string)),
   ])
 }
 
 pub fn export_tags(tags: String) -> List(String) {
+  export_tags_with_mode(tags, True)
+}
+
+fn export_tags_with_mode(tags: String, normalize_tags: Bool) -> List(String) {
   tags
   |> string.split("|")
   |> list.map(string.trim)
   |> list.filter(fn(tag) { tag != "" })
-  |> list.map(normalize_export_tag_entry)
+  |> list.map(fn(tag) {
+    case normalize_tags {
+      True -> normalize_export_tag_entry(tag)
+      False -> tag
+    }
+  })
 }
 
 fn normalize_export_tag_entry(tag: String) -> String {
@@ -1220,24 +1030,6 @@ fn nullable_int_json(value: Option(Int)) -> json.Json {
   case value {
     Some(number) -> json.int(number)
     None -> json.null()
-  }
-}
-
-fn compact_datetime_to_int(value: String) -> Int {
-  let digits =
-    value
-    |> string.to_graphemes
-    |> list.filter(fn(char) {
-      case int.parse(char) {
-        Ok(_) -> True
-        Error(_) -> False
-      }
-    })
-    |> list.take(14)
-    |> string.concat
-  case int.parse(digits) {
-    Ok(number) -> number
-    Error(_) -> 0
   }
 }
 
