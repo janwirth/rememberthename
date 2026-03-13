@@ -9,6 +9,7 @@
 //// - `CacheUpsert`: read existing cache, fetch+store on miss/empty
 //// - `CacheIgnore`: bypass cache, always fetch live
 //// - `CacheOverride`: always fetch live and overwrite cache
+//// - `CacheReadOnly`: read cache only, never fetch on miss/empty
 
 import simplifile
 
@@ -19,6 +20,7 @@ pub type CacheMode {
   CacheUpsert
   CacheIgnore
   CacheOverride
+  CacheReadOnly
 }
 
 pub fn read_or_fetch(
@@ -32,6 +34,13 @@ pub fn read_or_fetch(
     CacheOverride -> {
       let path = cache_path(namespace, key)
       compute_and_store(path, fetch)
+    }
+    CacheReadOnly -> {
+      let path = cache_path(namespace, key)
+      case simplifile.read(from: path) {
+        Ok(cached) -> cached
+        Error(_) -> ""
+      }
     }
     CacheUpsert -> {
       let path = cache_path(namespace, key)

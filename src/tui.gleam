@@ -510,6 +510,8 @@ fn decode_cache_mode(data: dynamic.Dynamic) -> cache.CacheMode {
   case decode_path_or(data, ["cache_mode"], "upsert", decode.string) {
     "ignore" -> cache.CacheIgnore
     "override" -> cache.CacheOverride
+    "readonly" -> cache.CacheReadOnly
+    "read-only" -> cache.CacheReadOnly
     _ -> cache.CacheUpsert
   }
 }
@@ -519,6 +521,7 @@ fn encode_cache_mode(mode: cache.CacheMode) -> String {
     cache.CacheUpsert -> "upsert"
     cache.CacheIgnore -> "ignore"
     cache.CacheOverride -> "override"
+    cache.CacheReadOnly -> "readonly"
   }
 }
 
@@ -729,7 +732,8 @@ fn toggle_cache_mode_all(model: Model) -> #(Model, List(fn() -> Msg)) {
   let next_mode = case model.cache_mode {
     cache.CacheUpsert -> cache.CacheIgnore
     cache.CacheIgnore -> cache.CacheOverride
-    cache.CacheOverride -> cache.CacheUpsert
+    cache.CacheOverride -> cache.CacheReadOnly
+    cache.CacheReadOnly -> cache.CacheUpsert
   }
   #(
     Model(
@@ -1556,5 +1560,6 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
     cache.CacheUpsert -> "upsert"
     cache.CacheIgnore -> "ignore"
     cache.CacheOverride -> "override"
+    cache.CacheReadOnly -> "readonly"
   }
 }

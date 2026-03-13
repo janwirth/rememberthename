@@ -342,5 +342,6 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
     cache.CacheUpsert -> "upsert"
     cache.CacheIgnore -> "ignore"
     cache.CacheOverride -> "override"
+    cache.CacheReadOnly -> "readonly"
   }
 }

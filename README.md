@@ -6,9 +6,9 @@ Gleam CLI for fetching/exporting music source data (Bandcamp, SoundCloud, Spotif
 
 Cache mode is controlled by command shape:
 
-- `use-cache` -> `upsert` mode (`CacheUpsert`): read cached value first, fetch live only on miss/empty.
+- `use-cache` -> `readonly` mode (`CacheReadOnly`): read cache only, never fetch from network.
 - no `use-cache` -> `override` mode (`CacheOverride`): fetch live and overwrite cache.
-- explicit `cache <upsert|ignore|override>` is available on `source fetch` commands.
+- explicit `cache <upsert|ignore|override|readonly>` is available on `source fetch` commands.
 
 ### Important logging note
 

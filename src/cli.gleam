@@ -137,7 +137,7 @@ fn export_source_csv_simple(source_selector: String, use_cache: Bool) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
       let cache_mode = case use_cache {
-        True -> cache.CacheUpsert
+        True -> cache.CacheReadOnly
         False -> cache.CacheOverride
       }
       run_fetch(source, source_index, core.All, "full", cache_mode, True)
@@ -150,7 +150,7 @@ fn fetch_source_simple(source_selector: String, use_cache: Bool) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
       let cache_mode = case use_cache {
-        True -> cache.CacheUpsert
+        True -> cache.CacheReadOnly
         False -> cache.CacheOverride
       }
       run_fetch(source, source_index, core.All, "full", cache_mode, False)
@@ -174,7 +174,9 @@ fn fetch_source(
         Ok(depth) ->
           case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
             Error(_) ->
-              io.println("Invalid cache mode (use: upsert | ignore | override)")
+              io.println(
+                "Invalid cache mode (use: upsert | ignore | override | readonly)",
+              )
             Ok(cache_mode) ->
               run_fetch(
                 source,
@@ -204,7 +206,9 @@ fn fetch_source_by_id(
         Ok(depth) ->
           case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
             Error(_) ->
-              io.println("Invalid cache mode (use: upsert | ignore | override)")
+              io.println(
+                "Invalid cache mode (use: upsert | ignore | override | readonly)",
+              )
             Ok(cache_mode) ->
               run_fetch(
                 source,
@@ -364,7 +368,7 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
           io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
         Ok(depth) -> {
           let cache_mode = case use_cache {
-            True -> cache.CacheUpsert
+            True -> cache.CacheReadOnly
             False -> cache.CacheOverride
           }
           run_fetch(source, source_index, depth, depth_text, cache_mode, True)
@@ -375,7 +379,7 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
 
 fn export_all_csv(use_cache: Bool) {
   let cache_mode = case use_cache {
-    True -> cache.CacheUpsert
+    True -> cache.CacheReadOnly
     False -> cache.CacheOverride
   }
   io.println(
@@ -694,11 +698,11 @@ fn resolve_source(
 ) -> core.ResolveResult {
   let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
-  let queue_policy =
-    core.QueuePolicy(
-      max_concurrency: max_concurrency,
-      requests_per_second: requests_per_second,
-    )
+  let queue_policy = queue_policy_for_cache_mode(
+    cache_mode,
+    max_concurrency,
+    requests_per_second,
+  )
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
@@ -896,10 +900,13 @@ fn tuna_metadata_for(
 
 fn tuna_tags_with_rating(row: dynamic.Dynamic) -> String {
   let rating = decode_path_or(row, ["rating"], 0, decode.int)
-  normalize_tuna_tags(
-    decode_path_or(row, ["tags"], [], decode.list(of: decode.string)),
-    rating,
-  )
+  normalize_tuna_tags(tuna_tag_labels(row), rating)
+}
+
+fn tuna_tag_labels(row: dynamic.Dynamic) -> List(String) {
+  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
+  |> list.map(fn(tag) { decode_path_or(tag, ["label"], "", decode.string) })
+  |> list.filter(fn(label) { label != "" })
 }
 
 pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
@@ -972,7 +979,7 @@ fn parse_cache_mode_arg(
 ) -> Result(cache.CacheMode, Nil) {
   let _ = source
   case use_cache {
-    True -> Ok(cache.CacheUpsert)
+    True -> Ok(cache.CacheReadOnly)
     False ->
       case maybe_cache_mode {
         None -> Ok(cache.CacheOverride)
@@ -1109,6 +1116,8 @@ fn parse_cache_mode(value: String) -> Result(cache.CacheMode, Nil) {
     "upsert" -> Ok(cache.CacheUpsert)
     "ignore" -> Ok(cache.CacheIgnore)
     "override" -> Ok(cache.CacheOverride)
+    "readonly" -> Ok(cache.CacheReadOnly)
+    "read-only" -> Ok(cache.CacheReadOnly)
     _ -> Error(Nil)
   }
 }
@@ -1118,6 +1127,24 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
     cache.CacheUpsert -> "upsert"
     cache.CacheIgnore -> "ignore"
     cache.CacheOverride -> "override"
+    cache.CacheReadOnly -> "readonly"
+  }
+}
+
+fn queue_policy_for_cache_mode(
+  cache_mode: cache.CacheMode,
+  max_concurrency: Int,
+  requests_per_second: Int,
+) -> core.QueuePolicy {
+  case cache_mode {
+    // Cache-only runs should not pay network rate-limit sleeps.
+    cache.CacheReadOnly ->
+      core.QueuePolicy(max_concurrency: 1000, requests_per_second: 10000)
+    _ ->
+      core.QueuePolicy(
+        max_concurrency: max_concurrency,
+        requests_per_second: requests_per_second,
+      )
   }
 }
 
@@ -1139,10 +1166,10 @@ fn print_usage() {
     "  cli export source csv <entry_point_id> depth <1|2|full> [use-cache]",
   )
   io.println(
-    "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>] [use-cache]",
+    "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override|readonly>] [use-cache]",
   )
   io.println(
-    "  cli source fetch id <entry_point_id> depth <1|2|full> [cache <upsert|ignore|override>] [use-cache]",
+    "  cli source fetch id <entry_point_id> depth <1|2|full> [cache <upsert|ignore|override|readonly>] [use-cache]",
   )
   io.println("")
   io.println("Examples:")
