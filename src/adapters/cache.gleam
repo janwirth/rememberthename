@@ -121,6 +121,6 @@ fn string_value_decoder() -> decode.Decoder(String) {
   decode.success(value)
 }
 
-fn cache_db_uri() -> String {
+pub fn cache_db_uri() -> String {
   "file:/tmp/rememberthename_adapter_cache.sqlite3"
 }

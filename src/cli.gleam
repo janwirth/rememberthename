@@ -18,6 +18,7 @@ import output/visual_output
 import simplifile
 import source_id_normalizer
 import source_specs
+import sqlight
 
 @external(erlang, "cli_runtime_args", "argv")
 fn argv() -> List(String)
@@ -34,6 +35,10 @@ type SourceRun {
   )
 }
 
+type CacheInspectRow {
+  CacheInspectRow(namespace: String, key_hash: String, context: String)
+}
+
 pub fn main() {
   run(normalize_args(argv()))
 }
@@ -42,6 +47,7 @@ pub fn run(args: List(String)) {
   case args {
     [] -> show_easy_start()
     ["list"] -> list_sources()
+    ["inspect", search_query] -> inspect_cache(search_query)
     ["json", source_selector] -> export_source_json_simple(source_selector, False)
     ["json", source_selector, "cache"] ->
       export_source_json_simple(source_selector, True)
@@ -130,6 +136,82 @@ fn show_easy_start() {
   list_sources()
   io.println("")
   print_usage()
+}
+
+fn inspect_cache(search_query: String) {
+  let query_text = string.trim(search_query)
+  case query_text == "" {
+    True -> io.println("inspect query cannot be empty")
+    False ->
+      case sqlight.open(cache.cache_db_uri()) {
+        Error(_) -> io.println("cache inspect failed: cannot open sqlite cache")
+        Ok(conn) -> {
+          let rows = read_cache_inspect_rows(conn, query_text)
+          let total_cache_size_bytes = read_cache_total_size_bytes(conn)
+          let _ = sqlight.close(conn)
+          io.println(
+            "Cache inspect for \""
+            <> query_text
+            <> "\" | hits="
+            <> int.to_string(list.length(rows))
+            <> " | total_cache_size="
+            <> int.to_string(total_cache_size_bytes)
+            <> " bytes",
+          )
+          list.each(rows, print_cache_inspect_row)
+        }
+      }
+  }
+}
+
+fn read_cache_inspect_rows(
+  conn: sqlight.Connection,
+  query_text: String,
+) -> List(CacheInspectRow) {
+  sqlight.query(
+    "select namespace, key_hash, trim(substr(value, max(1, instr(lower(value), lower(?)) - 100), 200)) from adapter_cache where instr(lower(value), lower(?)) > 0 order by namespace, key_hash",
+    on: conn,
+    with: [sqlight.text(query_text), sqlight.text(query_text)],
+    expecting: cache_inspect_row_decoder(),
+  )
+  |> result.unwrap([])
+}
+
+fn read_cache_total_size_bytes(conn: sqlight.Connection) -> Int {
+  sqlight.query(
+    "select coalesce(sum(length(value)), 0) from adapter_cache",
+    on: conn,
+    with: [],
+    expecting: total_size_decoder(),
+  )
+  |> result.unwrap([0])
+  |> list.first
+  |> result.unwrap(0)
+}
+
+fn total_size_decoder() -> decode.Decoder(Int) {
+  use size <- decode.field(0, decode.int)
+  decode.success(size)
+}
+
+fn cache_inspect_row_decoder() -> decode.Decoder(CacheInspectRow) {
+  use namespace <- decode.field(0, decode.string)
+  use key_hash <- decode.field(1, decode.string)
+  use context <- decode.field(2, decode.string)
+  decode.success(CacheInspectRow(namespace, key_hash, context))
+}
+
+fn print_cache_inspect_row(row: CacheInspectRow) {
+  let CacheInspectRow(namespace, key_hash, context) = row
+  io.println(
+    "- source="
+    <> namespace
+    <> " | key="
+    <> key_hash
+    <> " | context=\""
+    <> context
+    <> "\"",
+  )
 }
 
 fn export_source_json_simple(source_selector: String, use_cache: Bool) {
@@ -1297,6 +1379,7 @@ fn print_exit_signal() {
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
+  io.println("  cli inspect <search_query>")
   io.println("  cli json <source_selector> [cache]")
   io.println("  cli fetch <source_selector> [cache]")
   io.println("  cli export all json [use-cache]")
@@ -1312,6 +1395,7 @@ fn print_usage() {
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
+  io.println("  gleam run -m cli -- inspect \"playlist\"")
   io.println("  gleam run -m cli -- json 1")
   io.println("  gleam run -m cli -- json spotify")
   io.println("  gleam run -m cli -- json spotify-2 cache")
