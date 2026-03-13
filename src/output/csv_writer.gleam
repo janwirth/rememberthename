@@ -3,7 +3,7 @@ import gleam/string
 import output/visual_output
 
 pub fn tracks_csv(tracks: List(visual_output.TrackView)) -> String {
-  let header = "title,artist,service,source_id,tags"
+  let header = "title,artist,service,source_id,adapter_id,download,tags"
   let rows =
     list.map(tracks, fn(track) {
       visual_output.track_csv_row(track)

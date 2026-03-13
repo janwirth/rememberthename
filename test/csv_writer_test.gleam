@@ -9,14 +9,14 @@ pub fn main() {
 
 pub fn tracks_csv_writes_header_and_rows_test() {
   let tracks = [
-    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", ""),
-    visual_output.TrackView("B", "BB", "spotify", "sp-b", "tag-one"),
+    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "source-a", "", ""),
+    visual_output.TrackView("B", "BB", "spotify", "sp-b", "source-b", "", "tag-one"),
   ]
 
   let expected =
-    "title,artist,service,source_id,tags\n"
-    <> "A,AA,soundcloud,sc-a,\n"
-    <> "B,BB,spotify,sp-b,tag-one"
+    "title,artist,service,source_id,adapter_id,download,tags\n"
+    <> "A,AA,soundcloud,sc-a,source-a,,\n"
+    <> "B,BB,spotify,sp-b,source-b,,tag-one"
 
   csv_writer.tracks_csv(tracks)
   |> should.equal(expected)
@@ -29,13 +29,15 @@ pub fn tracks_csv_escapes_quotes_commas_and_newlines_test() {
       "Line\nBreak",
       "youtube",
       "id-1",
+      "source-youtube",
+      "/tmp/track.mp3",
       "drum & bass, \"leftfield\"",
     ),
   ]
 
   let expected =
-    "title,artist,service,source_id,tags\n"
-    <> "\"Track, \"\"One\"\"\",\"Line\nBreak\",youtube,id-1,\"drum & bass, \"\"leftfield\"\"\""
+    "title,artist,service,source_id,adapter_id,download,tags\n"
+    <> "\"Track, \"\"One\"\"\",\"Line\nBreak\",youtube,id-1,source-youtube,/tmp/track.mp3,\"drum & bass, \"\"leftfield\"\"\""
 
   csv_writer.tracks_csv(tracks)
   |> should.equal(expected)

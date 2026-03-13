@@ -123,7 +123,11 @@ pub fn deduplicate_csv(content: String) -> Result(DeduplicationResult, String) {
       case rows {
         [] -> Error("CSV is empty")
         [header, ..body] ->
-          case header == ["title", "artist", "service", "source_id", "tags"]
+          case header
+            == ["title", "artist", "service", "source_id", "adapter_id", "download", "tags"]
+            || header
+              == ["title", "artist", "service", "source_id", "adapter_id", "download"]
+            || header == ["title", "artist", "service", "source_id", "tags"]
             || header == ["title", "artist", "service", "source_id"] {
             False -> Error("Unexpected CSV header")
             True -> {
@@ -142,7 +146,11 @@ pub fn one_bucket_per_track_csv(content: String) -> Result(DeduplicationResult, 
       case rows {
         [] -> Error("CSV is empty")
         [header, ..body] ->
-          case header == ["title", "artist", "service", "source_id", "tags"]
+          case header
+            == ["title", "artist", "service", "source_id", "adapter_id", "download", "tags"]
+            || header
+              == ["title", "artist", "service", "source_id", "adapter_id", "download"]
+            || header == ["title", "artist", "service", "source_id", "tags"]
             || header == ["title", "artist", "service", "source_id"] {
             False -> Error("Unexpected CSV header")
             True -> {
@@ -162,7 +170,11 @@ pub fn deduplicate_by_source_id_csv(content: String) -> Result(DeduplicationResu
       case rows {
         [] -> Error("CSV is empty")
         [header, ..body] ->
-          case header == ["title", "artist", "service", "source_id", "tags"]
+          case header
+            == ["title", "artist", "service", "source_id", "adapter_id", "download", "tags"]
+            || header
+              == ["title", "artist", "service", "source_id", "adapter_id", "download"]
+            || header == ["title", "artist", "service", "source_id", "tags"]
             || header == ["title", "artist", "service", "source_id"] {
             False -> Error("Unexpected CSV header")
             True -> {
@@ -754,6 +766,24 @@ fn strip_common_punctuation(value: String) -> String {
 
 fn row_to_track_item(row: List(String)) -> TrackItem {
   case row {
+    [title, artist, adapter, source_id, _, _, _tags] ->
+      TrackItem(
+        title: title,
+        artist: artist,
+        adapter: adapter,
+        source_id: source_id,
+        raw_source_id: Some(source_id),
+        assets: [],
+      )
+    [title, artist, adapter, source_id, _, _tags] ->
+      TrackItem(
+        title: title,
+        artist: artist,
+        adapter: adapter,
+        source_id: source_id,
+        raw_source_id: Some(source_id),
+        assets: [],
+      )
     [title, artist, adapter, source_id, _tags] ->
       TrackItem(
         title: title,

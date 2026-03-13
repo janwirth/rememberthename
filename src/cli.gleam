@@ -6,8 +6,11 @@ import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import deduplication
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/int
 import gleam/io
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -15,10 +18,14 @@ import gleam/string
 import output/csv_writer
 import output/visual_output
 import simplifile
+import source_id_normalizer
 import source_specs
 
 @external(erlang, "cli_runtime_args", "argv")
 fn argv() -> List(String)
+
+@external(erlang, "tuna_runtime", "tracks_source_ids_json")
+fn tracks_source_ids_json() -> String
 
 type SourceRun {
   SourceRun(
@@ -223,7 +230,8 @@ fn run_fetch(
     <> int.to_string(list.length(unresolved)),
   )
 
-  let tracks = list.map(items, to_track_view)
+  let adapter_id = adapter_id_for_source(key, entry_point)
+  let tracks = list.map(items, fn(item) { to_track_view(item, adapter_id) })
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path(
     "cli_result_" <> key <> "_depth_" <> sanitize_depth_label(depth_label) <> ".csv",
@@ -315,10 +323,13 @@ fn export_all_csv() {
   let adapter_items = source_run_items(runs)
   let tuna_items = collect_tuna_items(cache_mode)
   let all_items = list.append(adapter_items, tuna_items)
+  let tuna_download_links = tuna_remote_download_links()
   let tracks =
     list.append(
-      list.map(adapter_items, to_track_view),
-      list.map(tuna_items, to_tuna_track_view),
+      source_run_track_views(runs),
+      list.map(tuna_items, fn(item) {
+        to_tuna_track_view(item, tuna_adapter_id(), tuna_download_links)
+      }),
     )
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
@@ -476,6 +487,17 @@ fn source_run_items(runs: List(SourceRun)) -> List(core.UnifiedItem) {
     let SourceRun(_, _, _, depth_all) = run
     let core.ResolveResult(items, _, _) = depth_all
     list.append(acc, items)
+  })
+}
+
+fn source_run_track_views(runs: List(SourceRun)) -> List(visual_output.TrackView) {
+  list.fold(runs, [], fn(acc, run) {
+    let SourceRun(source, _, _, depth_all) = run
+    let source_specs.SourceSpec(key, _, entry_point, _, _) = source
+    let core.ResolveResult(items, _, _) = depth_all
+    let adapter_id = adapter_id_for_source(key, entry_point)
+    let track_views = list.map(items, fn(item) { to_track_view(item, adapter_id) })
+    list.append(acc, track_views)
   })
 }
 
@@ -706,14 +728,120 @@ fn resolve_source(
   }
 }
 
-fn to_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
+fn to_track_view(item: core.UnifiedItem, adapter_id: String) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  visual_output.TrackView(title, artist, service, source_id, "")
+  visual_output.TrackView(title, artist, service, source_id, adapter_id, "", "")
 }
 
-fn to_tuna_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
+fn to_tuna_track_view(
+  item: core.UnifiedItem,
+  adapter_id: String,
+  download_links: List(TunaDownloadLink),
+) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  visual_output.TrackView(title, "", service, source_id, artist)
+  let download = tuna_download_for(download_links, service, source_id)
+  visual_output.TrackView(title, "", service, source_id, adapter_id, download, artist)
+}
+
+type TunaDownloadLink {
+  TunaDownloadLink(service: String, source_id: String, download: String)
+}
+
+fn tuna_adapter_id() -> String {
+  adapter_id_for_source("tuna", "gel:tuna/main::default::Track")
+}
+
+fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
+  source_type <> " + " <> entry_point
+}
+
+fn tuna_remote_download_links() -> List(TunaDownloadLink) {
+  let payload = tracks_source_ids_json()
+  let rows = decode_dynamic_rows(payload)
+  list.fold(rows, [], fn(acc, row) {
+    let download = decode_path_or(row, ["dropped_path"], "", decode.string)
+    let acc = push_tuna_download_link(acc, row, "spotify", "spotify_id", download)
+    let acc = push_tuna_download_link(acc, row, "youtube", "youtube_id", download)
+    let acc = push_tuna_download_link(acc, row, "soundcloud", "soundcloud_id", download)
+    let acc =
+      push_tuna_download_link(acc, row, "bandcamp", "bandcamp_track_id", download)
+    let acc = push_tuna_download_link(acc, row, "itunes", "itunes_track_id", download)
+    push_tuna_download_link(
+      acc,
+      row,
+      "itunes",
+      "itunes_persistent_track_id",
+      download,
+    )
+  })
+}
+
+fn push_tuna_download_link(
+  acc: List(TunaDownloadLink),
+  row: dynamic.Dynamic,
+  service: String,
+  id_key: String,
+  download: String,
+) -> List(TunaDownloadLink) {
+  let normalized_source_id =
+    source_id_normalizer.normalize(
+      service,
+      decode_path_or(row, [id_key], "", decode.string),
+    )
+  case download == "" || normalized_source_id == "" {
+    True -> acc
+    False ->
+      case list.any(acc, fn(link) {
+        let TunaDownloadLink(existing_service, existing_source_id, _) = link
+        existing_service == service && existing_source_id == normalized_source_id
+      }) {
+        True -> acc
+        False ->
+          list.append(
+            acc,
+            [TunaDownloadLink(service, normalized_source_id, download)],
+          )
+      }
+  }
+}
+
+fn tuna_download_for(
+  links: List(TunaDownloadLink),
+  service: String,
+  source_id: String,
+) -> String {
+  case service == "file" {
+    True -> ""
+    False ->
+      links
+      |> list.filter(fn(link) {
+        let TunaDownloadLink(link_service, link_source_id, _) = link
+        link_service == service && link_source_id == source_id
+      })
+      |> list.first
+      |> result.map(fn(link) {
+        let TunaDownloadLink(_, _, download) = link
+        download
+      })
+      |> result.unwrap("")
+  }
+}
+
+fn decode_dynamic_rows(payload: String) -> List(dynamic.Dynamic) {
+  case json.parse(payload, decode.dynamic) {
+    Error(_) -> []
+    Ok(value) -> decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
+  }
+}
+
+fn decode_path_or(
+  data: dynamic.Dynamic,
+  path: List(String),
+  fallback: a,
+  decoder: decode.Decoder(a),
+) -> a {
+  decode.run(data, decode.optionally_at(path, fallback, decoder))
+  |> result.unwrap(fallback)
 }
 
 fn parse_depth(value: String) -> Result(core.DepthMode, Nil) {
