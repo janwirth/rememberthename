@@ -5,7 +5,6 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
-import deduplication
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
@@ -37,17 +36,19 @@ type SourceRun {
 }
 
 pub fn main() {
-  let args = normalize_args(argv())
+  run(normalize_args(argv()))
+}
+
+pub fn run(args: List(String)) {
   case args {
     [] -> show_easy_start()
     ["list"] -> list_sources()
-    ["dedupe"] -> dedupe_latest_csv()
     ["csv", source_selector] -> export_source_csv_simple(source_selector, False)
     ["csv", source_selector, "cache"] -> export_source_csv_simple(source_selector, True)
     ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
     ["fetch", source_selector, "cache"] -> fetch_source_simple(source_selector, True)
-    ["export", "all", "csv"] -> export_all_csv()
-    ["export", "all", "csv", "use-cache"] -> export_all_csv()
+    ["export", "all", "csv"] -> export_all_csv(False)
+    ["export", "all", "csv", "use-cache"] -> export_all_csv(True)
     ["export", "source", "csv", source_key, "depth", depth_text] ->
       export_source_csv(source_key, depth_text, False)
     ["export", "source", "csv", source_key, "depth", depth_text, "use-cache"] ->
@@ -66,6 +67,7 @@ pub fn main() {
       fetch_source_by_id(source_key, depth_text, Some(cache_mode_text), False)
     _ -> print_usage()
   }
+  print_exit_signal()
 }
 
 fn normalize_args(args: List(String)) -> List(String) {
@@ -120,7 +122,7 @@ fn export_source_csv_simple(source_selector: String, use_cache: Bool) {
           True -> cache.CacheUpsert
           False -> cache.CacheOverride
         }
-      run_fetch(source, source_index, core.All, "full", cache_mode)
+      run_fetch(source, source_index, core.All, "full", cache_mode, True)
     }
   }
 }
@@ -134,7 +136,7 @@ fn fetch_source_simple(source_selector: String, use_cache: Bool) {
           True -> cache.CacheUpsert
           False -> cache.CacheOverride
         }
-      run_fetch(source, source_index, core.All, "full", cache_mode)
+      run_fetch(source, source_index, core.All, "full", cache_mode, False)
     }
   }
 }
@@ -158,7 +160,7 @@ fn fetch_source(
                 "Invalid cache mode (use: upsert | ignore | override)",
               )
             Ok(cache_mode) ->
-              run_fetch(source, source_index, depth, depth_text, cache_mode)
+              run_fetch(source, source_index, depth, depth_text, cache_mode, False)
           }
       }
   }
@@ -188,6 +190,7 @@ fn fetch_source_by_id(
                 depth,
                 depth_text,
                 cache_mode,
+                False,
               )
           }
       }
@@ -200,6 +203,7 @@ fn run_fetch(
   depth: core.DepthMode,
   depth_label: String,
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
 ) {
   let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
@@ -238,7 +242,7 @@ fn run_fetch(
   )
   let _ = simplifile.write(csv, to: csv_path)
   io.println("CSV written: " <> csv_path)
-  print_runtime_validation(source, depth, cache_mode, result)
+  print_runtime_validation(source, depth, cache_mode, result, always_validate)
 }
 
 fn print_runtime_validation(
@@ -246,33 +250,13 @@ fn print_runtime_validation(
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
+  always_validate: Bool,
 ) {
-  case depth {
-    core.All -> {
-      let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) = source
-      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-      let depth_1 =
-        resolve_source(
-          key,
-          entry_point,
-          core.Depth1,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(_line) { Nil },
-        )
-      let depth_2 =
-        resolve_source(
-          key,
-          entry_point,
-          core.Depth2,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(_line) { Nil },
-        )
-      let validation_errors =
-        validate_source_run(SourceRun(source, depth_1, depth_2, depth_result))
+  case always_validate || depth == core.All {
+    False -> Nil
+    True -> {
+      let run = validation_run_for_depth(source, depth, cache_mode, depth_result)
+      let validation_errors = validate_source_run(run)
       io.println("")
       case validation_errors == [] {
         True -> io.println("Validation: PASS")
@@ -284,7 +268,59 @@ fn print_runtime_validation(
         }
       }
     }
-    _ -> Nil
+  }
+}
+
+fn validation_run_for_depth(
+  source: source_specs.SourceSpec,
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+  depth_result: core.ResolveResult,
+) -> SourceRun {
+  let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) = source
+  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+  let resolve_depth =
+    fn(mode: core.DepthMode) {
+      resolve_source(
+        key,
+        entry_point,
+        mode,
+        source_limit,
+        timing_spec,
+        cache_mode,
+        fn(_line) { Nil },
+      )
+    }
+
+  case depth {
+    core.Depth1 ->
+      SourceRun(
+        source,
+        depth_result,
+        resolve_depth(core.Depth2),
+        resolve_depth(core.All),
+      )
+    core.Depth2 ->
+      SourceRun(
+        source,
+        resolve_depth(core.Depth1),
+        depth_result,
+        resolve_depth(core.All),
+      )
+    core.All ->
+      SourceRun(
+        source,
+        resolve_depth(core.Depth1),
+        resolve_depth(core.Depth2),
+        depth_result,
+      )
+    _ ->
+      SourceRun(
+        source,
+        resolve_depth(core.Depth1),
+        resolve_depth(core.Depth2),
+        resolve_depth(core.All),
+      )
   }
 }
 
@@ -306,14 +342,19 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
             depth,
             depth_text,
             cache_mode,
+            True,
           )
         }
       }
   }
 }
 
-fn export_all_csv() {
-  let cache_mode = cache.CacheUpsert
+fn export_all_csv(use_cache: Bool) {
+  let cache_mode =
+    case use_cache {
+      True -> cache.CacheUpsert
+      False -> cache.CacheOverride
+    }
   io.println(
     "Exporting all sources to CSV with cache "
     <> cache_mode_text(cache_mode)
@@ -334,36 +375,10 @@ fn export_all_csv() {
   let csv = csv_writer.tracks_csv(tracks)
   let csv_path = artifact_path("all_items_latest.csv")
   let csv_write_errors = write_output_file(csv_path, csv, "CSV written: ")
-  let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
-  let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
-  let output_validation_errors =
-    case csv_write_errors == [] {
-      False -> []
-      True ->
-        case deduplication.deduplicate_csv_file(csv_path) {
-          Ok(dedup_result) -> {
-            let dedup_buckets_write_errors =
-              write_output_file(
-                dedup_buckets_path,
-                deduplication.buckets_csv(dedup_result),
-                "Dedup buckets CSV written: ",
-              )
-            let dedup_ambiguities_write_errors =
-              write_output_file(
-                dedup_ambiguities_path,
-                deduplication.ambiguities_csv(dedup_result),
-                "Dedup ambiguities CSV written: ",
-              )
-            list.append(dedup_buckets_write_errors, dedup_ambiguities_write_errors)
-          }
-          Error(message) -> ["output: deduplication failed: " <> message]
-        }
-    }
   let validation_errors =
     validate_source_runs(runs)
     |> list.append(validate_tuna_items(tuna_items))
     |> list.append(csv_write_errors)
-    |> list.append(output_validation_errors)
   io.println(
     "Done. Exported "
     <> int.to_string(list.length(all_items))
@@ -378,40 +393,6 @@ fn export_all_csv() {
       )
       list.each(validation_errors, fn(line) { io.println("  - " <> line) })
     }
-  }
-}
-
-fn dedupe_latest_csv() {
-  let input_path = artifact_path("all_items_latest.csv")
-  let dedup_buckets_path = artifact_path("all_items_latest_dedup_buckets.csv")
-  let dedup_ambiguities_path = artifact_path("all_items_latest_dedup_ambiguities.csv")
-  io.println("Deduplicating CSV (source/service + source_id): " <> input_path)
-  case deduplication.deduplicate_by_source_id_csv_file(input_path) {
-    Ok(dedup_result) -> {
-      let dedup_buckets_write_errors =
-        write_output_file(
-          dedup_buckets_path,
-          deduplication.buckets_csv(dedup_result),
-          "Dedup buckets CSV written: ",
-        )
-      let dedup_ambiguities_write_errors =
-        write_output_file(
-          dedup_ambiguities_path,
-          deduplication.ambiguities_csv(dedup_result),
-          "Dedup ambiguities CSV written: ",
-        )
-      let errors = list.append(dedup_buckets_write_errors, dedup_ambiguities_write_errors)
-      case errors == [] {
-        True -> io.println("Validation: PASS")
-        False -> {
-          io.println(
-            "Validation: FAIL (" <> int.to_string(list.length(errors)) <> " errors)",
-          )
-          list.each(errors, fn(line) { io.println("  - " <> line) })
-        }
-      }
-    }
-    Error(message) -> io.println("Deduplication failed: " <> message)
   }
 }
 
@@ -1037,11 +1018,14 @@ fn artifact_path(file_name: String) -> String {
   "output/" <> file_name
 }
 
+fn print_exit_signal() {
+  io.println("CLI_EXIT:0")
+}
+
 
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
-  io.println("  cli dedupe")
   io.println("  cli csv <source_selector> [cache]")
   io.println("  cli fetch <source_selector> [cache]")
   io.println("  cli export all csv [use-cache]")
@@ -1055,7 +1039,6 @@ fn print_usage() {
   io.println("")
   io.println("Examples:")
   io.println("  gleam run -m cli -- list")
-  io.println("  gleam run -m cli -- dedupe")
   io.println("  gleam run -m cli -- csv 1")
   io.println("  gleam run -m cli -- csv spotify")
   io.println("  gleam run -m cli -- csv spotify-2 cache")

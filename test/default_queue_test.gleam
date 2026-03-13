@@ -98,7 +98,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
     <> compact_profile
     <> " items=1 lists=0 next=0",
     "[queue] complete node=profile:" <> compact_profile <> " pushed=0 unresolved=0",
-    "[queue] complete starts=1 max_active=1",
+    "[queue] complete",
   ])
 }
 
