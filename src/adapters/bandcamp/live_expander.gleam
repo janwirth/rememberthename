@@ -31,15 +31,17 @@
 ////
 //// Test coverage:
 //// - `test/bandcamp_adapter_test.gleam`
+
+import adapters/cache
+import adapters/core
 import gleam/int
 import gleam/list
 import gleam/string
-import adapters/cache
-import adapters/core
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
 @external(erlang, "soundcloud_http", "fetch")
 fn fetch(url: String) -> String
+
 @external(erlang, "soundcloud_http", "post_json")
 fn post_json(url: String, body: String) -> String
 
@@ -65,13 +67,7 @@ pub fn resolve_profile_with_debug(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  resolve_profile_with_debug_limited(
-    profile,
-    depth,
-    cache_mode,
-    0,
-    on_debug,
-  )
+  resolve_profile_with_debug_limited(profile, depth, cache_mode, 0, on_debug)
 }
 
 pub fn resolve_profile_with_debug_limited(
@@ -111,7 +107,10 @@ pub fn resolve_profile_with_debug_limited_timed(
   )
 }
 
-pub fn expand(node: core.AdapterNode, cache_mode: cache.CacheMode) -> core.ExpandResult {
+pub fn expand(
+  node: core.AdapterNode,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   case node {
     core.ProfileEntry(profile_url) -> expand_profile(profile_url, cache_mode)
     core.CategoryNode(ctx) -> expand_category(ctx, cache_mode)
@@ -120,13 +119,26 @@ pub fn expand(node: core.AdapterNode, cache_mode: cache.CacheMode) -> core.Expan
   }
 }
 
-fn expand_profile(profile_url: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
+fn expand_profile(
+  profile_url: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
   let html = cached_fetch(profile_url, cache_mode)
   let entry_items = parse_entry_items(html)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
-  let collection_token = extract_between(html, "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;", "&quot;")
-  let wishlist_token = extract_between(html, "&quot;wishlist_data&quot;:{&quot;last_token&quot;:&quot;", "&quot;")
+  let collection_token =
+    extract_between(
+      html,
+      "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;",
+      "&quot;",
+    )
+  let wishlist_token =
+    extract_between(
+      html,
+      "&quot;wishlist_data&quot;:{&quot;last_token&quot;:&quot;",
+      "&quot;",
+    )
 
   case fan_id == "" || collection_token == "" || wishlist_token == "" {
     True ->
@@ -141,25 +153,30 @@ fn expand_profile(profile_url: String, cache_mode: cache.CacheMode) -> core.Expa
         items: entry_items,
         lists: [],
         next_nodes: [
-          core.CategoryNode("collection" <> "|" <> fan_id <> "|" <> collection_token),
-          core.CategoryNode("wishlist" <> "|" <> fan_id <> "|" <> wishlist_token),
+          core.CategoryNode(
+            "collection" <> "|" <> fan_id <> "|" <> collection_token,
+          ),
+          core.CategoryNode(
+            "wishlist" <> "|" <> fan_id <> "|" <> wishlist_token,
+          ),
         ],
         unresolved: [],
       )
   }
 }
 
-fn expand_category(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
+fn expand_category(
+  ctx: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    [kind, fan_id, token] -> fetch_category_page(kind, fan_id, token, cache_mode)
+    [kind, fan_id, token] ->
+      fetch_category_page(kind, fan_id, token, cache_mode)
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.CategoryNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.CategoryNode(ctx),
+      ])
   }
 }
 
@@ -170,11 +187,10 @@ fn fetch_category_page(
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   // Pagination follows Bandcamp API `more_available` + `last_token`.
-  let endpoint =
-    case kind {
-      "collection" -> "https://bandcamp.com/api/fancollection/1/collection_items"
-      _ -> "https://bandcamp.com/api/fancollection/1/wishlist_items"
-    }
+  let endpoint = case kind {
+    "collection" -> "https://bandcamp.com/api/fancollection/1/collection_items"
+    _ -> "https://bandcamp.com/api/fancollection/1/wishlist_items"
+  }
 
   let body =
     "{\"fan_id\":"
@@ -189,11 +205,10 @@ fn fetch_category_page(
   let next = extract_between(json, "\"last_token\":\"", "\"")
   let more = string.contains(json, "\"more_available\":true")
 
-  let page_nodes =
-    case more && next != "" {
-      True -> [core.CategoryNode(kind <> "|" <> fan_id <> "|" <> next)]
-      False -> []
-    }
+  let page_nodes = case more && next != "" {
+    True -> [core.CategoryNode(kind <> "|" <> fan_id <> "|" <> next)]
+    False -> []
+  }
   let next_nodes = list.append(page_nodes, album_nodes)
 
   core.ExpandResult(
@@ -217,25 +232,21 @@ fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
       )
     }
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.ListNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.ListNode(ctx),
+      ])
   }
 }
 
 fn cached_fetch(url: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "bandcamp_fetch",
-    url,
-    cache_mode,
-    fn() { fetch(url) },
-  )
+  cache.read_or_fetch("bandcamp_fetch", url, cache_mode, fn() { fetch(url) })
 }
 
-fn cached_post_json(url: String, body: String, cache_mode: cache.CacheMode) -> String {
+fn cached_post_json(
+  url: String,
+  body: String,
+  cache_mode: cache.CacheMode,
+) -> String {
   cache.read_or_fetch(
     "bandcamp_post_json",
     url <> "|" <> body,
@@ -278,7 +289,13 @@ fn parse_item_parts_with_album_nodes(
       let artist = extract_between(part, "\"band_name\":\"", "\"")
       let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
       case id == "" || item_type == "" || title == "" {
-        True -> parse_item_parts_with_album_nodes(rest, items_acc, nodes_acc, album_nodes_added)
+        True ->
+          parse_item_parts_with_album_nodes(
+            rest,
+            items_acc,
+            nodes_acc,
+            album_nodes_added,
+          )
         False -> {
           let maybe_item =
             core.track_item(
@@ -287,15 +304,15 @@ fn parse_item_parts_with_album_nodes(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
             )
-          let #(nodes_acc, album_nodes_added) =
-            case item_type == "album" && item_url != "" && album_nodes_added < 2 {
-              True ->
-                #(
-                  [core.ListNode("album|" <> item_url <> "|" <> id), ..nodes_acc],
-                  album_nodes_added + 1,
-                )
-              False -> #(nodes_acc, album_nodes_added)
-            }
+          let #(nodes_acc, album_nodes_added) = case
+            item_type == "album" && item_url != "" && album_nodes_added < 2
+          {
+            True -> #(
+              [core.ListNode("album|" <> item_url <> "|" <> id), ..nodes_acc],
+              album_nodes_added + 1,
+            )
+            False -> #(nodes_acc, album_nodes_added)
+          }
           parse_item_parts_with_album_nodes(
             rest,
             case maybe_item {
@@ -354,13 +371,10 @@ fn parse_track_id_parts(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
             )
-          parse_track_id_parts(
-            rest,
-            case maybe_item {
-              Ok(item) -> [item, ..acc]
-              Error(_) -> acc
-            },
-          )
+          parse_track_id_parts(rest, case maybe_item {
+            Ok(item) -> [item, ..acc]
+            Error(_) -> acc
+          })
         }
       }
     }
@@ -379,7 +393,10 @@ fn parse_album_tracks(html: String, album_id: String) -> List(core.UnifiedItem) 
   }
 }
 
-fn parse_album_track_parts(segment: String, album_id: String) -> List(core.UnifiedItem) {
+fn parse_album_track_parts(
+  segment: String,
+  album_id: String,
+) -> List(core.UnifiedItem) {
   let parts = string.split(segment, "\"title\":\"")
   case parts {
     [] -> []
@@ -397,26 +414,26 @@ fn parse_album_track_titles(
     [] -> list.reverse(acc)
     [part, ..rest] -> {
       let title = decode(first_segment(part, "\""))
-      let track_id = first_segment(extract_between(part, "\"track_id\":", ","), ",")
-      let artist = decode(default_if_empty(extract_between(part, "\"artist\":\"", "\""), "unknown"))
+      let track_id =
+        first_segment(extract_between(part, "\"track_id\":", ","), ",")
+      let artist =
+        decode(default_if_empty(
+          extract_between(part, "\"artist\":\"", "\""),
+          "unknown",
+        ))
       case title == "" {
         True -> parse_album_track_titles(rest, album_id, index + 1, acc)
         False -> {
-          let raw_source_id =
-            case track_id {
-              "" -> album_id <> ":" <> int.to_string(index)
-              _ -> track_id
-            }
-          let maybe_item = core.track_item("bandcamp", raw_source_id, title, artist)
-          parse_album_track_titles(
-            rest,
-            album_id,
-            index + 1,
-            case maybe_item {
-              Ok(item) -> [item, ..acc]
-              Error(_) -> acc
-            },
-          )
+          let raw_source_id = case track_id {
+            "" -> album_id <> ":" <> int.to_string(index)
+            _ -> track_id
+          }
+          let maybe_item =
+            core.track_item("bandcamp", raw_source_id, title, artist)
+          parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
+            Ok(item) -> [item, ..acc]
+            Error(_) -> acc
+          })
         }
       }
     }
@@ -451,13 +468,10 @@ fn parse_item_parts(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
             )
-          parse_item_parts(
-            rest,
-            case maybe_item {
-              Ok(item) -> [item, ..acc]
-              Error(_) -> acc
-            },
-          )
+          parse_item_parts(rest, case maybe_item {
+            Ok(item) -> [item, ..acc]
+            Error(_) -> acc
+          })
         }
       }
     }

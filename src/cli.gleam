@@ -17,7 +17,6 @@ import gleam/string
 import output/csv_writer
 import output/visual_output
 import simplifile
-import source_id_normalizer
 import source_specs
 
 @external(erlang, "cli_runtime_args", "argv")
@@ -44,9 +43,11 @@ pub fn run(args: List(String)) {
     [] -> show_easy_start()
     ["list"] -> list_sources()
     ["csv", source_selector] -> export_source_csv_simple(source_selector, False)
-    ["csv", source_selector, "cache"] -> export_source_csv_simple(source_selector, True)
+    ["csv", source_selector, "cache"] ->
+      export_source_csv_simple(source_selector, True)
     ["fetch", source_selector] -> fetch_source_simple(source_selector, False)
-    ["fetch", source_selector, "cache"] -> fetch_source_simple(source_selector, True)
+    ["fetch", source_selector, "cache"] ->
+      fetch_source_simple(source_selector, True)
     ["export", "all", "csv"] -> export_all_csv(False)
     ["export", "all", "csv", "use-cache"] -> export_all_csv(True)
     ["export", "source", "csv", source_key, "depth", depth_text] ->
@@ -57,13 +58,30 @@ pub fn run(args: List(String)) {
       fetch_source(source_index_text, depth_text, None, False)
     ["source", "fetch", source_index_text, "depth", depth_text, "use-cache"] ->
       fetch_source(source_index_text, depth_text, None, True)
-    ["source", "fetch", source_index_text, "depth", depth_text, "cache", cache_mode_text] ->
+    [
+      "source",
+      "fetch",
+      source_index_text,
+      "depth",
+      depth_text,
+      "cache",
+      cache_mode_text,
+    ] ->
       fetch_source(source_index_text, depth_text, Some(cache_mode_text), False)
     ["source", "fetch", "id", source_key, "depth", depth_text] ->
       fetch_source_by_id(source_key, depth_text, None, False)
     ["source", "fetch", "id", source_key, "depth", depth_text, "use-cache"] ->
       fetch_source_by_id(source_key, depth_text, None, True)
-    ["source", "fetch", "id", source_key, "depth", depth_text, "cache", cache_mode_text] ->
+    [
+      "source",
+      "fetch",
+      "id",
+      source_key,
+      "depth",
+      depth_text,
+      "cache",
+      cache_mode_text,
+    ] ->
       fetch_source_by_id(source_key, depth_text, Some(cache_mode_text), False)
     _ -> print_usage()
   }
@@ -88,7 +106,8 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
     [] -> Nil
     [source, ..rest] -> {
       let source_specs.SourceSpec(key, name, entry_point, _, _) = source
-      let alias_rank = provider_rank_for_index(source_specs.all(), key, index, 1, 0)
+      let alias_rank =
+        provider_rank_for_index(source_specs.all(), key, index, 1, 0)
       io.println(
         int.to_string(index)
         <> ". "
@@ -117,11 +136,10 @@ fn export_source_csv_simple(source_selector: String, use_cache: Bool) {
   case source_by_selector(source_specs.all(), source_selector) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
-      let cache_mode =
-        case use_cache {
-          True -> cache.CacheUpsert
-          False -> cache.CacheOverride
-        }
+      let cache_mode = case use_cache {
+        True -> cache.CacheUpsert
+        False -> cache.CacheOverride
+      }
       run_fetch(source, source_index, core.All, "full", cache_mode, True)
     }
   }
@@ -131,11 +149,10 @@ fn fetch_source_simple(source_selector: String, use_cache: Bool) {
   case source_by_selector(source_specs.all(), source_selector) {
     Error(_) -> io.println("Invalid source selector: " <> source_selector)
     Ok(#(source_index, source)) -> {
-      let cache_mode =
-        case use_cache {
-          True -> cache.CacheUpsert
-          False -> cache.CacheOverride
-        }
+      let cache_mode = case use_cache {
+        True -> cache.CacheUpsert
+        False -> cache.CacheOverride
+      }
       run_fetch(source, source_index, core.All, "full", cache_mode, False)
     }
   }
@@ -152,15 +169,21 @@ fn fetch_source(
     Error(_) -> io.println("Invalid source index: " <> source_index_text)
     Ok(source) ->
       case parse_depth(depth_text) {
-        Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Error(_) ->
+          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
         Ok(depth) ->
           case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
             Error(_) ->
-              io.println(
-                "Invalid cache mode (use: upsert | ignore | override)",
-              )
+              io.println("Invalid cache mode (use: upsert | ignore | override)")
             Ok(cache_mode) ->
-              run_fetch(source, source_index, depth, depth_text, cache_mode, False)
+              run_fetch(
+                source,
+                source_index,
+                depth,
+                depth_text,
+                cache_mode,
+                False,
+              )
           }
       }
   }
@@ -176,13 +199,12 @@ fn fetch_source_by_id(
     Error(_) -> io.println("Invalid source id: " <> source_key)
     Ok(#(source_index, source)) ->
       case parse_depth(depth_text) {
-        Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Error(_) ->
+          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
         Ok(depth) ->
           case parse_cache_mode_arg(source, cache_mode_text_arg, use_cache) {
             Error(_) ->
-              io.println(
-                "Invalid cache mode (use: upsert | ignore | override)",
-              )
+              io.println("Invalid cache mode (use: upsert | ignore | override)")
             Ok(cache_mode) ->
               run_fetch(
                 source,
@@ -205,7 +227,8 @@ fn run_fetch(
   cache_mode: cache.CacheMode,
   always_validate: Bool,
 ) {
-  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = source
+  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
+    source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("Fetching source " <> int.to_string(source_index) <> ": " <> name)
   io.println("Depth: " <> depth_label)
@@ -237,9 +260,14 @@ fn run_fetch(
   let adapter_id = adapter_id_for_source(key, entry_point)
   let tracks = list.map(items, fn(item) { to_track_view(item, adapter_id) })
   let csv = csv_writer.tracks_csv(tracks)
-  let csv_path = artifact_path(
-    "cli_result_" <> key <> "_depth_" <> sanitize_depth_label(depth_label) <> ".csv",
-  )
+  let csv_path =
+    artifact_path(
+      "cli_result_"
+      <> key
+      <> "_depth_"
+      <> sanitize_depth_label(depth_label)
+      <> ".csv",
+    )
   let _ = simplifile.write(csv, to: csv_path)
   io.println("CSV written: " <> csv_path)
   print_runtime_validation(source, depth, cache_mode, result, always_validate)
@@ -255,14 +283,17 @@ fn print_runtime_validation(
   case always_validate || depth == core.All {
     False -> Nil
     True -> {
-      let run = validation_run_for_depth(source, depth, cache_mode, depth_result)
+      let run =
+        validation_run_for_depth(source, depth, cache_mode, depth_result)
       let validation_errors = validate_source_run(run)
       io.println("")
       case validation_errors == [] {
         True -> io.println("Validation: PASS")
         False -> {
           io.println(
-            "Validation: FAIL (" <> int.to_string(list.length(validation_errors)) <> " errors)",
+            "Validation: FAIL ("
+            <> int.to_string(list.length(validation_errors))
+            <> " errors)",
           )
           list.each(validation_errors, fn(line) { io.println("  - " <> line) })
         }
@@ -277,20 +308,20 @@ fn validation_run_for_depth(
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
 ) -> SourceRun {
-  let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) = source
+  let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
+    source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-  let resolve_depth =
-    fn(mode: core.DepthMode) {
-      resolve_source(
-        key,
-        entry_point,
-        mode,
-        source_limit,
-        timing_spec,
-        cache_mode,
-        fn(_line) { Nil },
-      )
-    }
+  let resolve_depth = fn(mode: core.DepthMode) {
+    resolve_source(
+      key,
+      entry_point,
+      mode,
+      source_limit,
+      timing_spec,
+      cache_mode,
+      fn(_line) { Nil },
+    )
+  }
 
   case depth {
     core.Depth1 ->
@@ -329,32 +360,24 @@ fn export_source_csv(source_key: String, depth_text: String, use_cache: Bool) {
     Error(_) -> io.println("Invalid source id: " <> source_key)
     Ok(#(source_index, source)) ->
       case parse_depth(depth_text) {
-        Error(_) -> io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
+        Error(_) ->
+          io.println("Invalid depth: " <> depth_text <> " (use: 1 | 2 | full)")
         Ok(depth) -> {
-          let cache_mode =
-            case use_cache {
-              True -> cache.CacheUpsert
-              False -> cache.CacheOverride
-            }
-          run_fetch(
-            source,
-            source_index,
-            depth,
-            depth_text,
-            cache_mode,
-            True,
-          )
+          let cache_mode = case use_cache {
+            True -> cache.CacheUpsert
+            False -> cache.CacheOverride
+          }
+          run_fetch(source, source_index, depth, depth_text, cache_mode, True)
         }
       }
   }
 }
 
 fn export_all_csv(use_cache: Bool) {
-  let cache_mode =
-    case use_cache {
-      True -> cache.CacheUpsert
-      False -> cache.CacheOverride
-    }
+  let cache_mode = case use_cache {
+    True -> cache.CacheUpsert
+    False -> cache.CacheOverride
+  }
   io.println(
     "Exporting all sources to CSV with cache "
     <> cache_mode_text(cache_mode)
@@ -364,12 +387,12 @@ fn export_all_csv(use_cache: Bool) {
   let adapter_items = source_run_items(runs)
   let tuna_items = collect_tuna_items(cache_mode)
   let all_items = list.append(adapter_items, tuna_items)
-  let tuna_download_links = tuna_remote_download_links()
+  let tuna_metadata_rows = tuna_row_metadata()
   let tracks =
     list.append(
       source_run_track_views(runs),
       list.map(tuna_items, fn(item) {
-        to_tuna_track_view(item, tuna_adapter_id(), tuna_download_links)
+        to_tuna_track_view(item, tuna_adapter_id(), tuna_metadata_rows)
       }),
     )
   let csv = csv_writer.tracks_csv(tracks)
@@ -389,14 +412,20 @@ fn export_all_csv(use_cache: Bool) {
     True -> io.println("Validation: PASS")
     False -> {
       io.println(
-        "Validation: FAIL (" <> int.to_string(list.length(validation_errors)) <> " errors)",
+        "Validation: FAIL ("
+        <> int.to_string(list.length(validation_errors))
+        <> " errors)",
       )
       list.each(validation_errors, fn(line) { io.println("  - " <> line) })
     }
   }
 }
 
-fn write_output_file(path: String, content: String, success_label: String) -> List(String) {
+fn write_output_file(
+  path: String,
+  content: String,
+  success_label: String,
+) -> List(String) {
   case simplifile.write(content, to: path) {
     Ok(_) -> {
       io.println(success_label <> path)
@@ -414,8 +443,15 @@ fn collect_source_runs(
   case specs {
     [] -> acc
     [source, ..rest] -> {
-      let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = source
-      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+      let source_specs.SourceSpec(
+        key,
+        name,
+        entry_point,
+        timing_spec,
+        assert_spec,
+      ) = source
+      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) =
+        assert_spec
       io.println("  - " <> name)
       let depth_1 =
         resolve_source(
@@ -471,13 +507,16 @@ fn source_run_items(runs: List(SourceRun)) -> List(core.UnifiedItem) {
   })
 }
 
-fn source_run_track_views(runs: List(SourceRun)) -> List(visual_output.TrackView) {
+fn source_run_track_views(
+  runs: List(SourceRun),
+) -> List(visual_output.TrackView) {
   list.fold(runs, [], fn(acc, run) {
     let SourceRun(source, _, _, depth_all) = run
     let source_specs.SourceSpec(key, _, entry_point, _, _) = source
     let core.ResolveResult(items, _, _) = depth_all
     let adapter_id = adapter_id_for_source(key, entry_point)
-    let track_views = list.map(items, fn(item) { to_track_view(item, adapter_id) })
+    let track_views =
+      list.map(items, fn(item) { to_track_view(item, adapter_id) })
     list.append(acc, track_views)
   })
 }
@@ -511,10 +550,12 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   let consistency_ok = lall >= l1 && uall == u1
   let first_ids = first_item_ids(depth_1, first_items_to_preserve)
   let first_items_ok =
-    first_ids != [] && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
+    first_ids != []
+    && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
   let anchors_shallow_ok =
     list.all(anchor_fragments, fn(fragment) {
-      has_title_fragment(items_1, fragment) || has_title_fragment(items_2, fragment)
+      has_title_fragment(items_1, fragment)
+      || has_title_fragment(items_2, fragment)
     })
   let anchors_full_ok =
     list.all(anchor_fragments, fn(fragment) {
@@ -557,7 +598,12 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   )
   |> add_validation_error(
     !source_limit_ok,
-    key <> " (" <> name <> "): source limit exceeded (" <> int.to_string(source_limit) <> ")",
+    key
+      <> " ("
+      <> name
+      <> "): source limit exceeded ("
+      <> int.to_string(source_limit)
+      <> ")",
   )
 }
 
@@ -567,7 +613,9 @@ fn validate_tuna_items(items: List(core.UnifiedItem)) -> List(String) {
     False ->
       case list.all(items, fn(item) { item_source_id_ok(item) }) {
         True -> []
-        False -> ["tuna: one or more items failed source_id constructor validation"]
+        False -> [
+          "tuna: one or more items failed source_id constructor validation",
+        ]
       }
   }
 }
@@ -580,7 +628,11 @@ fn item_source_id_ok(item: core.UnifiedItem) -> Bool {
   }
 }
 
-fn add_validation_error(errors: List(String), condition: Bool, line: String) -> List(String) {
+fn add_validation_error(
+  errors: List(String),
+  condition: Bool,
+  line: String,
+) -> List(String) {
   case condition {
     True -> list.append(errors, [line])
     False -> errors
@@ -640,7 +692,8 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = timing_spec
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+    timing_spec
   let queue_policy =
     core.QueuePolicy(
       max_concurrency: max_concurrency,
@@ -671,12 +724,17 @@ fn resolve_source(
     }
     "spotify" -> {
       let access_token =
-        spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+        spotify_live_expander.read_access_token_file(
+          ".spotify_oauth_session.json",
+        )
       let config =
         spotify_live_expander.spotify_config(
           access_token: access_token,
           session_file: ".spotify_oauth_session.json",
-          client_id: spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID"),
+          client_id: spotify_live_expander.read_env_value(
+            ".env",
+            "SPOTIFY_CLIENT_ID",
+          ),
           client_secret: spotify_live_expander.read_env_value(
             ".env",
             "SPOTIFY_CLIENT_SECRET",
@@ -709,7 +767,10 @@ fn resolve_source(
   }
 }
 
-fn to_track_view(item: core.UnifiedItem, adapter_id: String) -> visual_output.TrackView {
+fn to_track_view(
+  item: core.UnifiedItem,
+  adapter_id: String,
+) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
   visual_output.TrackView(title, artist, service, source_id, adapter_id, "", "")
 }
@@ -717,15 +778,29 @@ fn to_track_view(item: core.UnifiedItem, adapter_id: String) -> visual_output.Tr
 fn to_tuna_track_view(
   item: core.UnifiedItem,
   adapter_id: String,
-  download_links: List(TunaDownloadLink),
+  metadata_rows: List(TunaRowMetadata),
 ) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  let download = tuna_download_for(download_links, service, source_id)
-  visual_output.TrackView(title, "", service, source_id, adapter_id, download, artist)
+  let TunaRowMetadata(_, _, download, tags) =
+    tuna_metadata_for(metadata_rows, service, source_id)
+  visual_output.TrackView(
+    title,
+    artist,
+    service,
+    format_tuna_source_id(service, source_id),
+    adapter_id,
+    download,
+    tags,
+  )
 }
 
-type TunaDownloadLink {
-  TunaDownloadLink(service: String, source_id: String, download: String)
+type TunaRowMetadata {
+  TunaRowMetadata(
+    service: String,
+    source_id: String,
+    file_path: String,
+    tags: String,
+  )
 }
 
 fn tuna_adapter_id() -> String {
@@ -736,82 +811,116 @@ fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
   source_type <> " + " <> entry_point
 }
 
-fn tuna_remote_download_links() -> List(TunaDownloadLink) {
+fn tuna_row_metadata() -> List(TunaRowMetadata) {
   let payload = tracks_source_ids_json()
   let rows = decode_dynamic_rows(payload)
   list.fold(rows, [], fn(acc, row) {
-    let download = decode_path_or(row, ["dropped_path"], "", decode.string)
-    let acc = push_tuna_download_link(acc, row, "spotify", "spotify_id", download)
-    let acc = push_tuna_download_link(acc, row, "youtube", "youtube_id", download)
-    let acc = push_tuna_download_link(acc, row, "soundcloud", "soundcloud_id", download)
+    let file_path = decode_path_or(row, ["file_path"], "", decode.string)
+    let tags = tuna_tags_with_rating(row)
     let acc =
-      push_tuna_download_link(acc, row, "bandcamp", "bandcamp_track_id", download)
-    let acc = push_tuna_download_link(acc, row, "itunes", "itunes_track_id", download)
-    push_tuna_download_link(
+      push_tuna_metadata(acc, row, "spotify", "spotify_id", file_path, tags)
+    let acc =
+      push_tuna_metadata(acc, row, "youtube", "youtube_id", file_path, tags)
+    let acc =
+      push_tuna_metadata(
+        acc,
+        row,
+        "soundcloud",
+        "soundcloud_id",
+        file_path,
+        tags,
+      )
+    let acc =
+      push_tuna_metadata(
+        acc,
+        row,
+        "bandcamp",
+        "bandcamp_track_id",
+        file_path,
+        tags,
+      )
+    let acc = push_tuna_metadata(acc, row, "file", "file_path", file_path, tags)
+    let acc =
+      push_tuna_metadata(acc, row, "itunes", "itunes_track_id", file_path, tags)
+    push_tuna_metadata(
       acc,
       row,
       "itunes",
       "itunes_persistent_track_id",
-      download,
+      file_path,
+      tags,
     )
   })
 }
 
-fn push_tuna_download_link(
-  acc: List(TunaDownloadLink),
+fn push_tuna_metadata(
+  acc: List(TunaRowMetadata),
   row: dynamic.Dynamic,
   service: String,
   id_key: String,
-  download: String,
-) -> List(TunaDownloadLink) {
-  let normalized_source_id =
-    source_id_normalizer.normalize(
-      service,
-      decode_path_or(row, [id_key], "", decode.string),
-    )
-  case download == "" || normalized_source_id == "" {
+  file_path: String,
+  tags: String,
+) -> List(TunaRowMetadata) {
+  let source_id = decode_path_or(row, [id_key], "", decode.string)
+  case source_id == "" {
     True -> acc
     False ->
-      case list.any(acc, fn(link) {
-        let TunaDownloadLink(existing_service, existing_source_id, _) = link
-        existing_service == service && existing_source_id == normalized_source_id
-      }) {
+      case
+        list.any(acc, fn(meta) {
+          let TunaRowMetadata(existing_service, existing_source_id, _, _) = meta
+          existing_service == service && existing_source_id == source_id
+        })
+      {
         True -> acc
         False ->
-          list.append(
-            acc,
-            [TunaDownloadLink(service, normalized_source_id, download)],
-          )
+          list.append(acc, [
+            TunaRowMetadata(service, source_id, file_path, tags),
+          ])
       }
   }
 }
 
-fn tuna_download_for(
-  links: List(TunaDownloadLink),
+fn tuna_metadata_for(
+  rows: List(TunaRowMetadata),
   service: String,
   source_id: String,
-) -> String {
-  case service == "file" {
-    True -> ""
-    False ->
-      links
-      |> list.filter(fn(link) {
-        let TunaDownloadLink(link_service, link_source_id, _) = link
-        link_service == service && link_source_id == source_id
-      })
-      |> list.first
-      |> result.map(fn(link) {
-        let TunaDownloadLink(_, _, download) = link
-        download
-      })
-      |> result.unwrap("")
-  }
+) -> TunaRowMetadata {
+  rows
+  |> list.filter(fn(row) {
+    let TunaRowMetadata(row_service, row_source_id, _, _) = row
+    row_service == service && row_source_id == source_id
+  })
+  |> list.first
+  |> result.unwrap(TunaRowMetadata(service, source_id, "", ""))
+}
+
+fn tuna_tags_with_rating(row: dynamic.Dynamic) -> String {
+  let rating = decode_path_or(row, ["rating"], 0, decode.int)
+  normalize_tuna_tags(
+    decode_path_or(row, ["tags"], [], decode.list(of: decode.string)),
+    rating,
+  )
+}
+
+pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
+  let rating_tag = "rating" <> int.to_string(rating)
+  let normalized_tags =
+    tags
+    |> list.filter(fn(tag) {
+      !string.starts_with(string.lowercase(tag), "rating")
+    })
+  string.join(list.append(normalized_tags, [rating_tag]), " | ")
+}
+
+pub fn format_tuna_source_id(service: String, source_id: String) -> String {
+  service <> ":" <> source_id
 }
 
 fn decode_dynamic_rows(payload: String) -> List(dynamic.Dynamic) {
   case json.parse(payload, decode.dynamic) {
     Error(_) -> []
-    Ok(value) -> decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
+    Ok(value) ->
+      decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
   }
 }
 
@@ -876,11 +985,10 @@ fn source_by_selector(
   sources: List(source_specs.SourceSpec),
   wanted: String,
 ) -> Result(#(Int, source_specs.SourceSpec), Nil) {
-  let maybe_index =
-    case int.parse(wanted) {
-      Ok(index) -> Some(index)
-      Error(_) -> None
-    }
+  let maybe_index = case int.parse(wanted) {
+    Ok(index) -> Some(index)
+    Error(_) -> None
+  }
   case maybe_index {
     Some(index) ->
       case source_at(sources, index, 1) {
@@ -977,11 +1085,10 @@ fn provider_rank_for_index(
     [] -> current_rank
     [source, ..rest] -> {
       let source_specs.SourceSpec(key, _, _, _, _) = source
-      let next_rank =
-        case key == wanted_key {
-          True -> current_rank + 1
-          False -> current_rank
-        }
+      let next_rank = case key == wanted_key {
+        True -> current_rank + 1
+        False -> current_rank
+      }
       case current_index == wanted_index {
         True -> next_rank
         False ->
@@ -1022,14 +1129,15 @@ fn print_exit_signal() {
   io.println("CLI_EXIT:0")
 }
 
-
 fn print_usage() {
   io.println("Usage:")
   io.println("  cli list")
   io.println("  cli csv <source_selector> [cache]")
   io.println("  cli fetch <source_selector> [cache]")
   io.println("  cli export all csv [use-cache]")
-  io.println("  cli export source csv <entry_point_id> depth <1|2|full> [use-cache]")
+  io.println(
+    "  cli export source csv <entry_point_id> depth <1|2|full> [use-cache]",
+  )
   io.println(
     "  cli source fetch <index> depth <1|2|full> [cache <upsert|ignore|override>] [use-cache]",
   )
@@ -1045,7 +1153,9 @@ fn print_usage() {
   io.println("  gleam run -m cli -- fetch 2")
   io.println("  gleam run -m cli -- fetch youtube cache")
   io.println("  gleam run -m cli -- export all csv")
-  io.println("  gleam run -m cli -- source fetch id spotify depth full use-cache")
+  io.println(
+    "  gleam run -m cli -- source fetch id spotify depth full use-cache",
+  )
   io.println("")
   io.println("Tip:")
   io.println(

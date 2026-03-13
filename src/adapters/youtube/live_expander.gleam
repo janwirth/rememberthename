@@ -17,10 +17,11 @@
 //// - Depth 1: first playlist surface.
 //// - Depth 2: one additional continuation level.
 //// - Deeper modes continue continuation-page traversal in order.
-import gleam/list
-import gleam/string
+
 import adapters/cache
 import adapters/core
+import gleam/list
+import gleam/string
 
 @external(erlang, "youtube_http", "playlist_first_tsv")
 fn playlist_first_tsv(url: String) -> String
@@ -38,10 +39,18 @@ fn playlist_client_version(url: String) -> String
 fn playlist_title(url: String) -> String
 
 @external(erlang, "youtube_http", "continuation_tsv")
-fn continuation_tsv(api_key: String, client_version: String, token: String) -> String
+fn continuation_tsv(
+  api_key: String,
+  client_version: String,
+  token: String,
+) -> String
 
 @external(erlang, "youtube_http", "continuation_next_token")
-fn continuation_next_token(api_key: String, client_version: String, token: String) -> String
+fn continuation_next_token(
+  api_key: String,
+  client_version: String,
+  token: String,
+) -> String
 
 pub opaque type YoutubePlaylistProfile {
   YoutubePlaylistProfile(playlist_url: String)
@@ -65,13 +74,7 @@ pub fn resolve_profile_with_debug(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  resolve_profile_with_debug_limited(
-    profile,
-    depth,
-    cache_mode,
-    0,
-    on_debug,
-  )
+  resolve_profile_with_debug_limited(profile, depth, cache_mode, 0, on_debug)
 }
 
 pub fn resolve_profile_with_debug_limited(
@@ -110,7 +113,10 @@ pub fn resolve_profile_with_debug_limited_timed(
   )
 }
 
-pub fn expand(node: core.AdapterNode, cache_mode: cache.CacheMode) -> core.ExpandResult {
+pub fn expand(
+  node: core.AdapterNode,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   case node {
     core.ProfileEntry(profile_url) -> expand_profile(profile_url, cache_mode)
     core.PageNode(ctx) -> expand_page(ctx, cache_mode)
@@ -118,41 +124,49 @@ pub fn expand(node: core.AdapterNode, cache_mode: cache.CacheMode) -> core.Expan
   }
 }
 
-fn expand_profile(profile_url: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
+fn expand_profile(
+  profile_url: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   let playlist_id = parse_playlist_id(profile_url)
   case playlist_id == "" {
     True ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.ProfileEntry(profile_url)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.ProfileEntry(profile_url),
+      ])
     False -> {
-      let items = parse_tracks(cached_playlist_first_tsv(profile_url, cache_mode))
+      let items =
+        parse_tracks(cached_playlist_first_tsv(profile_url, cache_mode))
       let title =
         default_if_empty(
           string.trim(cached_playlist_title(profile_url, cache_mode)),
           "YouTube Playlist",
         )
-      let api_key = string.trim(cached_playlist_api_key(profile_url, cache_mode))
+      let api_key =
+        string.trim(cached_playlist_api_key(profile_url, cache_mode))
       let client_version =
         string.trim(cached_playlist_client_version(profile_url, cache_mode))
       let token =
         string.trim(cached_playlist_first_next_token(profile_url, cache_mode))
-      let next_nodes =
-        case api_key != "" && client_version != "" && token != "" {
-          True -> [core.PageNode(page_ctx(profile_url, playlist_id, api_key, client_version, token))]
-          False -> []
-        }
+      let next_nodes = case
+        api_key != "" && client_version != "" && token != ""
+      {
+        True -> [
+          core.PageNode(page_ctx(
+            profile_url,
+            playlist_id,
+            api_key,
+            client_version,
+            token,
+          )),
+        ]
+        False -> []
+      }
       case items == [] {
         True ->
-          core.ExpandResult(
-            items: [],
-            lists: [],
-            next_nodes: [],
-            unresolved: [core.ProfileEntry(profile_url)],
-          )
+          core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+            core.ProfileEntry(profile_url),
+          ])
         False ->
           core.ExpandResult(
             items: items,
@@ -170,28 +184,31 @@ fn expand_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   case parts {
     [profile_url, playlist_id, api_key, client_version, token] -> {
       let items =
-        parse_tracks(
-          cached_continuation_tsv(
-            api_key,
-            client_version,
-            token,
-            cache_mode,
-          ),
-        )
+        parse_tracks(cached_continuation_tsv(
+          api_key,
+          client_version,
+          token,
+          cache_mode,
+        ))
       let next_token =
-        string.trim(
-          cached_continuation_next_token(
+        string.trim(cached_continuation_next_token(
+          api_key,
+          client_version,
+          token,
+          cache_mode,
+        ))
+      let next_nodes = case next_token != "" {
+        True -> [
+          core.PageNode(page_ctx(
+            profile_url,
+            playlist_id,
             api_key,
             client_version,
-            token,
-            cache_mode,
-          ),
-        )
-      let next_nodes =
-        case next_token != "" {
-          True -> [core.PageNode(page_ctx(profile_url, playlist_id, api_key, client_version, next_token))]
-          False -> []
-        }
+            next_token,
+          )),
+        ]
+        False -> []
+      }
       core.ExpandResult(
         items: items,
         lists: [make_collection(playlist_id, "YouTube Playlist", items)],
@@ -200,12 +217,9 @@ fn expand_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
       )
     }
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.PageNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.PageNode(ctx),
+      ])
   }
 }
 
@@ -237,7 +251,11 @@ fn parse_tracks(raw: String) -> List(core.UnifiedItem) {
   })
 }
 
-fn make_item(video_id: String, title: String, artist: String) -> Result(core.UnifiedItem, Nil) {
+fn make_item(
+  video_id: String,
+  title: String,
+  artist: String,
+) -> Result(core.UnifiedItem, Nil) {
   core.track_item(
     "youtube",
     video_id,
@@ -327,15 +345,15 @@ fn normalize_text(value: String) -> String {
 }
 
 fn cached_playlist_first_tsv(url: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "youtube_playlist_first_tsv",
-    url,
-    cache_mode,
-    fn() { playlist_first_tsv(url) },
-  )
+  cache.read_or_fetch("youtube_playlist_first_tsv", url, cache_mode, fn() {
+    playlist_first_tsv(url)
+  })
 }
 
-fn cached_playlist_first_next_token(url: String, cache_mode: cache.CacheMode) -> String {
+fn cached_playlist_first_next_token(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> String {
   cache.read_or_fetch(
     "youtube_playlist_first_next_token",
     url,
@@ -345,30 +363,24 @@ fn cached_playlist_first_next_token(url: String, cache_mode: cache.CacheMode) ->
 }
 
 fn cached_playlist_api_key(url: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "youtube_playlist_api_key",
-    url,
-    cache_mode,
-    fn() { playlist_api_key(url) },
-  )
+  cache.read_or_fetch("youtube_playlist_api_key", url, cache_mode, fn() {
+    playlist_api_key(url)
+  })
 }
 
-fn cached_playlist_client_version(url: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "youtube_playlist_client_version",
-    url,
-    cache_mode,
-    fn() { playlist_client_version(url) },
-  )
+fn cached_playlist_client_version(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> String {
+  cache.read_or_fetch("youtube_playlist_client_version", url, cache_mode, fn() {
+    playlist_client_version(url)
+  })
 }
 
 fn cached_playlist_title(url: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "youtube_playlist_title",
-    url,
-    cache_mode,
-    fn() { playlist_title(url) },
-  )
+  cache.read_or_fetch("youtube_playlist_title", url, cache_mode, fn() {
+    playlist_title(url)
+  })
 }
 
 fn cached_continuation_tsv(
@@ -378,12 +390,9 @@ fn cached_continuation_tsv(
   cache_mode: cache.CacheMode,
 ) -> String {
   let key = api_key <> "|" <> client_version <> "|" <> token
-  cache.read_or_fetch(
-    "youtube_continuation_tsv",
-    key,
-    cache_mode,
-    fn() { continuation_tsv(api_key, client_version, token) },
-  )
+  cache.read_or_fetch("youtube_continuation_tsv", key, cache_mode, fn() {
+    continuation_tsv(api_key, client_version, token)
+  })
 }
 
 fn cached_continuation_next_token(
@@ -393,10 +402,7 @@ fn cached_continuation_next_token(
   cache_mode: cache.CacheMode,
 ) -> String {
   let key = api_key <> "|" <> client_version <> "|" <> token
-  cache.read_or_fetch(
-    "youtube_continuation_next_token",
-    key,
-    cache_mode,
-    fn() { continuation_next_token(api_key, client_version, token) },
-  )
+  cache.read_or_fetch("youtube_continuation_next_token", key, cache_mode, fn() {
+    continuation_next_token(api_key, client_version, token)
+  })
 }

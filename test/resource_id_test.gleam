@@ -83,12 +83,7 @@ pub fn build_normalizes_youtube_short_url_test() {
 
 pub fn build_encodes_colon_in_payload_test() {
   let built =
-    resource_id.build(
-      resource_id.Platform,
-      "legacy",
-      "track",
-      "sha256:2f8d9c",
-    )
+    resource_id.build(resource_id.Platform, "legacy", "track", "sha256:2f8d9c")
     |> should.be_ok
   resource_id.to_string(built)
   |> should.equal("rid:v1:platform:legacy:track:sha256%3A2f8d9c")

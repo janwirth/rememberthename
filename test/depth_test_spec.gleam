@@ -1,13 +1,10 @@
 import adapters/cache
+import adapters/core
 import gleam/list
 import gleam/string
-import adapters/core
 
 pub type DepthResults {
-  DepthResults(
-    depth_1: core.ResolveResult,
-    depth_all: core.ResolveResult,
-  )
+  DepthResults(depth_1: core.ResolveResult, depth_all: core.ResolveResult)
 }
 
 pub type DepthAssertSpec {
@@ -29,15 +26,17 @@ pub fn resolve_standard_depths(
   )
 }
 
-pub fn assert_standard_depth_pattern(results: DepthResults, spec: DepthAssertSpec) {
+pub fn assert_standard_depth_pattern(
+  results: DepthResults,
+  spec: DepthAssertSpec,
+) {
   let DepthAssertSpec(
     min_depth_1_items,
     min_full_items,
     first_items_to_preserve,
     anchor_fragments,
     required_full_fragments,
-  ) =
-    spec
+  ) = spec
   let DepthResults(d1, all) = results
   let #(i1, l1, u1) = counts(d1)
   let #(iall, lall, uall) = counts(all)

@@ -1,8 +1,8 @@
 import adapters/core
 import gleam/int
+import gleam/list
 import gleeunit
 import gleeunit/should
-import gleam/list
 
 pub fn main() {
   gleeunit.main()
@@ -50,18 +50,14 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         next_nodes: [],
         unresolved: [],
       )
-    _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
 fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
-  int.range(
-    from: 1,
-    to: count + 1,
-    with: [],
-    run: fn(acc, n) { list.append(acc, [n]) },
-  )
+  int.range(from: 1, to: count + 1, with: [], run: fn(acc, n) {
+    list.append(acc, [n])
+  })
   |> list.map(fn(index) {
     let suffix = int.to_string(index)
     let source_id = prefix <> "-" <> suffix

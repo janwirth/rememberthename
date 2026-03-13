@@ -34,7 +34,8 @@ pub fn sidebar_item_node(
     True ->
       case sidebar_focused {
         True -> red_dot_node(text, True)
-        False -> ui.text_styled("  " <> text, Some(style.Black), Some(style.White))
+        False ->
+          ui.text_styled("  " <> text, Some(style.Black), Some(style.White))
       }
     False -> red_dot_node(text, False)
   }
@@ -108,16 +109,17 @@ pub fn build_validation(
         ]
       }
 
-      let checks = [
-        "[x] depth 1/3/all fetched",
-        checkbox(min_depth_ok) <> " min depth-1 items",
-        checkbox(min_full_ok) <> " min full items",
-        checkbox(monotonic_ok) <> " depth monotonicity",
-        checkbox(consistency_ok) <> " list/unresolved consistency",
-        checkbox(first_items_ok) <> " first items preserved",
-        checkbox(anchors_ok) <> " anchor fragments present",
-      ]
-      |> list.append(anchor_reason_lines)
+      let checks =
+        [
+          "[x] depth 1/3/all fetched",
+          checkbox(min_depth_ok) <> " min depth-1 items",
+          checkbox(min_full_ok) <> " min full items",
+          checkbox(monotonic_ok) <> " depth monotonicity",
+          checkbox(consistency_ok) <> " list/unresolved consistency",
+          checkbox(first_items_ok) <> " first items preserved",
+          checkbox(anchors_ok) <> " anchor fragments present",
+        ]
+        |> list.append(anchor_reason_lines)
       let passed =
         min_depth_ok
         && min_full_ok

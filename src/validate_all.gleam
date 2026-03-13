@@ -39,15 +39,10 @@ fn validate_sources(
     [] -> #(total, failed)
     [spec, ..rest] -> {
       let pass = validate_source(spec, index)
-      validate_sources(
-        rest,
-        index + 1,
-        total + 1,
-        case pass {
-          True -> failed
-          False -> failed + 1
-        },
-      )
+      validate_sources(rest, index + 1, total + 1, case pass {
+        True -> failed
+        False -> failed + 1
+      })
     }
   }
 }
@@ -58,42 +53,69 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
   let cache_mode = cache.CacheUpsert
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("")
-  io.println("== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==")
+  io.println(
+    "== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==",
+  )
   io.println("entry: " <> entry_point)
   io.println("cache: " <> cache_mode_text(cache_mode))
 
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
-    resolve_source(key, entry_point, core.All, source_limit, timing_spec, cache_mode, fn(line) {
-      io.println("[warmup] " <> line)
-    })
+    resolve_source(
+      key,
+      entry_point,
+      core.All,
+      source_limit,
+      timing_spec,
+      cache_mode,
+      fn(line) { io.println("[warmup] " <> line) },
+    )
 
   let depth_1 =
-    resolve_source(key, entry_point, core.Depth1, source_limit, timing_spec, cache_mode, fn(
-      _line,
-    ) {
-      Nil
-    })
+    resolve_source(
+      key,
+      entry_point,
+      core.Depth1,
+      source_limit,
+      timing_spec,
+      cache_mode,
+      fn(_line) { Nil },
+    )
   let depth_2 =
-    resolve_source(key, entry_point, core.Depth2, source_limit, timing_spec, cache_mode, fn(
-      _line,
-    ) {
-      Nil
-    })
+    resolve_source(
+      key,
+      entry_point,
+      core.Depth2,
+      source_limit,
+      timing_spec,
+      cache_mode,
+      fn(_line) { Nil },
+    )
   let depth_all =
-    resolve_source(key, entry_point, core.All, source_limit, timing_spec, cache_mode, fn(line) {
-      io.println("[full] " <> line)
-    })
+    resolve_source(
+      key,
+      entry_point,
+      core.All,
+      source_limit,
+      timing_spec,
+      cache_mode,
+      fn(line) { io.println("[full] " <> line) },
+    )
 
   let pass =
-    validate_results(name, source_limit, assert_spec, depth_1, depth_2, depth_all)
+    validate_results(
+      name,
+      source_limit,
+      assert_spec,
+      depth_1,
+      depth_2,
+      depth_all,
+    )
   write_csv(key, depth_all)
-  io.println(
-    case pass {
-      True -> "Result: PASS"
-      False -> "Result: FAIL"
-    },
-  )
+  io.println(case pass {
+    True -> "Result: PASS"
+    False -> "Result: FAIL"
+  })
   pass
 }
 
@@ -106,7 +128,8 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = timing_spec
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+    timing_spec
   let queue_policy =
     core.QueuePolicy(
       max_concurrency: max_concurrency,
@@ -137,12 +160,17 @@ fn resolve_source(
     }
     "spotify" -> {
       let access_token =
-        spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+        spotify_live_expander.read_access_token_file(
+          ".spotify_oauth_session.json",
+        )
       let config =
         spotify_live_expander.spotify_config(
           access_token: access_token,
           session_file: ".spotify_oauth_session.json",
-          client_id: spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID"),
+          client_id: spotify_live_expander.read_env_value(
+            ".env",
+            "SPOTIFY_CLIENT_ID",
+          ),
           client_secret: spotify_live_expander.read_env_value(
             ".env",
             "SPOTIFY_CLIENT_SECRET",
@@ -204,13 +232,17 @@ fn validate_results(
   let monotonic_ok = i2 > i1 && iall >= i2
   let consistency_ok = lall >= l1 && uall == u1
   let first_ids = first_item_ids(d1, first_items_to_preserve)
-  let first_items_ok = first_ids != [] && list.all(first_ids, fn(id) { has_item_id(all, id) })
+  let first_items_ok =
+    first_ids != [] && list.all(first_ids, fn(id) { has_item_id(all, id) })
   let anchors_shallow_ok =
     list.all(anchor_fragments, fn(fragment) {
-      has_title_fragment(items_1, fragment) || has_title_fragment(items_2, fragment)
+      has_title_fragment(items_1, fragment)
+      || has_title_fragment(items_2, fragment)
     })
   let anchors_full_ok =
-    list.all(anchor_fragments, fn(fragment) { has_title_fragment(items_all, fragment) })
+    list.all(anchor_fragments, fn(fragment) {
+      has_title_fragment(items_all, fragment)
+    })
   let required_full_ok =
     list.all(required_full_fragments, fn(fragment) {
       has_title_fragment_ci(items_all, fragment)
@@ -223,9 +255,13 @@ fn validate_results(
   io.println(check(monotonic_ok) <> " depth monotonicity")
   io.println(check(consistency_ok) <> " list/unresolved consistency")
   io.println(check(first_items_ok) <> " first items preserved")
-  io.println(check(anchors_shallow_ok && anchors_full_ok) <> " anchor fragments present")
+  io.println(
+    check(anchors_shallow_ok && anchors_full_ok) <> " anchor fragments present",
+  )
   io.println(check(required_full_ok) <> " required full fragments present")
-  io.println(check(source_limit_ok) <> " source limit <= " <> int.to_string(source_limit))
+  io.println(
+    check(source_limit_ok) <> " source limit <= " <> int.to_string(source_limit),
+  )
 
   min_depth_ok
   && min_full_ok
@@ -308,4 +344,3 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
     cache.CacheOverride -> "override"
   }
 }
-

@@ -23,28 +23,19 @@
 //// - req/s spacing is reflected by `QueueReport.start_times_ms`
 //// - max concurrency is reflected by `QueueReport.max_active`
 //// - recurse tasks preserve FIFO order in final `results`
+
 import gleam/list
 
 pub type QueuePolicy {
-  QueuePolicy(
-    max_concurrency: Int,
-    requests_per_second: Int,
-  )
+  QueuePolicy(max_concurrency: Int, requests_per_second: Int)
 }
 
 pub type TaskOutcome(task, result, error) {
-  TaskOutcome(
-    recurse: List(task),
-    results: List(result),
-    errors: List(error),
-  )
+  TaskOutcome(recurse: List(task), results: List(result), errors: List(error))
 }
 
 pub type TaskPlan(task, result, error) {
-  TaskPlan(
-    duration_ms: Int,
-    outcome: TaskOutcome(task, result, error),
-  )
+  TaskPlan(duration_ms: Int, outcome: TaskOutcome(task, result, error))
 }
 
 type ActiveTask(task, result, error) {
@@ -71,12 +62,9 @@ pub fn run_default_queue(
   execute_task: fn(task) -> TaskPlan(task, result, error),
 ) -> QueueReport(result, error) {
   let #(report, _) =
-    run_default_queue_with_state(
-      initial_tasks,
-      policy,
-      Nil,
-      fn(task, state) { #(state, execute_task(task)) },
-    )
+    run_default_queue_with_state(initial_tasks, policy, Nil, fn(task, state) {
+      #(state, execute_task(task))
+    })
   report
 }
 
@@ -86,7 +74,8 @@ pub fn run_default_queue_with_state(
   initial_state: state,
   execute_task: fn(task, state) -> #(state, TaskPlan(task, result, error)),
 ) -> #(QueueReport(result, error), state) {
-  let QueuePolicy(max_concurrency, requests_per_second) = normalize_policy(policy)
+  let QueuePolicy(max_concurrency, requests_per_second) =
+    normalize_policy(policy)
   loop(
     pending: initial_tasks,
     active: [],
@@ -115,7 +104,8 @@ fn loop(
   starts starts: List(Int),
   max_active max_active: Int,
   state state: state,
-  execute_task_with_state execute_task_with_state: fn(task, state) -> #(state, TaskPlan(task, result, error)),
+  execute_task_with_state execute_task_with_state: fn(task, state) ->
+    #(state, TaskPlan(task, result, error)),
 ) -> #(QueueReport(result, error), state) {
   let #(active, pending, next_start_at_ms, starts, max_active, state) =
     start_ready_tasks(
@@ -131,29 +121,28 @@ fn loop(
       execute_task_with_state,
     )
   case pending == [] && active == [] {
-    True ->
-      #(
-        QueueReport(
-          results: list.reverse(results),
-          errors: list.reverse(errors),
-          start_times_ms: list.reverse(starts),
-          elapsed_ms: now_ms,
-          max_active: max_active,
-        ),
-        state,
-      )
+    True -> #(
+      QueueReport(
+        results: list.reverse(results),
+        errors: list.reverse(errors),
+        start_times_ms: list.reverse(starts),
+        elapsed_ms: now_ms,
+        max_active: max_active,
+      ),
+      state,
+    )
     False -> {
       let next_finish_at_ms = earliest_finish(active)
-      let can_start_later = pending != [] && list.length(active) < max_concurrency
-      let next_event_at_ms =
-        case active == [] {
-          True -> next_start_at_ms
-          False ->
-            case can_start_later {
-              True -> min_int(next_finish_at_ms, next_start_at_ms)
-              False -> next_finish_at_ms
-            }
-        }
+      let can_start_later =
+        pending != [] && list.length(active) < max_concurrency
+      let next_event_at_ms = case active == [] {
+        True -> next_start_at_ms
+        False ->
+          case can_start_later {
+            True -> min_int(next_finish_at_ms, next_start_at_ms)
+            False -> next_finish_at_ms
+          }
+      }
       let #(active, pending, results, errors) =
         complete_ready_tasks(active, pending, results, errors, next_event_at_ms)
       loop(
@@ -184,21 +173,31 @@ fn start_ready_tasks(
   starts: List(Int),
   max_active: Int,
   state: state,
-  execute_task_with_state: fn(task, state) -> #(state, TaskPlan(task, result, error)),
-) -> #(List(ActiveTask(task, result, error)), List(task), Int, List(Int), Int, state) {
-  case pending, list.length(active) < max_concurrency && now_ms >= next_start_at_ms {
+  execute_task_with_state: fn(task, state) ->
+    #(state, TaskPlan(task, result, error)),
+) -> #(
+  List(ActiveTask(task, result, error)),
+  List(task),
+  Int,
+  List(Int),
+  Int,
+  state,
+) {
+  case
+    pending,
+    list.length(active) < max_concurrency && now_ms >= next_start_at_ms
+  {
     [task, ..rest], True -> {
       let #(state, plan) = execute_task_with_state(task, state)
       let TaskPlan(duration_ms, _) = plan
-      let active =
-        [
-          ActiveTask(
-            started_at_ms: now_ms,
-            finishes_at_ms: now_ms + non_negative(duration_ms),
-            plan: plan,
-          ),
-          ..active
-        ]
+      let active = [
+        ActiveTask(
+          started_at_ms: now_ms,
+          finishes_at_ms: now_ms + non_negative(duration_ms),
+          plan: plan,
+        ),
+        ..active
+      ]
       start_ready_tasks(
         active,
         rest,
@@ -222,7 +221,12 @@ fn complete_ready_tasks(
   results: List(result),
   errors: List(error),
   now_ms: Int,
-) -> #(List(ActiveTask(task, result, error)), List(task), List(result), List(error)) {
+) -> #(
+  List(ActiveTask(task, result, error)),
+  List(task),
+  List(result),
+  List(error),
+) {
   case active {
     [] -> #([], pending, results, errors)
     [first, ..rest] -> {
@@ -252,14 +256,10 @@ fn earliest_finish(active: List(ActiveTask(task, result, error))) -> Int {
   case active {
     [] -> 0
     [ActiveTask(_, first, _), ..rest] ->
-      list.fold(
-        rest,
-        first,
-        fn(acc, task) {
-          let ActiveTask(_, finishes_at_ms, _) = task
-          min_int(acc, finishes_at_ms)
-        },
-      )
+      list.fold(rest, first, fn(acc, task) {
+        let ActiveTask(_, finishes_at_ms, _) = task
+        min_int(acc, finishes_at_ms)
+      })
   }
 }
 

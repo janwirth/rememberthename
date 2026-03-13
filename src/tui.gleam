@@ -169,10 +169,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
           ),
           [],
         )
-        DetailPane -> #(
-          model,
-          [],
-        )
+        DetailPane -> #(model, [])
         TracksPane -> #(
           Model(
             ..model,
@@ -194,10 +191,7 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
           ),
           [],
         )
-        DetailPane -> #(
-          model,
-          [],
-        )
+        DetailPane -> #(model, [])
         TracksPane -> #(
           Model(
             ..model,
@@ -255,7 +249,11 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
     ExitPressed -> request_exit(model)
     FetchCompleted(source_key, depth_kind, status, track_lines, debug_lines) -> {
       let next_source_track_lines =
-        upsert_source_track_lines(model.source_track_lines, source_key, track_lines)
+        upsert_source_track_lines(
+          model.source_track_lines,
+          source_key,
+          track_lines,
+        )
       case selected_source(model.selected_index) {
         Some(current_source) if current_source.key == source_key -> #(
           Model(
@@ -737,11 +735,9 @@ fn toggle_cache_mode_all(model: Model) -> #(Model, List(fn() -> Msg)) {
     Model(
       ..model,
       cache_mode: next_mode,
-      current_debug_lines:
-        list.append(
-          model.current_debug_lines,
-          ["cache mode switched to " <> cache_mode_text(next_mode)],
-        ),
+      current_debug_lines: list.append(model.current_debug_lines, [
+        "cache mode switched to " <> cache_mode_text(next_mode),
+      ]),
     ),
     [],
   )
@@ -759,18 +755,20 @@ fn focus_selected_right(model: Model) -> #(Model, List(fn() -> Msg)) {
       ),
       [],
     )
-    nav.Source(source, _) ->
-      #(
-        Model(
-          ..model,
-          focus: DetailPane,
-          esc_armed: False,
-          track_selected_index: 0,
-          cache_mode: source.cache_mode,
-        ),
-        [],
-      )
-    nav.ToggleCache(_) -> #(Model(..model, focus: DetailPane, esc_armed: False), [])
+    nav.Source(source, _) -> #(
+      Model(
+        ..model,
+        focus: DetailPane,
+        esc_armed: False,
+        track_selected_index: 0,
+        cache_mode: source.cache_mode,
+      ),
+      [],
+    )
+    nav.ToggleCache(_) -> #(
+      Model(..model, focus: DetailPane, esc_armed: False),
+      [],
+    )
     nav.Exit(_) -> #(Model(..model, focus: DetailPane, esc_armed: False), [])
   }
 }
@@ -785,12 +783,9 @@ fn fetch_selected_full(
     fn() {
       let debug_subject = process.new_subject()
       let result =
-        resolve_source(
-          source,
-          core.All,
-          model.cache_mode,
-          fn(line) { process.send(debug_subject, line) },
-        )
+        resolve_source(source, core.All, model.cache_mode, fn(line) {
+          process.send(debug_subject, line)
+        })
       let status = fetched_status(result)
       let track_lines = track_lines_from_result(result)
       FetchCompleted(
@@ -849,10 +844,7 @@ fn view(model: Model) -> shore.Node(Msg) {
   let sidebar = ui.box(sidebar_children, Some("Sources"))
   let right_content = case current_view {
     nav.RunAll(_) ->
-      ui.box(
-        run_all_main_nodes(model),
-        Some(nav.title(current_view)),
-      )
+      ui.box(run_all_main_nodes(model), Some(nav.title(current_view)))
     nav.Source(_, _) -> {
       let source_track_lines = selected_source_track_lines(model)
       let source_nodes = source_main_nodes(model)
@@ -865,21 +857,16 @@ fn view(model: Model) -> shore.Node(Msg) {
         )
       ui.box(
         source_nodes
-        |> list.append([ui.br(), ui.hr(), ui.text("Tracks")])
-        |> list.append(tracks_nodes),
-        Some("Tracks (" <> int.to_string(list.length(source_track_lines)) <> ")"),
+          |> list.append([ui.br(), ui.hr(), ui.text("Tracks")])
+          |> list.append(tracks_nodes),
+        Some(
+          "Tracks (" <> int.to_string(list.length(source_track_lines)) <> ")",
+        ),
       )
     }
-    nav.Exit(_) ->
-      ui.box(
-        exit_main_nodes(model),
-        Some(nav.title(current_view)),
-      )
+    nav.Exit(_) -> ui.box(exit_main_nodes(model), Some(nav.title(current_view)))
     nav.ToggleCache(_) ->
-      ui.box(
-        toggle_cache_main_nodes(model),
-        Some(nav.title(current_view)),
-      )
+      ui.box(toggle_cache_main_nodes(model), Some(nav.title(current_view)))
   }
 
   layout.grid(
@@ -926,7 +913,8 @@ fn active_track_lines(model: Model) -> List(String) {
 
 fn selected_source_track_lines(model: Model) -> List(String) {
   case selected_source(model.selected_index) {
-    Some(source) -> lookup_source_track_lines(model.source_track_lines, source.key)
+    Some(source) ->
+      lookup_source_track_lines(model.source_track_lines, source.key)
     None -> []
   }
 }
@@ -976,12 +964,25 @@ fn sidebar_item_nodes(
   focus: FocusPane,
   cache_mode: cache.CacheMode,
 ) -> List(shore.Node(Msg)) {
-  let run_all_node = sidebar_node_for_index(0, selected_index, focus, cache_mode)
+  let run_all_node =
+    sidebar_node_for_index(0, selected_index, focus, cache_mode)
   let sources =
-    source_sidebar_nodes_loop(selected_index, focus, cache_mode, 0, section_count(), [])
+    source_sidebar_nodes_loop(
+      selected_index,
+      focus,
+      cache_mode,
+      0,
+      section_count(),
+      [],
+    )
     |> list.reverse
   let toggle_cache_node =
-    sidebar_node_for_index(section_count() + 1, selected_index, focus, cache_mode)
+    sidebar_node_for_index(
+      section_count() + 1,
+      selected_index,
+      focus,
+      cache_mode,
+    )
   let exit_node =
     sidebar_node_for_index(menu_count() - 1, selected_index, focus, cache_mode)
   [run_all_node, ui.br()]
@@ -1314,7 +1315,8 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = source.timing_spec
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+    source.timing_spec
   let queue_policy =
     core.QueuePolicy(
       max_concurrency: max_concurrency,

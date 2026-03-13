@@ -30,23 +30,24 @@
 //// Notes:
 //// - This implementation currently focuses on liked tracks.
 //// - Saved albums and album-track expansion are not implemented in this module.
-import gleam/int
+
+import adapters/cache
+import adapters/core
+import dot_env as dot
+import dot_env/env
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/hackney
 import gleam/http
 import gleam/http/request
-import gleam/dynamic
-import gleam/dynamic/decode
-import gleam/json
+import gleam/int
 import gleam/io
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import dot_env as dot
-import dot_env/env
 import simplifile
-import adapters/cache
-import adapters/core
 
 fn liked_tracks_json(token: String, offset: Int) -> String {
   let req =
@@ -68,8 +69,10 @@ fn liked_tracks_json(token: String, offset: Int) -> String {
 }
 
 fn tracks_tsv(json_body: String) -> String {
-  let parsed = decode_json(json_body, decode.dynamic) |> result.unwrap(dynamic.nil())
-  let items = decode_path_or(parsed, ["items"], [], decode.list(of: decode.dynamic))
+  let parsed =
+    decode_json(json_body, decode.dynamic) |> result.unwrap(dynamic.nil())
+  let items =
+    decode_path_or(parsed, ["items"], [], decode.list(of: decode.dynamic))
   collect_tracks_tsv(items, [])
   |> string.join("\n")
 }
@@ -86,7 +89,8 @@ pub fn read_access_token_file(session_file: String) -> String {
 }
 
 pub fn read_env_value(file_path: String, key: String) -> String {
-  let _ = dot.new() |> dot.set_path(file_path) |> dot.set_debug(False) |> dot.load
+  let _ =
+    dot.new() |> dot.set_path(file_path) |> dot.set_debug(False) |> dot.load
   env.get_string_or(key, "")
 }
 
@@ -198,7 +202,8 @@ pub fn expand(
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   case node {
-    core.ProfileEntry(profile_url) -> expand_profile(profile_url, config, cache_mode)
+    core.ProfileEntry(profile_url) ->
+      expand_profile(profile_url, config, cache_mode)
     core.CategoryNode(ctx) -> expand_playlists(ctx)
     core.ListNode(ctx) -> expand_playlist_tracks(ctx, cache_mode)
     core.PageNode(ctx) -> expand_track_page(ctx, cache_mode)
@@ -231,14 +236,10 @@ fn expand_profile(
     |> string.trim
   case user_id == "" || token == "" {
     True ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.ProfileEntry(profile_url)],
-      )
-    False ->
-      emit_liked_tracks(token, user_id, 0, cache_mode)
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.ProfileEntry(profile_url),
+      ])
+    False -> emit_liked_tracks(token, user_id, 0, cache_mode)
   }
 }
 
@@ -337,7 +338,9 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
   case parts {
     ["likes", token, offset_str] -> {
       let offset = to_int(offset_str)
-      let next_nodes = [core.ListNode("likes|" <> token <> "|" <> int.to_string(offset))]
+      let next_nodes = [
+        core.ListNode("likes|" <> token <> "|" <> int.to_string(offset)),
+      ]
       core.ExpandResult(
         items: [],
         lists: [],
@@ -346,16 +349,16 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
       )
     }
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.CategoryNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.CategoryNode(ctx),
+      ])
   }
 }
 
-fn expand_playlist_tracks(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
+fn expand_playlist_tracks(
+  ctx: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes", token, offset_str] ->
@@ -363,16 +366,16 @@ fn expand_playlist_tracks(ctx: String, cache_mode: cache.CacheMode) -> core.Expa
     ["likes", cache_scope, token, offset_str] ->
       emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.ListNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.ListNode(ctx),
+      ])
   }
 }
 
-fn expand_track_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
+fn expand_track_page(
+  ctx: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["likes_page", token, offset_str] ->
@@ -380,12 +383,9 @@ fn expand_track_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandRes
     ["likes_page", cache_scope, token, offset_str] ->
       emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.PageNode(ctx)],
-      )
+      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
+        core.PageNode(ctx),
+      ])
   }
 }
 
@@ -401,23 +401,24 @@ fn emit_liked_tracks(
     core.UnifiedCollection(
       id: "spotify:collection:likes",
       title: "Liked Songs",
-      track_ids:
-        list.map(items, fn(item) {
-          let core.UnifiedItem(id, _, _, _, _, _) = item
-          id
-        }),
+      track_ids: list.map(items, fn(item) {
+        let core.UnifiedItem(id, _, _, _, _, _) = item
+        id
+      }),
       list_ids: [],
       service: "spotify",
       source_type: "collection",
       source_id: "spotify:collection:likes",
     )
   let next_offset = tracks_next_offset(json)
-  let next_nodes =
-    case next_offset != "" {
-      True ->
-        [core.PageNode("likes_page|" <> cache_scope <> "|" <> token <> "|" <> next_offset)]
-      False -> []
-    }
+  let next_nodes = case next_offset != "" {
+    True -> [
+      core.PageNode(
+        "likes_page|" <> cache_scope <> "|" <> token <> "|" <> next_offset,
+      ),
+    ]
+    False -> []
+  }
   core.ExpandResult(
     items: items,
     lists: [collection],
@@ -441,33 +442,27 @@ fn cached_liked_tracks_json(
 }
 
 fn cached_tracks_tsv(json: String, cache_mode: cache.CacheMode) -> String {
-  cache.read_or_fetch(
-    "spotify_tracks_tsv",
-    json,
-    cache_mode,
-    fn() { tracks_tsv(json) },
-  )
+  cache.read_or_fetch("spotify_tracks_tsv", json, cache_mode, fn() {
+    tracks_tsv(json)
+  })
 }
 
 fn parse_track_items(json: String) -> List(core.UnifiedItem) {
   parse_lines(json)
   |> list.filter_map(fn(chunk) {
     let cols = string.split(chunk, "\t")
-    let track_id =
-      case cols {
-        [id, _, _] -> id
-        _ -> ""
-      }
-    let title =
-      case cols {
-        [_, t, _] -> t
-        _ -> ""
-      }
-    let artist_name =
-      case cols {
-        [_, _, a] -> a
-        _ -> "unknown"
-      }
+    let track_id = case cols {
+      [id, _, _] -> id
+      _ -> ""
+    }
+    let title = case cols {
+      [_, t, _] -> t
+      _ -> ""
+    }
+    let artist_name = case cols {
+      [_, _, a] -> a
+      _ -> "unknown"
+    }
     core.track_item(
       "spotify",
       track_id,
@@ -525,7 +520,12 @@ fn spotify_track_tsv(item: dynamic.Dynamic) -> Option(String) {
     Some(id) -> {
       let title = decode_path_or(item, ["track", "name"], "", decode.string)
       let artists =
-        decode_path_or(item, ["track", "artists"], [], decode.list(of: decode.dynamic))
+        decode_path_or(
+          item,
+          ["track", "artists"],
+          [],
+          decode.list(of: decode.dynamic),
+        )
       let artist = first_artist_name(artists)
       Some(id <> "\t" <> title <> "\t" <> artist)
     }
@@ -535,7 +535,7 @@ fn spotify_track_tsv(item: dynamic.Dynamic) -> Option(String) {
 fn first_artist_name(artists: List(dynamic.Dynamic)) -> String {
   case artists {
     [] -> "unknown"
-    [first, .._] -> decode_path_or(first, ["name"], "unknown", decode.string)
+    [first, ..] -> decode_path_or(first, ["name"], "unknown", decode.string)
   }
 }
 
@@ -623,11 +623,11 @@ fn extract_between(body: String, start: String, ending: String) -> String {
   }
 }
 
-
 fn extract_number_after(body: String, needle: String) -> Int {
   case string.split_once(body, needle) {
     Ok(#(_, after)) -> {
-      let digits = leading_digits(string.to_graphemes(string.trim_start(after)), [])
+      let digits =
+        leading_digits(string.to_graphemes(string.trim_start(after)), [])
       case digits {
         [] -> 0
         _ ->
@@ -667,4 +667,3 @@ fn is_ascii_digit(char: String) -> Bool {
     _ -> False
   }
 }
-

@@ -22,27 +22,43 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
     True -> {
       assert_source_under_one_second(fn() {
         let source = sources.bandcamp()
-        let profile = bandcamp_live_expander.bandcamp_profile(sources.entry_point(source))
-        bandcamp_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
+        let profile =
+          bandcamp_live_expander.bandcamp_profile(sources.entry_point(source))
+        bandcamp_live_expander.resolve_profile(
+          profile,
+          core.All,
+          cache.CacheUpsert,
+        )
       })
 
       assert_source_under_one_second(fn() {
         let source = sources.soundcloud()
         let profile =
-          soundcloud_live_expander.soundcloud_profile(sources.entry_point(source))
-        soundcloud_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
+          soundcloud_live_expander.soundcloud_profile(sources.entry_point(
+            source,
+          ))
+        soundcloud_live_expander.resolve_profile(
+          profile,
+          core.All,
+          cache.CacheUpsert,
+        )
       })
 
       assert_source_under_one_second(fn() {
         let source = sources.spotify()
         let access_token =
-          spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+          spotify_live_expander.read_access_token_file(
+            ".spotify_oauth_session.json",
+          )
         assert access_token != ""
         let config =
           spotify_live_expander.spotify_config(
             access_token: access_token,
             session_file: ".spotify_oauth_session.json",
-            client_id: spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID"),
+            client_id: spotify_live_expander.read_env_value(
+              ".env",
+              "SPOTIFY_CLIENT_ID",
+            ),
             client_secret: spotify_live_expander.read_env_value(
               ".env",
               "SPOTIFY_CLIENT_SECRET",
@@ -50,7 +66,8 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
             redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
             scopes: "playlist-read-private playlist-read-collaborative user-library-read",
           )
-        let profile = spotify_live_expander.spotify_user(sources.entry_point(source))
+        let profile =
+          spotify_live_expander.spotify_user(sources.entry_point(source))
         spotify_live_expander.resolve_profile(
           profile,
           core.All,
@@ -61,8 +78,13 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
 
       assert_source_under_one_second(fn() {
         let source = sources.youtube()
-        let profile = youtube_live_expander.youtube_playlist(sources.entry_point(source))
-        youtube_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
+        let profile =
+          youtube_live_expander.youtube_playlist(sources.entry_point(source))
+        youtube_live_expander.resolve_profile(
+          profile,
+          core.All,
+          cache.CacheUpsert,
+        )
       })
     }
   }
@@ -85,9 +107,7 @@ pub fn export_all_csv_with_cache_under_one_second_test() {
   }
 }
 
-fn assert_source_under_one_second(
-  resolve_all: fn() -> core.ResolveResult,
-) {
+fn assert_source_under_one_second(resolve_all: fn() -> core.ResolveResult) {
   let _ = resolve_all()
   let start = now_ms()
   let result = resolve_all()

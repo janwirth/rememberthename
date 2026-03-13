@@ -48,25 +48,31 @@ fn all_imported_items() -> List(core.UnifiedItem) {
 
 fn resolve_bandcamp_all() -> core.ResolveResult {
   let source = sources.bandcamp()
-  let profile = bandcamp_live_expander.bandcamp_profile(sources.entry_point(source))
+  let profile =
+    bandcamp_live_expander.bandcamp_profile(sources.entry_point(source))
   bandcamp_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
 }
 
 fn resolve_soundcloud_all() -> core.ResolveResult {
   let source = sources.soundcloud()
-  let profile = soundcloud_live_expander.soundcloud_profile(sources.entry_point(source))
+  let profile =
+    soundcloud_live_expander.soundcloud_profile(sources.entry_point(source))
   soundcloud_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
 }
 
 fn resolve_spotify_all() -> core.ResolveResult {
   let source = sources.spotify()
-  let access_token = spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+  let access_token =
+    spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
   assert access_token != ""
   let config =
     spotify_live_expander.spotify_config(
       access_token: access_token,
       session_file: ".spotify_oauth_session.json",
-      client_id: spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID"),
+      client_id: spotify_live_expander.read_env_value(
+        ".env",
+        "SPOTIFY_CLIENT_ID",
+      ),
       client_secret: spotify_live_expander.read_env_value(
         ".env",
         "SPOTIFY_CLIENT_SECRET",
@@ -75,12 +81,18 @@ fn resolve_spotify_all() -> core.ResolveResult {
       scopes: "playlist-read-private playlist-read-collaborative user-library-read",
     )
   let profile = spotify_live_expander.spotify_user(sources.entry_point(source))
-  spotify_live_expander.resolve_profile(profile, core.All, config, cache.CacheUpsert)
+  spotify_live_expander.resolve_profile(
+    profile,
+    core.All,
+    config,
+    cache.CacheUpsert,
+  )
 }
 
 fn resolve_youtube_all() -> core.ResolveResult {
   let source = sources.youtube()
-  let profile = youtube_live_expander.youtube_playlist(sources.entry_point(source))
+  let profile =
+    youtube_live_expander.youtube_playlist(sources.entry_point(source))
   youtube_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
 }
 

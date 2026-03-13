@@ -135,16 +135,10 @@ fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
     Back -> #(go_back(model), [])
     ExitPressed -> request_exit(model)
     Activate -> activate(model)
-    RunFinished(lines) ->
-      #(
-        Model(
-          ..model,
-          step: DoneStep,
-          cursor: 0,
-          status_lines: lines,
-        ),
-        [],
-      )
+    RunFinished(lines) -> #(
+      Model(..model, step: DoneStep, cursor: 0, status_lines: lines),
+      [],
+    )
     Noop -> #(model, [])
   }
 }
@@ -153,24 +147,18 @@ fn activate(model: Model) -> #(Model, List(fn() -> Msg)) {
   case model.step {
     SelectSourcesStep ->
       case model.selected_keys == [] {
-        True ->
-          #(
-            Model(
-              ..model,
-              status_lines: ["Select at least one source before continuing."],
-            ),
-            [],
-          )
-        False ->
-          #(
-            Model(
-              ..model,
-              step: SelectActionStep,
-              cursor: 0,
-              status_lines: ["Choose action and cache mode."],
-            ),
-            [],
-          )
+        True -> #(
+          Model(..model, status_lines: [
+            "Select at least one source before continuing.",
+          ]),
+          [],
+        )
+        False -> #(
+          Model(..model, step: SelectActionStep, cursor: 0, status_lines: [
+            "Choose action and cache mode.",
+          ]),
+          [],
+        )
       }
     SelectActionStep -> {
       let #(action, cache_choice) = action_for_cursor(model.cursor)
@@ -181,32 +169,27 @@ fn activate(model: Model) -> #(Model, List(fn() -> Msg)) {
           action: action,
           cache_choice: cache_choice,
           cursor: 0,
-          status_lines: ["Review and press Enter to run. Press Left to go back."],
+          status_lines: [
+            "Review and press Enter to run. Press Left to go back.",
+          ],
         ),
         [],
       )
     }
     ConfirmStep -> {
       let next =
-        Model(
-          ..model,
-          step: RunningStep,
-          cursor: 0,
-          status_lines: ["Running..."],
-        )
+        Model(..model, step: RunningStep, cursor: 0, status_lines: [
+          "Running...",
+        ])
       #(next, [fn() { run_selected(next) }])
     }
     RunningStep -> #(model, [])
-    DoneStep ->
-      #(
-        Model(
-          ..model,
-          step: SelectSourcesStep,
-          cursor: 0,
-          status_lines: ["Run completed. You can adjust and run again."],
-        ),
-        [],
-      )
+    DoneStep -> #(
+      Model(..model, step: SelectSourcesStep, cursor: 0, status_lines: [
+        "Run completed. You can adjust and run again.",
+      ]),
+      [],
+    )
   }
 }
 
@@ -218,8 +201,15 @@ fn run_selected(model: Model) -> Msg {
 
   let run_lines =
     list.fold(specs, [], fn(lines, spec) {
-      let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) = spec
-      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+      let source_specs.SourceSpec(
+        key,
+        name,
+        entry_point,
+        timing_spec,
+        assert_spec,
+      ) = spec
+      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) =
+        assert_spec
       let result =
         resolve_source(
           key,
@@ -233,7 +223,9 @@ fn run_selected(model: Model) -> Msg {
       let core.ResolveResult(items, lists, unresolved) = result
       let details =
         name
-        <> " (" <> key <> "): items="
+        <> " ("
+        <> key
+        <> "): items="
         <> int.to_string(list.length(items))
         <> " lists="
         <> int.to_string(list.length(lists))
@@ -262,25 +254,21 @@ fn run_selected(model: Model) -> Msg {
     ]
     |> list.append(run_lines)
 
-  let final_lines =
-    case model.action {
-      ExportCsv -> {
-        let all_items = collect_all_items(specs, cache_mode)
-        let tracks = list.map(all_items, to_track_view)
-        let csv = csv_writer.tracks_csv(tracks)
-        let combined_path = "output/interactive_selected_latest.csv"
-        let _ = simplifile.write(csv, to: combined_path)
-        list.append(
-          summary_lines,
-          [
-            "",
-            "Combined CSV: " <> combined_path,
-            "Total items: " <> int.to_string(list.length(all_items)),
-          ],
-        )
-      }
-      FetchOnly -> summary_lines
+  let final_lines = case model.action {
+    ExportCsv -> {
+      let all_items = collect_all_items(specs, cache_mode)
+      let tracks = list.map(all_items, to_track_view)
+      let csv = csv_writer.tracks_csv(tracks)
+      let combined_path = "output/interactive_selected_latest.csv"
+      let _ = simplifile.write(csv, to: combined_path)
+      list.append(summary_lines, [
+        "",
+        "Combined CSV: " <> combined_path,
+        "Total items: " <> int.to_string(list.length(all_items)),
+      ])
     }
+    FetchOnly -> summary_lines
+  }
 
   RunFinished(final_lines)
 }
@@ -290,7 +278,8 @@ fn collect_all_items(
   cache_mode: cache.CacheMode,
 ) -> List(core.UnifiedItem) {
   list.fold(specs, [], fn(acc, spec) {
-    let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) = spec
+    let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
+      spec
     let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
     let core.ResolveResult(items, _, _) =
       resolve_source(
@@ -329,10 +318,11 @@ fn toggle_current_source(model: Model) -> Model {
       let specs = source_specs.all()
       case model.cursor {
         0 -> {
-          let all_keys = list.map(specs, fn(spec) {
-            let source_specs.SourceSpec(key, _, _, _, _) = spec
-            key
-          })
+          let all_keys =
+            list.map(specs, fn(spec) {
+              let source_specs.SourceSpec(key, _, _, _, _) = spec
+              key
+            })
           case list.length(model.selected_keys) == list.length(all_keys) {
             True -> Model(..model, selected_keys: [])
             False -> Model(..model, selected_keys: all_keys)
@@ -461,16 +451,8 @@ fn cache_choice_text(choice: CacheChoice) -> String {
 }
 
 fn view(model: Model) -> shore.Node(Msg) {
-  let left =
-    ui.box(
-      left_panel_nodes(model),
-      Some("Step"),
-    )
-  let right =
-    ui.box(
-      right_panel_nodes(model),
-      Some("Details"),
-    )
+  let left = ui.box(left_panel_nodes(model), Some("Step"))
+  let right = ui.box(right_panel_nodes(model), Some("Details"))
   layout.grid(
     gap: 1,
     rows: [style.Fill],
@@ -532,7 +514,11 @@ fn source_step_nodes(model: Model) -> List(shore.Node(Msg)) {
   let source_nodes =
     list.index_map(specs, fn(spec, index) {
       let source_specs.SourceSpec(key, name, _, _, _) = spec
-      source_item_node(name <> " (" <> key <> ")", list.contains(model.selected_keys, key), model.cursor == index + 1)
+      source_item_node(
+        name <> " (" <> key <> ")",
+        list.contains(model.selected_keys, key),
+        model.cursor == index + 1,
+      )
     })
   list.append([all_node], source_nodes)
 }
@@ -544,7 +530,11 @@ fn action_step_nodes(model: Model) -> List(shore.Node(Msg)) {
   })
 }
 
-fn source_item_node(text: String, selected: Bool, focused: Bool) -> shore.Node(Msg) {
+fn source_item_node(
+  text: String,
+  selected: Bool,
+  focused: Bool,
+) -> shore.Node(Msg) {
   let marker = case selected {
     True -> "[x] "
     False -> "[ ] "
@@ -569,18 +559,21 @@ fn right_panel_nodes(model: Model) -> List(shore.Node(Msg)) {
       }
     })
   let action_line =
-    "Action: " <> action_text(model.action) <> " | " <> cache_choice_text(model.cache_choice)
+    "Action: "
+    <> action_text(model.action)
+    <> " | "
+    <> cache_choice_text(model.cache_choice)
   [
-    ui.text("Selected sources: " <> int.to_string(list.length(model.selected_keys))),
+    ui.text(
+      "Selected sources: " <> int.to_string(list.length(model.selected_keys)),
+    ),
     ui.text(action_line),
     ui.br(),
   ]
-  |> list.append(
-    case selected_names == [] {
-      True -> [ui.text("  - none selected")]
-      False -> list.map(selected_names, ui.text)
-    },
-  )
+  |> list.append(case selected_names == [] {
+    True -> [ui.text("  - none selected")]
+    False -> list.map(selected_names, ui.text)
+  })
   |> list.append([
     ui.br(),
     ui.hr(),
@@ -598,7 +591,8 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) = timing_spec
+  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+    timing_spec
   let queue_policy =
     core.QueuePolicy(
       max_concurrency: max_concurrency,
@@ -629,12 +623,17 @@ fn resolve_source(
     }
     "spotify" -> {
       let access_token =
-        spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+        spotify_live_expander.read_access_token_file(
+          ".spotify_oauth_session.json",
+        )
       let config =
         spotify_live_expander.spotify_config(
           access_token: access_token,
           session_file: ".spotify_oauth_session.json",
-          client_id: spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID"),
+          client_id: spotify_live_expander.read_env_value(
+            ".env",
+            "SPOTIFY_CLIENT_ID",
+          ),
           client_secret: spotify_live_expander.read_env_value(
             ".env",
             "SPOTIFY_CLIENT_SECRET",

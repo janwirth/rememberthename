@@ -9,19 +9,13 @@ pub fn main() {
 pub fn render_generic_document_test() {
   let doc =
     tree_view.Document([
-      tree_view.Section(
-        "root",
-        [
-          tree_view.Node(
-            "a",
-            [
-              tree_view.Node("b", []),
-              tree_view.Node("c", [tree_view.Node("d", [])]),
-            ],
-          ),
-          tree_view.Node("e", []),
-        ],
-      ),
+      tree_view.Section("root", [
+        tree_view.Node("a", [
+          tree_view.Node("b", []),
+          tree_view.Node("c", [tree_view.Node("d", [])]),
+        ]),
+        tree_view.Node("e", []),
+      ]),
     ])
 
   let expected =

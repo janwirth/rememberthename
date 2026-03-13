@@ -27,7 +27,8 @@ pub type ParseError {
 }
 
 pub fn to_string(resource_id: ResourceId) -> String {
-  let ResourceId(version, origin, service, resource_type, encoded_id) = resource_id
+  let ResourceId(version, origin, service, resource_type, encoded_id) =
+    resource_id
   "rid:"
   <> version
   <> ":"
@@ -49,10 +50,23 @@ pub fn parse(value: String) -> Result(ResourceId, ParseError) {
           case validate_fields(service, resource_type, encoded_id) {
             Error(error) -> Error(error)
             Ok(_) ->
-              case validate_local_payload(origin, service, resource_type, encoded_id) {
+              case
+                validate_local_payload(
+                  origin,
+                  service,
+                  resource_type,
+                  encoded_id,
+                )
+              {
                 Error(error) -> Error(error)
                 Ok(_) ->
-                  Ok(ResourceId(version, origin, service, resource_type, encoded_id))
+                  Ok(ResourceId(
+                    version,
+                    origin,
+                    service,
+                    resource_type,
+                    encoded_id,
+                  ))
               }
           }
         }
@@ -81,18 +95,23 @@ pub fn build(
   case validate_fields(cleaned_service, cleaned_resource_type, normalized_id) {
     Error(error) -> Error(error)
     Ok(_) ->
-      case validate_local_payload(origin, cleaned_service, cleaned_resource_type, normalized_id) {
+      case
+        validate_local_payload(
+          origin,
+          cleaned_service,
+          cleaned_resource_type,
+          normalized_id,
+        )
+      {
         Error(error) -> Error(error)
         Ok(_) ->
-          Ok(
-            ResourceId(
-              version: "v1",
-              origin: origin,
-              service: cleaned_service,
-              resource_type: cleaned_resource_type,
-              encoded_id: normalized_id,
-            ),
-          )
+          Ok(ResourceId(
+            version: "v1",
+            origin: origin,
+            service: cleaned_service,
+            resource_type: cleaned_resource_type,
+            encoded_id: normalized_id,
+          ))
       }
   }
 }
@@ -108,10 +127,7 @@ pub fn encode_local_file_payload(
     False ->
       case cleaned_path == "" {
         True -> Error(InvalidLocalFilePayload)
-        False ->
-          Ok(
-            "device=" <> cleaned_device <> "|path=" <> cleaned_path,
-          )
+        False -> Ok("device=" <> cleaned_device <> "|path=" <> cleaned_path)
       }
   }
 }

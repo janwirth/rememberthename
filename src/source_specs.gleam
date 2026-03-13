@@ -14,6 +14,7 @@
 //// - `first_items_to_preserve`: early discovered ids that must survive deeper traversal
 //// - `anchor_fragments`: title fragments that should appear in shallow/deep outputs
 //// - `required_full_fragments`: title fragments that must appear in full output
+
 pub type SourceAssertSpec {
   SourceAssertSpec(
     min_depth_1_items: Int,
@@ -49,24 +50,23 @@ pub fn bandcamp() -> SourceSpec {
     name: "Bandcamp",
     entry_point: "https://bandcamp.com/janwirth",
     timing_spec: SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
-    assert_spec:
-      SourceAssertSpec(
-        min_depth_1_items: 1,
-        min_full_items: 700,
-        source_limit: 4000,
-        first_items_to_preserve: 3,
-        // Stable fixture anchors from live Bandcamp profile traversal.
-        anchor_fragments: ["Spore Spreader"],
-        required_full_fragments: [
-          "Badlands",
-          "Dimebag",
-          "Redshift 7",
-          "World, Hold On",
-          "Buttercup",
-          "Ghost Radio",
-          "Acid House",
-        ],
-      ),
+    assert_spec: SourceAssertSpec(
+      min_depth_1_items: 1,
+      min_full_items: 700,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      // Stable fixture anchors from live Bandcamp profile traversal.
+      anchor_fragments: ["Spore Spreader"],
+      required_full_fragments: [
+        "Badlands",
+        "Dimebag",
+        "Redshift 7",
+        "World, Hold On",
+        "Buttercup",
+        "Ghost Radio",
+        "Acid House",
+      ],
+    ),
   )
 }
 
@@ -76,21 +76,20 @@ pub fn soundcloud() -> SourceSpec {
     name: "Soundcloud",
     entry_point: "https://soundcloud.com/tungstenselects",
     timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec:
-      SourceAssertSpec(
-        min_depth_1_items: 10,
-        min_full_items: 1000,
-        source_limit: 4000,
-        first_items_to_preserve: 3,
-        // Stable fixture anchors from likes/reposts category traversal.
-        anchor_fragments: [
-          "A Horse with no Name (Edit)",
-          "Nyxtape: Vol.12 - Harley D",
-          "PREMIERE| Rebecca Delle Piane - Genomica [FIDESX4]",
-          "Premiere: KAIPE - Batie",
-        ],
-        required_full_fragments: [],
-      ),
+    assert_spec: SourceAssertSpec(
+      min_depth_1_items: 10,
+      min_full_items: 1000,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      // Stable fixture anchors from likes/reposts category traversal.
+      anchor_fragments: [
+        "A Horse with no Name (Edit)",
+        "Nyxtape: Vol.12 - Harley D",
+        "PREMIERE| Rebecca Delle Piane - Genomica [FIDESX4]",
+        "Premiere: KAIPE - Batie",
+      ],
+      required_full_fragments: [],
+    ),
   )
 }
 
@@ -100,16 +99,15 @@ pub fn spotify() -> SourceSpec {
     name: "Spotify",
     entry_point: "https://open.spotify.com/user/franzskuffka",
     timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec:
-      SourceAssertSpec(
-        min_depth_1_items: 50,
-        min_full_items: 1000,
-        source_limit: 4000,
-        first_items_to_preserve: 3,
-        // Liked tracks fixture anchors from Spotify authenticated traversal.
-        anchor_fragments: ["Blask", "SOLD MY SOUL"],
-        required_full_fragments: [],
-      ),
+    assert_spec: SourceAssertSpec(
+      min_depth_1_items: 50,
+      min_full_items: 1000,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      // Liked tracks fixture anchors from Spotify authenticated traversal.
+      anchor_fragments: ["Blask", "SOLD MY SOUL"],
+      required_full_fragments: [],
+    ),
   )
 }
 
@@ -119,22 +117,21 @@ pub fn youtube() -> SourceSpec {
     name: "Youtube",
     entry_point: "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
     timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec:
-      SourceAssertSpec(
-        min_depth_1_items: 5,
-        min_full_items: 1000,
-        source_limit: 4000,
-        first_items_to_preserve: 3,
-        // Ordered playlist prefix fragments from reference YouTube fixture.
-        anchor_fragments: [
-          "Angine de poitrine - Sahardnieh",
-          "Nimo - BITTER",
-          "Vengaboys - Up & Down",
-          "Dendemann - Wo ich wech bin",
-          "BHZ - SCHLIESSE DIE AUGEN"
-        ],
-        // Full traversal includes titles with case-varying "chanel" substring.
-        required_full_fragments: ["chanel"],
-      ),
+    assert_spec: SourceAssertSpec(
+      min_depth_1_items: 5,
+      min_full_items: 1000,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      // Ordered playlist prefix fragments from reference YouTube fixture.
+      anchor_fragments: [
+        "Angine de poitrine - Sahardnieh",
+        "Nimo - BITTER",
+        "Vengaboys - Up & Down",
+        "Dendemann - Wo ich wech bin",
+        "BHZ - SCHLIESSE DIE AUGEN",
+      ],
+      // Full traversal includes titles with case-varying "chanel" substring.
+      required_full_fragments: ["chanel"],
+    ),
   )
 }

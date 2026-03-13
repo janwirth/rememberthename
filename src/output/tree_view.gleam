@@ -21,18 +21,14 @@ pub fn render(document: Document) -> String {
 }
 
 fn render_sections(sections: List(Section)) -> List(String) {
-  list.fold(
-    sections,
-    #([], True),
-    fn(acc, section) {
-      let #(lines, is_first) = acc
-      let section_lines = render_section(section)
-      case is_first {
-        True -> #(section_lines, False)
-        False -> #(list.append(lines, ["", ..section_lines]), False)
-      }
-    },
-  )
+  list.fold(sections, #([], True), fn(acc, section) {
+    let #(lines, is_first) = acc
+    let section_lines = render_section(section)
+    case is_first {
+      True -> #(section_lines, False)
+      False -> #(list.append(lines, ["", ..section_lines]), False)
+    }
+  })
   |> first
 }
 
@@ -52,11 +48,10 @@ fn render_nodes(nodes: List(Node), prefix: String) -> List(String) {
 
 fn render_node(node: Node, prefix: String, is_last: Bool) -> List(String) {
   let Node(label, children) = node
-  let connector =
-    case is_last {
-      True -> "└── "
-      False -> "├── "
-    }
+  let connector = case is_last {
+    True -> "└── "
+    False -> "├── "
+  }
   let line = prefix <> connector <> label
   case children {
     [] -> [line]

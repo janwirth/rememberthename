@@ -1,9 +1,14 @@
+import adapters/core
 import gleam/int
 import gleam/list
-import adapters/core
 
 pub fn depth_1_stops_after_profile_test() {
-  let result = core.resolve_profile_url("https://soundcloud.com/demo", core.Depth1, fake_expand)
+  let result =
+    core.resolve_profile_url(
+      "https://soundcloud.com/demo",
+      core.Depth1,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 10
@@ -13,7 +18,12 @@ pub fn depth_1_stops_after_profile_test() {
 }
 
 pub fn depth_2_expands_one_more_hop_test() {
-  let result = core.resolve_profile_url("https://soundcloud.com/demo", core.Depth2, fake_expand)
+  let result =
+    core.resolve_profile_url(
+      "https://soundcloud.com/demo",
+      core.Depth2,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 30
@@ -23,7 +33,12 @@ pub fn depth_2_expands_one_more_hop_test() {
 }
 
 pub fn depth_3_recurses_lists_categories_and_pages_test() {
-  let result = core.resolve_profile_url("https://soundcloud.com/demo", core.Depth3, fake_expand)
+  let result =
+    core.resolve_profile_url(
+      "https://soundcloud.com/demo",
+      core.Depth3,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 30
@@ -33,7 +48,12 @@ pub fn depth_3_recurses_lists_categories_and_pages_test() {
 }
 
 pub fn all_depth_matches_depth_3_for_fixture_test() {
-  let result = core.resolve_profile_url("https://soundcloud.com/demo", core.All, fake_expand)
+  let result =
+    core.resolve_profile_url(
+      "https://soundcloud.com/demo",
+      core.All,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 30
@@ -48,7 +68,10 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
       core.ExpandResult(
         items: make_depth_items("d1-track-", 10),
         lists: [
-          make_list("profile-root", "Profile Root", ["track-a"], ["list-a", "list-b"]),
+          make_list("profile-root", "Profile Root", ["track-a"], [
+            "list-a",
+            "list-b",
+          ]),
         ],
         next_nodes: [
           core.CategoryNode("likes"),
@@ -76,8 +99,10 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
 
     core.ListNode("list-a") ->
       core.ExpandResult(
-        items:
-          list.append([make_item("track-a", "Track A", "Artist A")], make_depth_items("d2a-track-", 10)),
+        items: list.append(
+          [make_item("track-a", "Track A", "Artist A")],
+          make_depth_items("d2a-track-", 10),
+        ),
         lists: [make_list("list-a", "List A", ["track-a"], [])],
         next_nodes: [],
         unresolved: [],
@@ -85,8 +110,10 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
 
     core.ListNode("list-b") ->
       core.ExpandResult(
-        items:
-          list.append([make_item("track-b", "Track B", "Artist B")], make_depth_items("d2b-track-", 10)),
+        items: list.append(
+          [make_item("track-b", "Track B", "Artist B")],
+          make_depth_items("d2b-track-", 10),
+        ),
         lists: [make_list("list-b", "List B", ["track-b"], ["list-c"])],
         next_nodes: [
           core.ListNode("list-c"),
@@ -103,13 +130,7 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         unresolved: [],
       )
 
-    _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [],
-      )
+    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
@@ -157,12 +178,9 @@ fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
 
 fn make_depth_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
   let numbers =
-    int.range(
-      from: 1,
-      to: count + 1,
-      with: [],
-      run: fn(acc, n) { list.append(acc, [n]) },
-    )
+    int.range(from: 1, to: count + 1, with: [], run: fn(acc, n) {
+      list.append(acc, [n])
+    })
   list.map(numbers, fn(n) {
     let n_str = int_to_two_digits(n)
     let id = prefix <> n_str
@@ -176,4 +194,3 @@ fn int_to_two_digits(n: Int) -> String {
     False -> int.to_string(n)
   }
 }
-

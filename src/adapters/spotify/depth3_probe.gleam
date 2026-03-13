@@ -1,15 +1,17 @@
-import gleam/int
-import gleam/io
-import gleam/list
 import adapters/cache
 import adapters/core
 import adapters/spotify/live_expander as spotify_live_expander
+import gleam/int
+import gleam/io
+import gleam/list
 
 pub fn main() {
-  let client_id = spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
+  let client_id =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
   let client_secret =
     spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
-  let access_token = spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+  let access_token =
+    spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
   assert client_id != ""
   assert client_secret != ""
   assert access_token != ""
@@ -24,7 +26,10 @@ pub fn main() {
       scopes: "playlist-read-private playlist-read-collaborative user-library-read",
     )
 
-  let profile = spotify_live_expander.spotify_user("https://open.spotify.com/user/franzskuffka")
+  let profile =
+    spotify_live_expander.spotify_user(
+      "https://open.spotify.com/user/franzskuffka",
+    )
   let result =
     spotify_live_expander.resolve_profile(
       profile,
@@ -51,7 +56,8 @@ fn print_lists(lists: List(core.UnifiedCollection)) {
     [] -> io.println("  - (none)")
     _ ->
       list.each(lists, fn(collection) {
-        let core.UnifiedCollection(id, title, track_ids, _, _, _, _) = collection
+        let core.UnifiedCollection(id, title, track_ids, _, _, _, _) =
+          collection
         io.println(
           "  - "
           <> id

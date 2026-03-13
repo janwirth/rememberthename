@@ -6,7 +6,6 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
-import gleam/string
 import source_id_normalizer
 
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
@@ -42,21 +41,22 @@ fn cached_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
 fn decode_rows(payload: String) -> List(dynamic.Dynamic) {
   case json.parse(payload, decode.dynamic) {
     Error(_) -> []
-    Ok(value) -> decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
+    Ok(value) ->
+      decode.run(value, decode.list(of: decode.dynamic)) |> result.unwrap([])
   }
 }
 
 fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
   list.fold(rows, [], fn(acc, row) {
     let preferred_title = row_preferred_title(row)
-    let tag_text = row_tags_text(row)
+    let artist = row_artist(row)
     let acc =
       push_item(
         acc,
         "spotify",
         decode_path_or(row, ["spotify_id"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     let acc =
       push_item(
@@ -64,7 +64,7 @@ fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
         "youtube",
         decode_path_or(row, ["youtube_id"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     let acc =
       push_item(
@@ -72,7 +72,7 @@ fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
         "soundcloud",
         decode_path_or(row, ["soundcloud_id"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     let acc =
       push_item(
@@ -80,15 +80,15 @@ fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
         "bandcamp",
         decode_path_or(row, ["bandcamp_track_id"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     let acc =
       push_item(
         acc,
         "file",
-        decode_path_or(row, ["dropped_path"], "", decode.string),
+        decode_path_or(row, ["file_path"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     let acc =
       push_item(
@@ -96,14 +96,14 @@ fn rows_to_items(rows: List(dynamic.Dynamic)) -> List(core.UnifiedItem) {
         "itunes",
         decode_path_or(row, ["itunes_track_id"], "", decode.string),
         preferred_title,
-        tag_text,
+        artist,
       )
     push_item(
       acc,
       "itunes",
       decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
       preferred_title,
-      tag_text,
+      artist,
     )
   })
   |> list.reverse
@@ -114,18 +114,20 @@ fn push_item(
   service: String,
   raw_source_id: String,
   preferred_title: String,
-  tag_text: String,
+  artist: String,
 ) -> List(core.UnifiedItem) {
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
   case normalized == "" {
     True -> acc
     False ->
-      case core.track_item(
-        service,
-        normalized,
-        choose_title(preferred_title, normalized),
-        choose_artist(tag_text, raw_source_id),
-      ) {
+      case
+        core.track_item(
+          service,
+          normalized,
+          choose_title(preferred_title, normalized),
+          choose_artist(artist),
+        )
+      {
         Ok(item) -> [item, ..acc]
         Error(_) -> acc
       }
@@ -133,25 +135,16 @@ fn push_item(
 }
 
 fn row_preferred_title(row: dynamic.Dynamic) -> String {
-  let normalized_title = decode_path_or(row, ["normalized_title"], "", decode.string)
+  let normalized_title =
+    decode_path_or(row, ["normalized_title"], "", decode.string)
   case normalized_title != "" {
     True -> normalized_title
     False -> decode_path_or(row, ["title"], "", decode.string)
   }
 }
 
-fn row_tags_text(row: dynamic.Dynamic) -> String {
-  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
-  |> list.map(fn(tag) {
-    let tag_id = decode_path_or(tag, ["id"], "", decode.string)
-    let tag_label = decode_path_or(tag, ["label"], "", decode.string)
-    case tag_label == "" {
-      True -> tag_id
-      False -> tag_label <> " (" <> tag_id <> ")"
-    }
-  })
-  |> list.filter(fn(part) { part != "" })
-  |> string.join(" | ")
+fn row_artist(row: dynamic.Dynamic) -> String {
+  decode_path_or(row, ["artist"], "", decode.string)
 }
 
 fn choose_title(preferred_title: String, fallback: String) -> String {
@@ -161,12 +154,8 @@ fn choose_title(preferred_title: String, fallback: String) -> String {
   }
 }
 
-fn choose_artist(tag_text: String, fallback: String) -> String {
-  let _ = fallback
-  case tag_text != "" {
-    True -> tag_text
-    False -> ""
-  }
+fn choose_artist(artist: String) -> String {
+  artist
 }
 
 fn apply_depth_limit(

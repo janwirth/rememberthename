@@ -11,16 +11,10 @@ pub fn live_youtube_follows_unified_depth_spec_test() {
     True -> {
       let source = sources.youtube()
       let profile =
-        youtube_live_expander.youtube_playlist(
-          sources.entry_point(source),
-        )
+        youtube_live_expander.youtube_playlist(sources.entry_point(source))
       let results =
         depth_test_spec.resolve_standard_depths(fn(depth, cache_mode) {
-          youtube_live_expander.resolve_profile(
-            profile,
-            depth,
-            cache_mode,
-          )
+          youtube_live_expander.resolve_profile(profile, depth, cache_mode)
         })
       depth_test_spec.assert_standard_depth_pattern(
         results,

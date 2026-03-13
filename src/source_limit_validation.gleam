@@ -1,14 +1,15 @@
-import gleam/float
-import gleam/list
-import gleam/order
-import gleam/string
-
 //// Source limit + validation processing.
 ////
 //// Processing sequence:
 //// 1) normalize/validate canonical rows
 //// 2) deterministic ordering (`order`, `service`, `source_id`)
 //// 3) per-service source limits
+
+import gleam/float
+import gleam/list
+import gleam/order
+import gleam/string
+
 pub type Validation {
   Valid
   MissingArtist
@@ -59,11 +60,10 @@ pub fn is_missing_artist(track: CanonicalTrack) -> Bool {
 
 fn validate_track(track: RawTrack) -> CanonicalTrack {
   let RawTrack(title, artist, service, source_id, order) = track
-  let validation =
-    case string.trim(artist) == "" {
-      True -> MissingArtist
-      False -> Valid
-    }
+  let validation = case string.trim(artist) == "" {
+    True -> MissingArtist
+    False -> Valid
+  }
   CanonicalTrack(
     title: title,
     artist: artist,
@@ -114,11 +114,10 @@ fn apply_source_limits(
     let CanonicalTrack(_, _, service, _, _, _) = track
     let current = lookup_count(counts, service)
     case allow_for_service(service, current, source_limits) {
-      True ->
-        #(
-          list.append(kept, [track]),
-          set_count(counts, service, current + 1),
-        )
+      True -> #(
+        list.append(kept, [track]),
+        set_count(counts, service, current + 1),
+      )
       False -> #(kept, counts)
     }
   })
@@ -167,7 +166,11 @@ fn lookup_count(counts: List(#(String, Int)), wanted: String) -> Int {
   }
 }
 
-fn set_count(counts: List(#(String, Int)), wanted: String, value: Int) -> List(#(String, Int)) {
+fn set_count(
+  counts: List(#(String, Int)),
+  wanted: String,
+  value: Int,
+) -> List(#(String, Int)) {
   case counts {
     [] -> [#(wanted, value)]
     [#(service, count), ..rest] ->

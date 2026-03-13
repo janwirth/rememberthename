@@ -10,12 +10,17 @@ pub fn main() {
 }
 
 pub fn rate_limit_requests_per_second_test() {
-  let policy = default_queue.QueuePolicy(max_concurrency: 4, requests_per_second: 2)
+  let policy =
+    default_queue.QueuePolicy(max_concurrency: 4, requests_per_second: 2)
   let report =
     default_queue.run_default_queue([1, 2, 3], policy, fn(_task) {
       default_queue.TaskPlan(
         duration_ms: 0,
-        outcome: default_queue.TaskOutcome(recurse: [], results: [1], errors: []),
+        outcome: default_queue.TaskOutcome(
+          recurse: [],
+          results: [1],
+          errors: [],
+        ),
       )
     })
   let default_queue.QueueReport(_, _, starts, elapsed_ms, max_active) = report
@@ -25,15 +30,21 @@ pub fn rate_limit_requests_per_second_test() {
 }
 
 pub fn concurrency_limit_test() {
-  let policy = default_queue.QueuePolicy(max_concurrency: 2, requests_per_second: 1000)
+  let policy =
+    default_queue.QueuePolicy(max_concurrency: 2, requests_per_second: 1000)
   let report =
     default_queue.run_default_queue([1, 2, 3, 4], policy, fn(task) {
       default_queue.TaskPlan(
         duration_ms: 100,
-        outcome: default_queue.TaskOutcome(recurse: [], results: [task], errors: []),
+        outcome: default_queue.TaskOutcome(
+          recurse: [],
+          results: [task],
+          errors: [],
+        ),
       )
     })
-  let default_queue.QueueReport(results, _, starts, elapsed_ms, max_active) = report
+  let default_queue.QueueReport(results, _, starts, elapsed_ms, max_active) =
+    report
   results |> should.equal([1, 2, 3, 4])
   max_active |> should.equal(2)
   starts |> should.equal([0, 1, 100, 101])
@@ -41,19 +52,28 @@ pub fn concurrency_limit_test() {
 }
 
 pub fn recurse_tasks_appended_fifo_test() {
-  let policy = default_queue.QueuePolicy(max_concurrency: 1, requests_per_second: 1000)
+  let policy =
+    default_queue.QueuePolicy(max_concurrency: 1, requests_per_second: 1000)
   let report =
     default_queue.run_default_queue([1], policy, fn(task) {
       case task {
         1 ->
           default_queue.TaskPlan(
             duration_ms: 0,
-            outcome: default_queue.TaskOutcome(recurse: [2, 3], results: [1], errors: []),
+            outcome: default_queue.TaskOutcome(
+              recurse: [2, 3],
+              results: [1],
+              errors: [],
+            ),
           )
         _ ->
           default_queue.TaskPlan(
             duration_ms: 0,
-            outcome: default_queue.TaskOutcome(recurse: [], results: [task], errors: []),
+            outcome: default_queue.TaskOutcome(
+              recurse: [],
+              results: [task],
+              errors: [],
+            ),
           )
       }
     })
@@ -95,9 +115,11 @@ pub fn depth_all_debug_logs_order_and_content_test() {
     "[queue] start node=profile:" <> compact_profile <> " level=0",
     "[fetch] start node=profile:" <> compact_profile <> " level=0",
     "[fetch] complete node=profile:"
-    <> compact_profile
-    <> " items=1 lists=0 next=0",
-    "[queue] complete node=profile:" <> compact_profile <> " pushed=0 unresolved=0",
+      <> compact_profile
+      <> " items=1 lists=0 next=0",
+    "[queue] complete node=profile:"
+      <> compact_profile
+      <> " pushed=0 unresolved=0",
     "[queue] complete",
   ])
 }

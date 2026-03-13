@@ -10,7 +10,15 @@ pub fn main() {
 pub fn tracks_csv_writes_header_and_rows_test() {
   let tracks = [
     visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "source-a", "", ""),
-    visual_output.TrackView("B", "BB", "spotify", "sp-b", "source-b", "", "tag-one"),
+    visual_output.TrackView(
+      "B",
+      "BB",
+      "spotify",
+      "sp-b",
+      "source-b",
+      "",
+      "tag-one",
+    ),
   ]
 
   let expected =

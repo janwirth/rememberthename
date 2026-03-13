@@ -26,8 +26,20 @@ pub fn keeps_max_n_per_source_after_sorting_test() {
 
 pub fn treats_timestamp_order_as_numeric_test() {
   let raw = [
-    source_limit_validation.RawTrack("late", "artist", "youtube", "yt-late", 1710001000.0),
-    source_limit_validation.RawTrack("early", "artist", "youtube", "yt-early", 1710000000.0),
+    source_limit_validation.RawTrack(
+      "late",
+      "artist",
+      "youtube",
+      "yt-late",
+      1_710_001_000.0,
+    ),
+    source_limit_validation.RawTrack(
+      "early",
+      "artist",
+      "youtube",
+      "yt-early",
+      1_710_000_000.0,
+    ),
   ]
   source_limit_validation.process(raw, [])
   |> track_ids
@@ -36,9 +48,21 @@ pub fn treats_timestamp_order_as_numeric_test() {
 
 pub fn order_does_not_need_to_be_contiguous_test() {
   let raw = [
-    source_limit_validation.RawTrack("gap-c", "artist", "spotify", "sp-c", 3000.0),
+    source_limit_validation.RawTrack(
+      "gap-c",
+      "artist",
+      "spotify",
+      "sp-c",
+      3000.0,
+    ),
     source_limit_validation.RawTrack("gap-a", "artist", "spotify", "sp-a", 5.0),
-    source_limit_validation.RawTrack("gap-b", "artist", "spotify", "sp-b", 220.0),
+    source_limit_validation.RawTrack(
+      "gap-b",
+      "artist",
+      "spotify",
+      "sp-b",
+      220.0,
+    ),
   ]
   source_limit_validation.process(raw, [])
   |> track_ids
@@ -72,7 +96,9 @@ pub fn non_positive_limit_returns_zero_items_for_service_test() {
   |> should.equal(["yt-1"])
 }
 
-fn track_ids(tracks: List(source_limit_validation.CanonicalTrack)) -> List(String) {
+fn track_ids(
+  tracks: List(source_limit_validation.CanonicalTrack),
+) -> List(String) {
   list.map(tracks, source_id)
 }
 

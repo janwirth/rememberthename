@@ -1,5 +1,3 @@
-import simplifile
-
 //// Adapter cache helper with explicit runtime modes.
 ////
 //// Contract used by all live expanders:
@@ -11,6 +9,9 @@ import simplifile
 //// - `CacheUpsert`: read existing cache, fetch+store on miss/empty
 //// - `CacheIgnore`: bypass cache, always fetch live
 //// - `CacheOverride`: always fetch live and overwrite cache
+
+import simplifile
+
 @external(erlang, "cache_hash", "phash")
 fn phash(value: String) -> String
 
@@ -58,5 +59,9 @@ fn compute_and_store(path: String, fetch: fn() -> String) -> String {
 }
 
 fn cache_path(namespace: String, key: String) -> String {
-  "/tmp/rememberthename_adapter_cache_" <> namespace <> "_" <> phash(key) <> ".txt"
+  "/tmp/rememberthename_adapter_cache_"
+  <> namespace
+  <> "_"
+  <> phash(key)
+  <> ".txt"
 }

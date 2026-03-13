@@ -1,3 +1,4 @@
+import adapters/spotify/live_expander as spotify_live_expander
 import gleam/bytes_tree
 import gleam/erlang/process
 import gleam/hackney
@@ -7,9 +8,8 @@ import gleam/http/response
 import gleam/io
 import gleam/list
 import gleam/result
-import simplifile
-import adapters/spotify/live_expander as spotify_live_expander
 import mist
+import simplifile
 
 fn open_url(url: String) -> Nil {
   io.println("[spotify-oauth] Open manually in your browser:")
@@ -17,10 +17,14 @@ fn open_url(url: String) -> Nil {
 }
 
 pub fn main() {
-  let client_id = spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
-  let client_secret = spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
-  let cert_file = spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_CERT_FILE")
-  let key_file = spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_KEY_FILE")
+  let client_id =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
+  let client_secret =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
+  let cert_file =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_CERT_FILE")
+  let key_file =
+    spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_KEY_FILE")
   assert client_id != ""
   assert client_secret != ""
   assert client_id != client_secret
@@ -40,7 +44,14 @@ pub fn main() {
   io.println(authorize_url)
   open_url(authorize_url)
   io.println("[spotify-oauth] Waiting for callback on 127.0.0.1:8080 ...")
-  let handler = make_handler(client_id, client_secret, redirect_uri, code_file, session_file)
+  let handler =
+    make_handler(
+      client_id,
+      client_secret,
+      redirect_uri,
+      code_file,
+      session_file,
+    )
   let assert Ok(_) =
     handler
     |> mist.new
@@ -58,26 +69,31 @@ fn make_handler(
   code_file: String,
   session_file: String,
 ) {
-  fn(req: request.Request(mist.Connection)) -> response.Response(mist.ResponseData) {
+  fn(req: request.Request(mist.Connection)) -> response.Response(
+    mist.ResponseData,
+  ) {
     let query = request.get_query(req) |> result.unwrap([])
     let code = list.key_find(query, "code") |> result.unwrap("")
     case code == "" {
       True ->
         response.new(400)
-        |> response.set_body(mist.Bytes(bytes_tree.from_string("Missing code query param")))
+        |> response.set_body(
+          mist.Bytes(bytes_tree.from_string("Missing code query param")),
+        )
       False -> {
         let _ = simplifile.write(code, to: code_file)
-        let token_json = redeem_code(client_id, client_secret, redirect_uri, code)
+        let token_json =
+          redeem_code(client_id, client_secret, redirect_uri, code)
         let _ = simplifile.write(token_json, to: session_file)
-        io.println("[spotify-oauth] OAuth complete. Code and token files updated.")
+        io.println(
+          "[spotify-oauth] OAuth complete. Code and token files updated.",
+        )
         io.println("[spotify-oauth] You can close the server when done.")
         response.new(200)
         |> response.set_body(
-          mist.Bytes(
-            bytes_tree.from_string(
-              "Spotify OAuth success. Code and token saved. You can close the server.",
-            ),
-          ),
+          mist.Bytes(bytes_tree.from_string(
+            "Spotify OAuth success. Code and token saved. You can close the server.",
+          )),
         )
       }
     }

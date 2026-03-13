@@ -1,14 +1,15 @@
+import adapters/core
 import gleam/int
 import gleam/list
 import gleam/string
-import adapters/core
 
 pub fn depth_1_stops_after_profile_test() {
-  let result = core.resolve_profile_url(
-    "https://www.youtube.com/playlist?list=PLdemo",
-    core.Depth1,
-    fake_expand,
-  )
+  let result =
+    core.resolve_profile_url(
+      "https://www.youtube.com/playlist?list=PLdemo",
+      core.Depth1,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 5
@@ -18,11 +19,12 @@ pub fn depth_1_stops_after_profile_test() {
 }
 
 pub fn depth_2_expands_one_more_page_test() {
-  let result = core.resolve_profile_url(
-    "https://www.youtube.com/playlist?list=PLdemo",
-    core.Depth2,
-    fake_expand,
-  )
+  let result =
+    core.resolve_profile_url(
+      "https://www.youtube.com/playlist?list=PLdemo",
+      core.Depth2,
+      fake_expand,
+    )
   let core.ResolveResult(items, lists, unresolved) = result
 
   assert list.length(items) >= 15
@@ -37,9 +39,16 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
       core.ExpandResult(
         items: make_depth_items("yt-d1-", 10),
         lists: [
-          make_list("youtube:collection:PLdemo", "Demo Playlist", ["yt-d1-01"], []),
+          make_list(
+            "youtube:collection:PLdemo",
+            "Demo Playlist",
+            ["yt-d1-01"],
+            [],
+          ),
         ],
-        next_nodes: [core.PageNode("https://www.youtube.com/playlist?list=PLdemo|10")],
+        next_nodes: [
+          core.PageNode("https://www.youtube.com/playlist?list=PLdemo|10"),
+        ],
         unresolved: [],
       )
 
@@ -50,7 +59,12 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
           core.ExpandResult(
             items: make_depth_items("yt-d2-", 10),
             lists: [
-              make_list("youtube:collection:PLdemo", "Demo Playlist", ["yt-d1-01"], []),
+              make_list(
+                "youtube:collection:PLdemo",
+                "Demo Playlist",
+                ["yt-d1-01"],
+                [],
+              ),
             ],
             next_nodes: [],
             unresolved: [],
@@ -65,13 +79,7 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
       }
     }
 
-    _ ->
-      core.ExpandResult(
-        items: [],
-        lists: [],
-        next_nodes: [],
-        unresolved: [],
-      )
+    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
   }
 }
 
@@ -119,12 +127,9 @@ fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
 
 fn make_depth_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
   let numbers =
-    int.range(
-      from: 1,
-      to: count + 1,
-      with: [],
-      run: fn(acc, n) { list.append(acc, [n]) },
-    )
+    int.range(from: 1, to: count + 1, with: [], run: fn(acc, n) {
+      list.append(acc, [n])
+    })
   list.map(numbers, fn(n) {
     let n_str = int_to_two_digits(n)
     let id = prefix <> n_str
