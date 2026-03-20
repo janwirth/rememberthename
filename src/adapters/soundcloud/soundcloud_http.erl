@@ -80,7 +80,8 @@ json_track_ids_from_json(Json) ->
 
 run_jq_json(Json, Filter) ->
     try
-        TempPath = "/tmp/rememberthename_soundcloud_jq.json",
+        {ok, Cwd} = file:get_cwd(),
+        TempPath = filename:join(Cwd, "rememberthename_soundcloud_jq.json"),
         _ = file:write_file(TempPath, Json),
         Cmd =
             "/opt/homebrew/bin/jq -r '" ++

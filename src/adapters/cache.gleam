@@ -2,7 +2,7 @@
 ////
 //// Contract used by all live expanders:
 //// - deterministic cache key: `namespace + phash(key)`
-//// - sqlite-backed cache in `/tmp`
+//// - sqlite-backed cache in the process current working directory
 //// - empty fetch results are not persisted
 ////
 //// Cache modes:
@@ -122,5 +122,5 @@ fn string_value_decoder() -> decode.Decoder(String) {
 }
 
 pub fn cache_db_uri() -> String {
-  "file:/tmp/rememberthename_adapter_cache.sqlite3"
+  "file:rememberthename_adapter_cache.sqlite3"
 }

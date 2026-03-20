@@ -141,7 +141,8 @@ run_jq_on_json(Json, Filter) ->
 
 cache_path(Json) ->
     Hash = integer_to_list(erlang:phash2(Json)),
-    "/tmp/rememberthename_youtube_json_" ++ Hash ++ ".json".
+    {ok, Cwd} = file:get_cwd(),
+    filename:join(Cwd, "rememberthename_youtube_json_" ++ Hash ++ ".json").
 
 trim(Value) ->
     unicode:characters_to_binary(string:trim(unicode:characters_to_list(Value))).
