@@ -145,6 +145,7 @@ fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        fn(_) { Nil },
       )
     }
     "soundcloud" -> {
@@ -156,6 +157,7 @@ fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        fn(_) { Nil },
       )
     }
     "spotify" -> {
@@ -187,6 +189,7 @@ fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        fn(_) { Nil },
       )
     }
     _ -> {
@@ -198,6 +201,7 @@ fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        fn(_) { Nil },
       )
     }
   }

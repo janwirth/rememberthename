@@ -16,6 +16,7 @@ pub fn stops_accumulation_when_item_limit_is_reached_test() {
       4,
       fake_expand,
       fn(_) { Nil },
+      fn(_) { Nil },
     )
   let core.ResolveResult(items, _, _) = result
   item_ids(items)

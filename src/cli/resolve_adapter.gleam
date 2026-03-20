@@ -44,6 +44,7 @@ pub fn resolve_source(
   timing_spec: source_specs.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(core.ResolveProgress) -> Nil,
 ) -> core.ResolveResult {
   let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
@@ -62,6 +63,7 @@ pub fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        on_progress,
       )
     }
     "soundcloud" -> {
@@ -73,6 +75,7 @@ pub fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        on_progress,
       )
     }
     "spotify" -> {
@@ -104,6 +107,7 @@ pub fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        on_progress,
       )
     }
     "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
@@ -116,6 +120,7 @@ pub fn resolve_source(
         source_limit,
         queue_policy,
         on_debug,
+        on_progress,
       )
     }
   }

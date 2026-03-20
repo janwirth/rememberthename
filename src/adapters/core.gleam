@@ -128,12 +128,99 @@ pub type ResolveResult {
   )
 }
 
+pub type ResolveProgressEvent {
+  FetchStarted
+  FetchFinished
+}
+
+pub type ResolveProgress {
+  ResolveProgress(
+    event: ResolveProgressEvent,
+    label: String,
+    level: Int,
+    items_total: Int,
+    lists_total: Int,
+    step_items: Int,
+    step_lists: Int,
+  )
+}
+
+/// One-line status for CLI / UI (human-oriented, no raw adapter tokens).
+pub fn format_resolve_progress_line(p: ResolveProgress) -> String {
+  case p.event {
+    FetchStarted ->
+      "> "
+      <> p.label
+      <> " · "
+      <> int.to_string(p.items_total)
+      <> " tracks · "
+      <> int.to_string(p.lists_total)
+      <> " lists"
+    FetchFinished ->
+      "+ "
+      <> p.label
+      <> " · +"
+      <> int.to_string(p.step_items)
+      <> " tracks · +"
+      <> int.to_string(p.step_lists)
+      <> " lists · total "
+      <> int.to_string(p.items_total)
+      <> " tracks · "
+      <> int.to_string(p.lists_total)
+      <> " lists"
+  }
+}
+
+/// Best-effort human label for the node being expanded (hides long opaque tokens where possible).
+pub fn progress_label(node: AdapterNode) -> String {
+  case node {
+    ProfileEntry(url) -> "Profile · " <> short_url(url)
+    CategoryNode(ctx) -> human_node_ctx("Category", ctx)
+    ListNode(ctx) -> human_node_ctx("List", ctx)
+    PageNode(ctx) -> human_node_ctx("Page", ctx)
+  }
+}
+
+fn human_node_ctx(kind: String, ctx: String) -> String {
+  let parts = string.split(ctx, "|")
+  case parts {
+    ["likes_page", scope, _, offset] ->
+      "Liked songs · " <> scope <> " · batch " <> offset
+    ["likes_page", _, offset] -> "Liked songs · batch " <> offset
+    ["likes", _, offset] -> "Liked songs · batch " <> offset
+    _ -> kind <> " · " <> compact_context(ctx)
+  }
+}
+
+fn emit_progress(
+  on_progress: fn(ResolveProgress) -> Nil,
+  event: ResolveProgressEvent,
+  node: AdapterNode,
+  level: Int,
+  items_total: Int,
+  lists_total: Int,
+  step_items: Int,
+  step_lists: Int,
+) {
+  on_progress(ResolveProgress(
+    event: event,
+    label: progress_label(node),
+    level: level,
+    items_total: items_total,
+    lists_total: lists_total,
+    step_items: step_items,
+    step_lists: step_lists,
+  ))
+}
+
 pub fn resolve_profile_url(
   profile_url: String,
   depth: DepthMode,
   expand: fn(AdapterNode) -> ExpandResult,
 ) -> ResolveResult {
   resolve_profile_url_with_debug_and_limit(profile_url, depth, 0, expand, fn(_) {
+    Nil
+  }, fn(_) {
     Nil
   })
 }
@@ -150,6 +237,7 @@ pub fn resolve_profile_url_with_debug(
     0,
     expand,
     on_debug,
+    fn(_) { Nil },
   )
 }
 
@@ -163,6 +251,7 @@ pub fn resolve_profile_url_with_debug_and_limit(
   max_items: Int,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
   resolve_profile_url_with_debug_limit_and_queue_policy(
     profile_url,
@@ -171,6 +260,7 @@ pub fn resolve_profile_url_with_debug_and_limit(
     default_queue_policy(),
     expand,
     on_debug,
+    on_progress,
   )
 }
 
@@ -181,6 +271,7 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
   queue_policy: QueuePolicy,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
   case depth {
     All ->
@@ -190,6 +281,7 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
         queue_policy,
         expand,
         on_debug,
+        on_progress,
       )
     _ ->
       // Start traversal exactly once from the profile entry root.
@@ -205,6 +297,7 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
         max_items,
         expand,
         on_debug,
+        on_progress,
       )
   }
 }
@@ -219,6 +312,7 @@ fn resolve_profile_url_with_default_queue(
   queue_policy: QueuePolicy,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
   let QueuePolicy(max_concurrency, requests_per_second) =
     normalize_queue_policy(queue_policy)
@@ -261,6 +355,7 @@ fn resolve_profile_url_with_default_queue(
       subject,
       expand,
       on_debug,
+      on_progress,
     )
   let ResolveResult(items, lists, unresolved) =
     concurrent_loop(
@@ -280,6 +375,7 @@ fn resolve_profile_url_with_default_queue(
       subject,
       expand,
       on_debug,
+      on_progress,
     )
   emit_debug(All, on_debug, "[queue] complete")
   ResolveResult(items, lists, unresolved)
@@ -302,6 +398,7 @@ fn start_workers(
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> #(
   List(#(AdapterNode, Int)),
   Int,
@@ -355,6 +452,7 @@ fn start_workers(
             subject,
             expand,
             on_debug,
+            on_progress,
           )
         False -> {
           let visited = set.insert(visited, key)
@@ -373,6 +471,16 @@ fn start_workers(
               <> node_debug_label(node)
               <> " level="
               <> int.to_string(level),
+          )
+          emit_progress(
+            on_progress,
+            FetchStarted,
+            node,
+            level,
+            list.length(items),
+            list.length(lists),
+            0,
+            0,
           )
           let _ =
             process.spawn_unlinked(fn() {
@@ -401,6 +509,7 @@ fn start_workers(
             subject,
             expand,
             on_debug,
+            on_progress,
           )
         }
       }
@@ -425,6 +534,7 @@ fn concurrent_loop(
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
   case queue == [] && running == 0 || reached_item_limit(items, max_items) {
     True ->
@@ -467,6 +577,7 @@ fn concurrent_loop(
           subject,
           expand,
           on_debug,
+          on_progress,
         )
       case running == 0 {
         True -> ResolveResult(items, lists, unresolved)
@@ -501,6 +612,16 @@ fn concurrent_loop(
               <> " unresolved="
               <> int.to_string(list.length(next_unresolved)),
           )
+          emit_progress(
+            on_progress,
+            FetchFinished,
+            node,
+            level,
+            list.length(items),
+            list.length(lists),
+            list.length(next_items),
+            list.length(next_lists),
+          )
           case limit_hit {
             True -> {
               let deferred =
@@ -530,6 +651,7 @@ fn concurrent_loop(
                 subject,
                 expand,
                 on_debug,
+                on_progress,
               )
             }
           }
@@ -566,6 +688,7 @@ fn loop(
   max_items: Int,
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
   // Tail-recursive resolver with:
   // - queue for deterministic traversal order
@@ -601,6 +724,7 @@ fn loop(
             max_items,
             expand,
             on_debug,
+            on_progress,
           )
         }
         False -> {
@@ -619,6 +743,7 @@ fn loop(
                 max_items,
                 expand,
                 on_debug,
+                on_progress,
               )
             }
             True -> {
@@ -629,6 +754,16 @@ fn loop(
                   <> node_debug_label(node)
                   <> " level="
                   <> int.to_string(level),
+              )
+              emit_progress(
+                on_progress,
+                FetchStarted,
+                node,
+                level,
+                list.length(items),
+                list.length(lists),
+                0,
+                0,
               )
               let ExpandResult(
                 next_items,
@@ -652,6 +787,16 @@ fn loop(
                 merge_items(items, item_seen, next_items, max_items)
               let #(lists, list_seen) =
                 merge_lists(lists, list_seen, next_lists)
+              emit_progress(
+                on_progress,
+                FetchFinished,
+                node,
+                level,
+                list.length(items),
+                list.length(lists),
+                list.length(next_items),
+                list.length(next_lists),
+              )
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)
               case limit_hit {
@@ -674,6 +819,7 @@ fn loop(
                     max_items,
                     expand,
                     on_debug,
+                    on_progress,
                   )
               }
             }

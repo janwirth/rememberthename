@@ -104,6 +104,7 @@ pub fn validation_run_for_depth(
           timing_spec,
           cache_mode,
           fn(_line) { Nil },
+          fn(_progress) { Nil },
         )
     }
   }

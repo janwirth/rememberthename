@@ -91,6 +91,7 @@ pub fn resolve_profile_with_debug_limited(
     max_items,
     core.default_queue_policy(),
     on_debug,
+    fn(_) { Nil },
   )
 }
 
@@ -101,6 +102,7 @@ pub fn resolve_profile_with_debug_limited_timed(
   max_items: Int,
   queue_policy: core.QueuePolicy,
   on_debug: fn(String) -> Nil,
+  on_progress: fn(core.ResolveProgress) -> Nil,
 ) -> core.ResolveResult {
   let YoutubePlaylistProfile(profile_url) = profile
   core.resolve_profile_url_with_debug_limit_and_queue_policy(
@@ -110,6 +112,7 @@ pub fn resolve_profile_with_debug_limited_timed(
     queue_policy,
     fn(node) { expand(node, cache_mode) },
     on_debug,
+    on_progress,
   )
 }
 

@@ -188,7 +188,10 @@ pub fn run_fetch(
           source_limit,
           timing_spec,
           cache_mode,
-          fn(line) { io.println(line) },
+          fn(_line) { Nil },
+          fn(progress) {
+            io.println(core.format_resolve_progress_line(progress))
+          },
         ),
         None,
       )
