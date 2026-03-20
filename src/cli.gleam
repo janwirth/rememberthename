@@ -1,22 +1,26 @@
-import adapters/cache.{type CacheMode}
-import cli/export_json
 import cli/fetch
 import cli/runtime
 import cli/terminal
-import cli/tuna_perf
-import cli/tuna_tags
+import gleam/int
+import gleam/io
+import gleam/list
 import gleam/option.{type Option}
 import output/visual_output.{type TrackView}
+import rememberthename
+import adapters/cache.{type CacheMode}
+import cli/export_json
+import cli/tuna_perf
+import cli/tuna_tags
 
 /// CLI entry: normalizes argv and delegates to `run`.
 pub fn main() {
   run(normalize_args(runtime.argv()))
 }
 
-/// Routes arguments: no args → easy start; `fetch` → fetch flow; otherwise usage.
+/// Routes arguments: no args → list + usage; `fetch` → fetch; else usage.
 pub fn run(args: List(String)) {
   case args {
-    [] -> terminal.show_easy_start()
+    [] -> easy_start()
     ["fetch", source_selector, ..rest] ->
       fetch.fetch_source_simple(source_selector, rest)
     _ -> terminal.print_usage()
@@ -24,7 +28,21 @@ pub fn run(args: List(String)) {
   terminal.print_exit_signal()
 }
 
-/// Drops a leading `cli` token when the program is invoked as `cli ...`.
+fn easy_start() {
+  io.println(terminal.color("Sources:", terminal.ansi_bright_cyan()))
+  list.each(rememberthename.list_sources(), fn(row) {
+    io.println(
+      row.key
+      <> "-"
+      <> int.to_string(row.rank_for_key)
+      <> " | "
+      <> row.entry_point,
+    )
+  })
+  io.println("")
+  terminal.print_usage()
+}
+
 fn normalize_args(args: List(String)) -> List(String) {
   case args {
     ["cli", ..rest] -> rest
@@ -32,7 +50,7 @@ fn normalize_args(args: List(String)) -> List(String) {
   }
 }
 
-// --- Public API re-exports for tests and library callers ---
+// --- Re-exports for tests and tooling ---
 
 pub fn normalize_tuna_metadata_source_id(
   service: String,

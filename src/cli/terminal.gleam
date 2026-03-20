@@ -1,47 +1,4 @@
-import cli/source_selector
-import gleam/int
 import gleam/io
-import source_specs
-
-/// Prints every configured source with its provider-rank suffix for aliases.
-pub fn list_sources() {
-  let sources = source_specs.all()
-  io.println(color("Sources:", ansi_bright_cyan()))
-  list_sources_loop(sources, 1)
-}
-
-/// Recursively prints `key-rank | entry_point` lines (1-based index into `all()`).
-fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
-  case sources {
-    [] -> Nil
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(key, _, entry_point, _, _) = source
-      let alias_rank =
-        source_selector.provider_rank_for_index(
-          source_specs.all(),
-          key,
-          index,
-          1,
-          0,
-        )
-      io.println(
-        key
-        <> "-"
-        <> int.to_string(alias_rank)
-        <> " | "
-        <> entry_point,
-      )
-      list_sources_loop(rest, index + 1)
-    }
-  }
-}
-
-/// Welcome path: list sources, blank line, then usage text.
-pub fn show_easy_start() {
-  list_sources()
-  io.println("")
-  print_usage()
-}
 
 /// Prints a fixed `CLI_EXIT:0` line for wrappers/tests to detect clean exit.
 pub fn print_exit_signal() {

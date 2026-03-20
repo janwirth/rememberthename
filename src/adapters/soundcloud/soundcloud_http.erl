@@ -79,17 +79,34 @@ json_track_ids_from_json(Json) ->
     run_jq_json(Json, ".tracks[]?.id | tostring").
 
 run_jq_json(Json, Filter) ->
-    try
-        {ok, Cwd} = file:get_cwd(),
-        TempPath = filename:join(Cwd, "rememberthename_soundcloud_jq.json"),
-        _ = file:write_file(TempPath, Json),
-        Cmd =
-            "/opt/homebrew/bin/jq -r '" ++
-            Filter ++
-            "' '" ++
-            TempPath ++
-            "'",
-        unicode:characters_to_binary(os:cmd(Cmd))
-    catch
-        _:_ -> <<>>
+    %% Ephemeral jq input only — persistent caching is SQLite via adapters/cache (Gleam).
+    TmpPath = temp_jq_path(),
+    case file:write_file(TmpPath, Json) of
+        ok ->
+            try
+                Cmd =
+                    "/opt/homebrew/bin/jq -r '" ++
+                        Filter ++
+                        "' '" ++
+                        TmpPath ++
+                        "'",
+                unicode:characters_to_binary(os:cmd(Cmd))
+            after
+                _ = file:delete(TmpPath)
+            end;
+        _ ->
+            <<>>
     end.
+
+temp_jq_path() ->
+    TmpDir =
+        case os:getenv("TMPDIR") of
+            false -> "/tmp";
+            "" -> "/tmp";
+            D -> D
+        end,
+    filename:join([
+        TmpDir,
+        "rememberthename_jq_" ++
+            integer_to_list(erlang:unique_integer([positive])) ++ ".json"
+    ]).
