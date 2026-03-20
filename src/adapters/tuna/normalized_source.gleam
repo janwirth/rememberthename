@@ -9,12 +9,18 @@ import gleam/list
 import gleam/result
 import gleam/string
 import source_id_normalizer
+import tuna_mirror_path
 
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
 fn tracks_source_ids_json() -> String
 
 pub type ExportMetadata {
-  ExportMetadata(file_path: String, tags: String, imported_date: Int)
+  ExportMetadata(
+    file_path: String,
+    cover_path: String,
+    tags: String,
+    imported_date: Int,
+  )
 }
 
 pub type ResolveWithMetadataResult {
@@ -90,7 +96,8 @@ fn rows_to_items_with_metadata(
   list.fold(rows, #([], dict.new()), fn(acc, row) {
     let preferred_title = row_preferred_title(row)
     let artist = row_artist(row)
-    let file_path = decode_path_or(row, ["file_path"], "", decode.string)
+    let file_path = row_audio_path(row)
+    let cover_path = row_cover_path(row)
     let tags = row_tags_with_rating(row)
     let imported_date = row_compact_imported_date(row)
     let acc =
@@ -101,6 +108,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -112,6 +120,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -123,6 +132,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -134,6 +144,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -145,6 +156,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -156,6 +168,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -167,6 +180,7 @@ fn rows_to_items_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -176,6 +190,7 @@ fn rows_to_items_with_metadata(
       preferred_title,
       artist,
       file_path,
+      cover_path,
       tags,
       imported_date,
     )
@@ -196,6 +211,7 @@ fn push_fishbone_item_with_metadata(
   preferred_title: String,
   artist: String,
   file_path: String,
+  cover_path: String,
   tags: String,
   imported_date: Int,
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
@@ -214,6 +230,7 @@ fn push_fishbone_item_with_metadata(
         preferred_title,
         artist,
         file_path,
+        cover_path,
         tags,
         imported_date,
       )
@@ -259,6 +276,7 @@ fn push_item_with_metadata(
   preferred_title: String,
   artist: String,
   file_path: String,
+  cover_path: String,
   tags: String,
   imported_date: Int,
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
@@ -281,12 +299,34 @@ fn push_item_with_metadata(
             dict.insert(
               metadata,
               key,
-              ExportMetadata(file_path, tags, imported_date),
+              ExportMetadata(file_path, cover_path, tags, imported_date),
             )
           #([item, ..items], metadata)
         }
         Error(_) -> acc
       }
+  }
+}
+
+fn row_audio_path(row: dynamic.Dynamic) -> String {
+  let fallback = decode_path_or(row, ["file_path"], "", decode.string)
+  let mirror_md5 = decode_path_or(row, ["mirror_audio_md5"], "", decode.string)
+  let mirror_ext = decode_path_or(row, ["mirror_audio_ext"], "", decode.string)
+  prefer_hashed_path(mirror_md5, mirror_ext, fallback)
+}
+
+fn row_cover_path(row: dynamic.Dynamic) -> String {
+  let fallback = decode_path_or(row, ["cover_path"], "", decode.string)
+  let mirror_md5 = decode_path_or(row, ["mirror_cover_md5"], "", decode.string)
+  let mirror_ext = decode_path_or(row, ["mirror_cover_ext"], "", decode.string)
+  prefer_hashed_path(mirror_md5, mirror_ext, fallback)
+}
+
+pub fn prefer_hashed_path(md5: String, ext: String, fallback_path: String) -> String {
+  let hashed = tuna_mirror_path.from_md5_source(md5, ext)
+  case hashed == "" {
+    True -> fallback_path |> string.trim
+    False -> hashed
   }
 }
 

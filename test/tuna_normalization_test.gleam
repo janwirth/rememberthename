@@ -1,7 +1,10 @@
+import adapters/tuna/normalized_source
 import cli
 import gleeunit
 import gleeunit/should
 import gleam/option.{None, Some}
+import gleam/string
+import tuna_mirror_path
 
 pub fn main() {
   gleeunit.main()
@@ -49,4 +52,44 @@ pub fn normalize_tuna_metadata_source_id_handles_prefixed_values_test() {
 
   cli.normalize_tuna_metadata_source_id("spotify", "spotify:track:5n4uWPm")
   |> should.equal("5n4uWPm")
+}
+
+pub fn tuna_mirror_path_builds_s3_path_from_md5_source_test() {
+  tuna_mirror_path.from_md5_source(
+    "d41d8cd98f00b204e9800998ecf8427e",
+    ".m4a",
+  )
+  |> should.equal("s3://<bucket_id>/d41d8cd98f00b204e9800998ecf8427e.m4a")
+}
+
+pub fn tuna_mirror_path_returns_empty_for_invalid_input_test() {
+  tuna_mirror_path.from_md5_source("   ", "jpg")
+  |> should.equal("")
+}
+
+pub fn tuna_normalization_prefers_hashed_audio_paths_from_old_db_test() {
+  let resolved =
+    normalized_source.prefer_hashed_path(
+      "4c969fe36f422ad87f6baa6f3cf90695",
+      "mp3",
+      "/Users/janwirth/tuna-dl/spotify-download-track.mp3",
+    )
+
+  string.starts_with(resolved, "s3://<bucket_id>/")
+  |> should.equal(True)
+
+  resolved
+  |> should.equal("s3://<bucket_id>/4c969fe36f422ad87f6baa6f3cf90695.mp3")
+}
+
+pub fn tuna_normalization_prefers_hashed_cover_paths_from_old_db_test() {
+  let resolved =
+    normalized_source.prefer_hashed_path(
+      "93b885adfe0da089cdf634904fd59f71",
+      "jpg",
+      "/Users/janwirth/tuna-dl/cover.jpg",
+    )
+
+  resolved
+  |> should.equal("s3://<bucket_id>/93b885adfe0da089cdf634904fd59f71.jpg")
 }

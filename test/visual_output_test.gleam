@@ -17,12 +17,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
         "",
         "",
         "",
+        "",
       ),
       visual_output.TrackView(
         "Track 2",
         "Artist 2",
         "youtube",
         "yt-2",
+        "",
         "",
         "",
         "",
@@ -35,12 +37,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
         "",
         "",
         "",
+        "",
       ),
       visual_output.TrackView(
         "Track 4",
         "Artist 4",
         "youtube",
         "yt-4",
+        "",
         "",
         "",
         "",
@@ -55,6 +59,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         "",
         "",
         "",
+        "",
       ),
       visual_output.TrackView(
         "Track 6",
@@ -64,12 +69,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
         "",
         "",
         "",
+        "",
       ),
       visual_output.TrackView(
         "Track 7",
         "Artist 7",
         "spotify",
         "sp-7",
+        "",
         "",
         "",
         "",
@@ -85,12 +92,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
       "",
       "",
       "",
+      "",
     ),
     visual_output.TrackView(
       "Track 2",
       "Artist 2",
       "youtube",
       "yt-2",
+      "",
       "",
       "",
       "",
@@ -103,12 +112,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
       "",
       "",
       "",
+      "",
     ),
     visual_output.TrackView(
       "Track 4",
       "Artist 4",
       "youtube",
       "yt-4",
+      "",
       "",
       "",
       "",
@@ -121,6 +132,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       "",
       "",
       "",
+      "",
     ),
     visual_output.TrackView(
       "Track 6",
@@ -130,12 +142,14 @@ pub fn render_uses_unicode_tree_connectors_test() {
       "",
       "",
       "",
+      "",
     ),
     visual_output.TrackView(
       "Track 7",
       "Artist 7",
       "spotify",
       "sp-7",
+      "",
       "",
       "",
       "",
@@ -171,17 +185,17 @@ pub fn render_uses_unicode_tree_connectors_test() {
 pub fn render_shows_all_once_when_total_tracks_is_six_or_less_test() {
   let lists = [
     visual_output.ListView("Short", [
-      visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "", "", ""),
-      visual_output.TrackView("B", "BB", "soundcloud", "sc-b", "", "", ""),
+      visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "", "", "", ""),
+      visual_output.TrackView("B", "BB", "soundcloud", "sc-b", "", "", "", ""),
     ]),
     visual_output.ListView("Short 2", [
-      visual_output.TrackView("C", "CC", "bandcamp", "bc-c", "", "", ""),
+      visual_output.TrackView("C", "CC", "bandcamp", "bc-c", "", "", "", ""),
     ]),
   ]
   let flat_tracks = [
-    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "", "", ""),
-    visual_output.TrackView("B", "BB", "soundcloud", "sc-b", "", "", ""),
-    visual_output.TrackView("C", "CC", "bandcamp", "bc-c", "", "", ""),
+    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", "", "", "", ""),
+    visual_output.TrackView("B", "BB", "soundcloud", "sc-b", "", "", "", ""),
+    visual_output.TrackView("C", "CC", "bandcamp", "bc-c", "", "", "", ""),
   ]
 
   let expected =
@@ -204,11 +218,11 @@ pub fn render_shows_all_once_when_total_tracks_is_six_or_less_test() {
 pub fn render_marks_tracks_with_missing_artist_test() {
   let lists = [
     visual_output.ListView("Missing Artist List", [
-      visual_output.TrackView("Track X", "", "youtube", "yt-x", "", "", ""),
+      visual_output.TrackView("Track X", "", "youtube", "yt-x", "", "", "", ""),
     ]),
   ]
   let flat_tracks = [
-    visual_output.TrackView("Track X", "", "youtube", "yt-x", "", "", ""),
+    visual_output.TrackView("Track X", "", "youtube", "yt-x", "", "", "", ""),
   ]
 
   let expected =

@@ -38,6 +38,8 @@
 /// - `artist`
 /// - `service`
 /// - `source_id`
+/// - `download`
+/// - `cover`
 /// - `tags`
 ///
 /// ## 3) Terminal Output (Unicode Tree)
@@ -136,6 +138,7 @@ pub type TrackView {
     source_id: String,
     adapter_id: String,
     download: String,
+    cover: String,
     tags: String,
   )
 }
@@ -207,18 +210,27 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 }
 
 fn track_label(track: TrackView) -> String {
-  let TrackView(title, artist, _, _, _, _, _) = track
+  let TrackView(title, artist, _, _, _, _, _, _) = track
   title <> " - " <> artist <> missing_artist_suffix(artist)
 }
 
 pub fn track_csv_row(track: TrackView) -> List(String) {
-  let TrackView(title, artist, service, source_id, adapter_id, download, tags) =
+  let TrackView(
+    title,
+    artist,
+    service,
+    source_id,
+    adapter_id,
+    download,
+    cover,
+    tags,
+  ) =
     track
-  [title, artist, service, source_id, adapter_id, download, tags]
+  [title, artist, service, source_id, adapter_id, download, cover, tags]
 }
 
 fn full_track_label(track: TrackView) -> String {
-  let TrackView(title, artist, service, _, _, _, _) = track
+  let TrackView(title, artist, service, _, _, _, _, _) = track
   title
   <> " - "
   <> artist

@@ -668,5 +668,5 @@ fn resolve_source(
 
 fn to_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  visual_output.TrackView(title, artist, service, source_id, "", "", "")
+  visual_output.TrackView(title, artist, service, source_id, "", "", "", "")
 }

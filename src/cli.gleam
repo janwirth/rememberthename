@@ -106,7 +106,9 @@ fn fetch_source_simple_with_options(
             True -> cache.CacheReadOnly
             False -> cache.CacheOverride
           }
-          run_fetch(source, source_index, core.All, "full", cache_mode, True)
+          let _ =
+            run_fetch(source, source_index, core.All, "full", cache_mode, True)
+          Nil
         }
       }
   }
@@ -118,20 +120,49 @@ fn fetch_all_sources(use_cache: Bool) {
     False -> cache.CacheOverride
   }
   io.println(color("Fetching all sources...", ansi_bright_cyan()))
-  fetch_all_sources_loop(source_specs.all(), 1, cache_mode)
+  let #(all_tracks, all_imported_dates) =
+    fetch_all_sources_loop(source_specs.all(), 1, cache_mode)
+  let canonical_start_ms = now_ms()
+  let canonical_content =
+    tracks_json_with_imported_dates(all_tracks, all_imported_dates, True)
+  let canonical_path = artifact_path("all_items_latest.json")
+  let _ = simplifile.write(canonical_content, to: canonical_path)
+  let canonical_elapsed_ms = now_ms() - canonical_start_ms
+  io.println("")
+  io.println(color("Canonical JSON written: ", ansi_green()) <> canonical_path)
+  io.println(
+    color("Canonical info: ", ansi_yellow())
+    <> "items="
+    <> int.to_string(list.length(all_tracks))
+    <> " files="
+    <> int.to_string(count_tracks_with_file(all_tracks))
+    <> " duration="
+    <> int.to_string(canonical_elapsed_ms)
+    <> "ms",
+  )
 }
 
 fn fetch_all_sources_loop(
   sources: List(source_specs.SourceSpec),
   index: Int,
   cache_mode: cache.CacheMode,
-) {
+) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   case sources {
-    [] -> Nil
+    [] -> #([], dict.new())
     [source, ..rest] -> {
-      run_fetch(source, index, core.All, "full", cache_mode, True)
+      let #(tracks, imported_dates) =
+        run_fetch(source, index, core.All, "full", cache_mode, True)
       io.println("")
-      fetch_all_sources_loop(rest, index + 1, cache_mode)
+      let #(rest_tracks, rest_imported_dates) =
+        fetch_all_sources_loop(rest, index + 1, cache_mode)
+      #(
+        list.append(tracks, rest_tracks),
+        merge_imported_dates(
+          imported_dates,
+          tracks,
+          rest_imported_dates,
+        ),
+      )
     }
   }
 }
@@ -172,7 +203,7 @@ fn run_fetch(
   depth_label: String,
   cache_mode: cache.CacheMode,
   always_validate: Bool,
-) {
+) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   let run_start_ms = now_ms()
   let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
     source
@@ -281,6 +312,22 @@ fn run_fetch(
     <> int.to_string(total_elapsed_ms)
     <> "ms",
   )
+  #(tracks, imported_dates)
+}
+
+fn merge_imported_dates(
+  source_imported_dates: dict.Dict(String, Int),
+  source_tracks: List(visual_output.TrackView),
+  acc: dict.Dict(String, Int),
+) -> dict.Dict(String, Int) {
+  list.fold(source_tracks, acc, fn(acc_dates, track) {
+    let visual_output.TrackView(_, _, service, source_id, _, _, _, _) = track
+    let key = service <> ":" <> source_id
+    case dict.get(source_imported_dates, key) {
+      Ok(imported_date) -> dict.insert(acc_dates, key, imported_date)
+      Error(_) -> acc_dates
+    }
+  })
 }
 
 fn print_runtime_validation(
@@ -613,7 +660,7 @@ fn to_track_view(
   adapter_id: String,
 ) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  visual_output.TrackView(title, artist, service, source_id, adapter_id, "", "")
+  visual_output.TrackView(title, artist, service, source_id, adapter_id, "", "", "")
 }
 
 fn to_tuna_track_view(
@@ -622,7 +669,7 @@ fn to_tuna_track_view(
   metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
 ) -> visual_output.TrackView {
   let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  let tuna_normalized_source.ExportMetadata(download, tags, _) =
+  let tuna_normalized_source.ExportMetadata(download, cover, tags, _) =
     tuna_metadata_for(metadata_index, service, source_id)
   visual_output.TrackView(
     title,
@@ -631,6 +678,7 @@ fn to_tuna_track_view(
     source_id,
     adapter_id,
     download,
+    cover,
     tags,
   )
 }
@@ -653,7 +701,7 @@ fn tuna_metadata_for(
 ) -> tuna_normalized_source.ExportMetadata {
   metadata_index
   |> dict.get(tuna_metadata_key(service, source_id))
-  |> result.unwrap(tuna_normalized_source.ExportMetadata("", "", 0))
+  |> result.unwrap(tuna_normalized_source.ExportMetadata("", "", "", 0))
 }
 
 fn tuna_metadata_key(service: String, source_id: String) -> String {
@@ -667,7 +715,7 @@ fn imported_dates_for_items(
   list.fold(items, dict.new(), fn(acc, item) {
     let core.UnifiedItem(_, _, _, service, _, source_id) = item
     case dict.get(metadata_index, tuna_metadata_key(service, source_id)) {
-      Ok(tuna_normalized_source.ExportMetadata(_, _, imported_date))
+      Ok(tuna_normalized_source.ExportMetadata(_, _, _, imported_date))
         if imported_date > 0 ->
         dict.insert(acc, tuna_metadata_key(service, source_id), imported_date)
       _ -> acc
@@ -950,6 +998,7 @@ fn track_json_with_order(
     source_id,
     adapter_id,
     download,
+    cover,
     tags,
   ) = track
   let imported_date = case dict.get(imported_dates, service <> ":" <> source_id) {
@@ -965,6 +1014,7 @@ fn track_json_with_order(
     #("imported_date", nullable_int_json(imported_date)),
     #("adapter_id", json.string(adapter_id)),
     #("file", nullable_file_json(download)),
+    #("cover", nullable_file_json(cover)),
     #("tags", json.array(export_tags_with_mode(tags, normalize_tags), of: json.string)),
   ])
 }
@@ -1036,7 +1086,7 @@ fn nullable_int_json(value: Option(Int)) -> json.Json {
 fn count_tracks_with_file(tracks: List(visual_output.TrackView)) -> Int {
   tracks
   |> list.filter(fn(track) {
-    let visual_output.TrackView(_, _, _, _, _, download, _) = track
+    let visual_output.TrackView(_, _, _, _, _, download, _, _) = track
     case nullable_file_path(download) {
       Some(_) -> True
       None -> False

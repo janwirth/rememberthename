@@ -1,3 +1,0 @@
-- it can always be faster
-- only stick in queue what is fetched
-- incremental fetching - when we meet a previously seen item we skip the rest of the queue

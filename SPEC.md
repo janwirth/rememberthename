@@ -250,3 +250,63 @@ See `DEVELOPMENT_CYCLE.md`.
 - No media file download pipeline.
 - No artwork download pipeline.
 - No search feature.
+
+## 13) Tuna Hashed Local Mirror Migration
+
+Goal:
+- Preserve old-db local hashed mirror references for both audio and cover when exporting/importing Tuna data.
+
+### 13.1 Source Fields
+
+The Tuna source query must include legacy local mirror fields from `Fishbone::LocalTrackMirror`:
+- `mirror_audio_md5`
+- `mirror_audio_ext`
+- `mirror_cover_md5`
+- `mirror_cover_ext`
+
+These values come from:
+- `.fishbone_local_track_mirror.audio.md5`
+- `.fishbone_local_track_mirror.audio.ext`
+- `.fishbone_local_track_mirror.cover.md5`
+- `.fishbone_local_track_mirror.cover.ext`
+
+### 13.2 Path Format
+
+Canonical storage path format for imports:
+- `s3://<bucket_id>/<hash>.<ext>`
+
+Rules:
+- `hash` is md5 from mirror tuple.
+- `ext` is extension from mirror tuple.
+- when md5 or ext is missing, path is empty.
+- when local non-hashed path exists and hashed path is missing, keep existing local path fallback behavior.
+
+### 13.3 Gleam Path Builder Module
+
+Add a small dedicated module that converts md5/ext sources into the canonical path format.
+
+Contract:
+- input: `bucket_id`, `md5`, `ext`
+- output: `String` path in `s3://<bucket_id>/<hash>.<ext>` format or empty string when invalid input
+
+Normalization:
+- trim whitespace for all inputs
+- trim leading dot on extension if provided
+
+### 13.4 Export Contract Changes
+
+Export payload must include `cover` in addition to `file`:
+- JSON export: add `cover` nullable field
+- CSV export: add `cover` column
+
+Behavior:
+- `file` maps to hashed/local audio path according to rules above
+- `cover` maps to hashed/local cover path according to rules above
+
+### 13.5 Test Requirements
+
+Tests must verify:
+- at least one Tuna normalization case emits `s3://...` audio path from mirror md5/ext
+- at least one Tuna normalization case emits `s3://...` cover path from mirror md5/ext
+- export includes `cover` column/field
+- path builder returns expected value for md5/ext input and empty string for invalid input

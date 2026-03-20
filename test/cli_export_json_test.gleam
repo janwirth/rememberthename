@@ -19,10 +19,14 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
         "bandcamp + profile",
         "",
         "",
+        "",
       ),
     ])
 
   string.contains(content, "\"file\":null")
+  |> should.equal(True)
+
+  string.contains(content, "\"cover\":null")
   |> should.equal(True)
 
   string.contains(content, "\"tags\":[]")
@@ -45,11 +49,15 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
         "1685501811",
         "tuna + fishbone",
         "/tmp/track-b.mp3",
+        "/tmp/track-b.jpg",
         "genre:house | rating:8",
       ),
     ])
 
   string.contains(content, "\"file\":\"/tmp/track-b.mp3\"")
+  |> should.equal(True)
+
+  string.contains(content, "\"cover\":\"/tmp/track-b.jpg\"")
   |> should.equal(True)
 
   string.contains(content, "\"tags\":[\"tag/genre/:house\",\":rating:8\"]")
@@ -73,6 +81,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "youtube + profile",
         "",
         "",
+        "",
       ),
       visual_output.TrackView(
         "Track Older",
@@ -80,6 +89,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "youtube",
         "yt-old",
         "youtube + profile",
+        "",
         "",
         "",
       ),
