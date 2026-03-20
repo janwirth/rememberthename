@@ -18,12 +18,15 @@ import simplifile
 import source_id_normalizer
 import source_specs
 
+/// Raw command-line arguments from the Erlang runtime (`argv`).
 @external(erlang, "cli_runtime_args", "argv")
 fn argv() -> List(String)
 
+/// Monotonic clock in milliseconds (for durations and probes).
 @external(erlang, "cli_runtime_args", "now_ms")
 fn now_ms() -> Int
 
+/// Resolve snapshots at depth-1, depth-2, and full depth for post-fetch validation.
 type SourceRun {
   SourceRun(
     spec: source_specs.SourceSpec,
@@ -33,10 +36,12 @@ type SourceRun {
   )
 }
 
+/// CLI entry: normalizes argv and delegates to `run`.
 pub fn main() {
   run(normalize_args(argv()))
 }
 
+/// Routes arguments: no args → easy start; `fetch` → fetch flow; otherwise usage.
 pub fn run(args: List(String)) {
   case args {
     [] -> show_easy_start()
@@ -47,6 +52,7 @@ pub fn run(args: List(String)) {
   print_exit_signal()
 }
 
+/// Drops a leading `cli` token when the program is invoked as `cli ...`.
 fn normalize_args(args: List(String)) -> List(String) {
   case args {
     ["cli", ..rest] -> rest
@@ -54,12 +60,14 @@ fn normalize_args(args: List(String)) -> List(String) {
   }
 }
 
+/// Prints every configured source with its provider-rank suffix for aliases.
 fn list_sources() {
   let sources = source_specs.all()
   io.println(color("Sources:", ansi_bright_cyan()))
   list_sources_loop(sources, 1)
 }
 
+/// Recursively prints `key-rank | entry_point` lines (1-based index into `all()`).
 fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   case sources {
     [] -> Nil
@@ -79,12 +87,14 @@ fn list_sources_loop(sources: List(source_specs.SourceSpec), index: Int) {
   }
 }
 
+/// Welcome path: list sources, blank line, then usage text.
 fn show_easy_start() {
   list_sources()
   io.println("")
   print_usage()
 }
 
+/// Parses optional cache flags after `fetch <source>`, then runs the fetch.
 fn fetch_source_simple(source_selector: String, args: List(String)) {
   case parse_fetch_args(args) {
     Error(message) -> io.println(message)
@@ -92,6 +102,7 @@ fn fetch_source_simple(source_selector: String, args: List(String)) {
   }
 }
 
+/// `all` → multi-source canonical export; else resolve selector and `run_fetch`.
 fn fetch_source_simple_with_options(
   source_selector: String,
   use_cache: Bool,
@@ -114,6 +125,7 @@ fn fetch_source_simple_with_options(
   }
 }
 
+/// Fetches each source in order, merges tracks/dates, writes `all_items_latest.json`.
 fn fetch_all_sources(use_cache: Bool) {
   let cache_mode = case use_cache {
     True -> cache.CacheReadOnly
@@ -142,6 +154,7 @@ fn fetch_all_sources(use_cache: Bool) {
   )
 }
 
+/// Tail-recursive accumulation of track views and merged `imported_date` map.
 fn fetch_all_sources_loop(
   sources: List(source_specs.SourceSpec),
   index: Int,
@@ -167,6 +180,7 @@ fn fetch_all_sources_loop(
   }
 }
 
+/// `Ok(use_cache)` from zero or one flag; `Err` on unknown or too many tokens.
 fn parse_fetch_args(args: List(String)) -> Result(Bool, String) {
   case args {
     [] -> Ok(False)
@@ -187,6 +201,7 @@ fn parse_fetch_args(args: List(String)) -> Result(Bool, String) {
   }
 }
 
+/// `use-cache` → read-only; `override-cache` → force refresh.
 fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
   case value {
     "use-cache" -> Ok(True)
@@ -195,7 +210,7 @@ fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
   }
 }
 
-
+/// Resolves one source at `depth`, logs timing, writes per-source JSON, optionally validates; returns tracks and imported-date map.
 fn run_fetch(
   source: source_specs.SourceSpec,
   source_index: Int,
@@ -315,6 +330,7 @@ fn run_fetch(
   #(tracks, imported_dates)
 }
 
+/// For each track, copies `imported_date` from `source_imported_dates` into `acc` when present.
 fn merge_imported_dates(
   source_imported_dates: dict.Dict(String, Int),
   source_tracks: List(visual_output.TrackView),
@@ -330,6 +346,7 @@ fn merge_imported_dates(
   })
 }
 
+/// When `always_validate` or full depth, runs `validate_source_run` and prints PASS/FAIL.
 fn print_runtime_validation(
   source: source_specs.SourceSpec,
   depth: core.DepthMode,
@@ -360,6 +377,7 @@ fn print_runtime_validation(
   }
 }
 
+/// Builds a `SourceRun`: current `depth_result` plus sibling resolves (tuna reuses full result slices).
 fn validation_run_for_depth(
   source: source_specs.SourceSpec,
   depth: core.DepthMode,
@@ -431,6 +449,7 @@ fn validation_run_for_depth(
   }
 }
 
+/// Asserts counts, monotonicity, list/unresolved stability, anchors, limits; returns human-readable errors.
 fn validate_source_run(run: SourceRun) -> List(String) {
   let SourceRun(spec, depth_1, depth_2, depth_all) = run
   let source_specs.SourceSpec(key, name, _, _, assert_spec) = spec
@@ -515,6 +534,7 @@ fn validate_source_run(run: SourceRun) -> List(String) {
   )
 }
 
+/// If `condition` is true (check failed), appends `line` to the error list.
 fn add_validation_error(
   errors: List(String),
   condition: Bool,
@@ -526,16 +546,19 @@ fn add_validation_error(
   }
 }
 
+/// Extracts the `items` list from a resolve result.
 fn result_items(result: core.ResolveResult) -> List(core.UnifiedItem) {
   let core.ResolveResult(items, _, _) = result
   items
 }
 
+/// `(item_count, list_count, unresolved_count)` for a result.
 fn counts(result: core.ResolveResult) -> #(Int, Int, Int) {
   let core.ResolveResult(items, lists, unresolved) = result
   #(list.length(items), list.length(lists), list.length(unresolved))
 }
 
+/// Stable ids of the first `count` items (order preservation check).
 fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
   result
   |> result_items
@@ -546,6 +569,7 @@ fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
   })
 }
 
+/// True if any resolved item carries `wanted` as its id.
 fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
   result
   |> result_items
@@ -555,6 +579,7 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
   })
 }
 
+/// Case-sensitive substring search in item titles.
 fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
     let core.UnifiedItem(_, title, _, _, _, _) = item
@@ -562,6 +587,7 @@ fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
   })
 }
 
+/// Case-insensitive substring search in item titles.
 fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
   let wanted_lc = string.lowercase(wanted)
   list.any(items, fn(item) {
@@ -570,6 +596,7 @@ fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool 
   })
 }
 
+/// Dispatches to Bandcamp, SoundCloud, Spotify, Tuna, or YouTube expander from `key`.
 fn resolve_source(
   key: String,
   entry_point: String,
@@ -655,6 +682,7 @@ fn resolve_source(
   }
 }
 
+/// Builds a `TrackView` without tuna-specific file/cover/tags fields.
 fn to_track_view(
   item: core.UnifiedItem,
   adapter_id: String,
@@ -663,6 +691,7 @@ fn to_track_view(
   visual_output.TrackView(title, artist, service, source_id, adapter_id, "", "", "")
 }
 
+/// Like `to_track_view` but fills download, cover, and tags from the tuna export index.
 fn to_tuna_track_view(
   item: core.UnifiedItem,
   adapter_id: String,
@@ -683,10 +712,12 @@ fn to_tuna_track_view(
   )
 }
 
+/// Stable label combining source kind and entry URL/path for JSON output.
 fn adapter_id_for_source(source_type: String, entry_point: String) -> String {
   source_type <> " + " <> entry_point
 }
 
+/// Normalizes a service + raw id for consistent metadata keys (exported for reuse).
 pub fn normalize_tuna_metadata_source_id(
   service: String,
   source_id: String,
@@ -694,6 +725,7 @@ pub fn normalize_tuna_metadata_source_id(
   source_id_normalizer.normalize(service, source_id)
 }
 
+/// Looks up tuna `ExportMetadata` for a track or returns empty placeholders.
 fn tuna_metadata_for(
   metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
   service: String,
@@ -704,10 +736,12 @@ fn tuna_metadata_for(
   |> result.unwrap(tuna_normalized_source.ExportMetadata("", "", "", 0))
 }
 
+/// Composite key `service:source_id` for tuna export dictionaries.
 fn tuna_metadata_key(service: String, source_id: String) -> String {
   service <> ":" <> source_id
 }
 
+/// Collects positive `imported_date` values from metadata into a flat map.
 fn imported_dates_for_items(
   items: List(core.UnifiedItem),
   metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
@@ -723,6 +757,7 @@ fn imported_dates_for_items(
   })
 }
 
+/// Drops inline rating tags, formats the rest for export, then appends `:rating:N`.
 pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
   let rating_tag = ":rating:" <> int.to_string(rating)
   let normalized_tags =
@@ -735,6 +770,7 @@ pub fn normalize_tuna_tags(tags: List(String), rating: Int) -> String {
   string.join(list.append(normalized_tags, [rating_tag]), " | ")
 }
 
+/// Splits a tuna tag on US (`\u001F`) into label and emoji (or whole string as label).
 fn decode_tuna_tag_token(token: String) -> #(String, String) {
   case string.split_once(token, "\u{001F}") {
     Ok(#(label, emoji)) -> #(string.trim(label), string.trim(emoji))
@@ -742,12 +778,14 @@ fn decode_tuna_tag_token(token: String) -> #(String, String) {
   }
 }
 
+/// Renders one decoded token as `tag/<category>/<emoji>:<value>`.
 fn format_export_tag(token: String) -> String {
   let #(label, emoji) = decode_tuna_tag_token(token)
   let #(category, value) = split_tag_label(label)
   "tag/" <> category <> "/" <> emoji <> ":" <> value
 }
 
+/// Splits `category:value` on first colon; normalizes empty parts to `unknown`.
 fn split_tag_label(label: String) -> #(String, String) {
   case string.split_once(label, ":") {
     Ok(#(category, value)) ->
@@ -756,6 +794,7 @@ fn split_tag_label(label: String) -> #(String, String) {
   }
 }
 
+/// Trim helper: empty string becomes `"unknown"`.
 fn normalized_tag_part(value: String) -> String {
   let trimmed = string.trim(value)
   case trimmed == "" {
@@ -764,11 +803,13 @@ fn normalized_tag_part(value: String) -> String {
   }
 }
 
+/// Formats a tuna track id for display/export (currently the raw `source_id`).
 pub fn format_tuna_source_id(service: String, source_id: String) -> String {
   let _ = service
   source_id
 }
 
+/// Maps depth label to a safe filename segment (`full` stays `full`).
 fn sanitize_depth_label(value: String) -> String {
   case value {
     "full" -> "full"
@@ -776,6 +817,7 @@ fn sanitize_depth_label(value: String) -> String {
   }
 }
 
+/// 1-based linear search: returns the spec at position `wanted` or error.
 fn source_at(
   sources: List(source_specs.SourceSpec),
   wanted: Int,
@@ -791,6 +833,7 @@ fn source_at(
   }
 }
 
+/// Resolves `wanted` as numeric index, bare provider key, or `key-rank` alias.
 fn source_by_selector(
   sources: List(source_specs.SourceSpec),
   wanted: String,
@@ -818,6 +861,7 @@ fn source_by_selector(
   }
 }
 
+/// First list entry whose `key` equals `wanted`, with its 1-based index.
 fn source_by_key_with_index(
   sources: List(source_specs.SourceSpec),
   wanted: String,
@@ -835,6 +879,7 @@ fn source_by_key_with_index(
   }
 }
 
+/// Picks the `wanted_rank`-th source among those sharing `wanted_key` (in list order).
 fn source_by_provider_rank(
   sources: List(source_specs.SourceSpec),
   wanted_key: String,
@@ -864,6 +909,7 @@ fn source_by_provider_rank(
   }
 }
 
+/// Parses strings like `spotify-2` into provider key and 1-based duplicate rank.
 fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
   let parts = string.split(value, "-")
   case list.reverse(parts) {
@@ -884,6 +930,7 @@ fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
   }
 }
 
+/// How many sources with `wanted_key` occur up to and including `wanted_index`.
 fn provider_rank_for_index(
   sources: List(source_specs.SourceSpec),
   wanted_key: String,
@@ -914,6 +961,7 @@ fn provider_rank_for_index(
   }
 }
 
+/// Short string for logging cache behavior.
 fn cache_mode_text(value: cache.CacheMode) -> String {
   case value {
     cache.CacheUpsert -> "upsert"
@@ -923,6 +971,7 @@ fn cache_mode_text(value: cache.CacheMode) -> String {
   }
 }
 
+/// Relaxes rate limits when hitting cache only so cold-cache policy applies to network runs.
 fn queue_policy_for_cache_mode(
   cache_mode: cache.CacheMode,
   max_concurrency: Int,
@@ -940,6 +989,7 @@ fn queue_policy_for_cache_mode(
   }
 }
 
+/// Runs a full tuna resolve+JSON write and returns how long the file write took (ms).
 pub fn tuna_export_duration_ms(cache_mode: cache.CacheMode) -> Int {
   let source_specs.SourceSpec(key, _, entry_point, _, _) = source_specs.tuna()
   let tuna_normalized_source.ResolveWithMetadataResult(result, metadata_index) =
@@ -958,10 +1008,12 @@ pub fn tuna_export_duration_ms(cache_mode: cache.CacheMode) -> Int {
   now_ms() - export_start_ms
 }
 
+/// Serializes tracks to a JSON array string with normalized tags and no imported dates.
 pub fn tracks_json(tracks: List(visual_output.TrackView)) -> String {
   tracks_json_with_imported_dates(tracks, dict.new(), True)
 }
 
+/// JSON array of track objects, optionally attaching `imported_date` and tag normalization.
 fn tracks_json_with_imported_dates(
   tracks: List(visual_output.TrackView),
   imported_dates: dict.Dict(String, Int),
@@ -975,6 +1027,7 @@ fn tracks_json_with_imported_dates(
   |> json.to_string
 }
 
+/// Zips tracks with descending `order` integers (list length down to 1).
 fn tracks_with_order(
   tracks: List(visual_output.TrackView),
   order: Int,
@@ -985,6 +1038,7 @@ fn tracks_with_order(
   }
 }
 
+/// One track as `json.Json` including optional file paths and tag array.
 fn track_json_with_order(
   track_with_order: #(visual_output.TrackView, Int),
   imported_dates: dict.Dict(String, Int),
@@ -1019,10 +1073,12 @@ fn track_json_with_order(
   ])
 }
 
+/// Splits a `|`-separated tag blob and normalizes each entry for JSON.
 pub fn export_tags(tags: String) -> List(String) {
   export_tags_with_mode(tags, True)
 }
 
+/// Tokenizes pipe-separated tags; optionally passes each through `normalize_export_tag_entry`.
 fn export_tags_with_mode(tags: String, normalize_tags: Bool) -> List(String) {
   tags
   |> string.split("|")
@@ -1036,6 +1092,7 @@ fn export_tags_with_mode(tags: String, normalize_tags: Bool) -> List(String) {
   })
 }
 
+/// Coerces legacy or shorthand tag strings into stable export form.
 fn normalize_export_tag_entry(tag: String) -> String {
   let cleaned = string.trim(tag)
   let lowered = string.lowercase(cleaned)
@@ -1061,6 +1118,7 @@ fn normalize_export_tag_entry(tag: String) -> String {
   }
 }
 
+/// `None` when path is blank/whitespace; otherwise trimmed `Some`.
 pub fn nullable_file_path(path: String) -> Option(String) {
   let cleaned = string.trim(path)
   case cleaned == "" {
@@ -1069,6 +1127,7 @@ pub fn nullable_file_path(path: String) -> Option(String) {
   }
 }
 
+/// JSON string path or `null` if not present.
 fn nullable_file_json(path: String) -> json.Json {
   case nullable_file_path(path) {
     Some(value) -> json.string(value)
@@ -1076,6 +1135,7 @@ fn nullable_file_json(path: String) -> json.Json {
   }
 }
 
+/// JSON integer or `null` for missing optional numbers.
 fn nullable_int_json(value: Option(Int)) -> json.Json {
   case value {
     Some(number) -> json.int(number)
@@ -1083,6 +1143,7 @@ fn nullable_int_json(value: Option(Int)) -> json.Json {
   }
 }
 
+/// Counts tracks whose `download` path is non-empty after trim.
 fn count_tracks_with_file(tracks: List(visual_output.TrackView)) -> Int {
   tracks
   |> list.filter(fn(track) {
@@ -1095,14 +1156,17 @@ fn count_tracks_with_file(tracks: List(visual_output.TrackView)) -> Int {
   |> list.length
 }
 
+/// Path under `output/` for CLI-written JSON and probe files.
 fn artifact_path(file_name: String) -> String {
   "output/" <> file_name
 }
 
+/// Prints a fixed `CLI_EXIT:0` line for wrappers/tests to detect clean exit.
 fn print_exit_signal() {
   io.println("CLI_EXIT:0")
 }
 
+/// Help text: usage line, examples, and source selector tips.
 fn print_usage() {
   io.println(color("Usage:", ansi_bright_cyan()))
   io.println(
@@ -1123,26 +1187,32 @@ fn print_usage() {
   )
 }
 
+/// Wraps `text` with an ANSI SGR prefix and reset.
 fn color(text: String, code: String) -> String {
   code <> text <> ansi_reset()
 }
 
+/// Resets terminal attributes to default.
 fn ansi_reset() -> String {
   "\u{001b}[0m"
 }
 
+/// Bright cyan SGR for headings.
 fn ansi_bright_cyan() -> String {
   "\u{001b}[96m"
 }
 
+/// Yellow SGR for labels and durations.
 fn ansi_yellow() -> String {
   "\u{001b}[33m"
 }
 
+/// Green SGR for success lines.
 fn ansi_green() -> String {
   "\u{001b}[32m"
 }
 
+/// Red SGR for validation failure.
 fn ansi_red() -> String {
   "\u{001b}[31m"
 }

@@ -9,7 +9,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import source_id_normalizer
-import tuna_mirror_path
+import adapters/tuna/tuna_mirror_path
 
 @external(erlang, "tuna_runtime", "tracks_source_ids_json")
 fn tracks_source_ids_json() -> String

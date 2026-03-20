@@ -1,10 +1,10 @@
 import adapters/tuna/normalized_source
+import adapters/tuna/tuna_mirror_path
 import cli
 import gleeunit
 import gleeunit/should
 import gleam/option.{None, Some}
 import gleam/string
-import tuna_mirror_path
 
 pub fn main() {
   gleeunit.main()
