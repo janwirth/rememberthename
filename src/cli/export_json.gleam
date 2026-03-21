@@ -40,7 +40,7 @@ pub fn nullable_int_json(value: Option(Int)) -> json.Json {
 pub fn count_tracks_with_file(tracks: List(visual_output.TrackView)) -> Int {
   tracks
   |> list.filter(fn(track) {
-    let visual_output.TrackView(_, _, _, _, _, download, _, _) = track
+    let visual_output.TrackView(_, _, _, _, _, _, download, _, _) = track
     case nullable_file_path(download) {
       Some(_) -> True
       None -> False
@@ -91,6 +91,7 @@ fn track_json_with_order(
     artist,
     service,
     source_id,
+    external_source_url,
     adapter_id,
     download,
     cover,
@@ -100,11 +101,16 @@ fn track_json_with_order(
     Ok(value) if value > 0 -> Some(value)
     _ -> None
   }
+  let external_url_json = case external_source_url {
+    Some(url) -> json.string(url)
+    None -> json.null()
+  }
   json.object([
     #("title", json.string(title)),
     #("artist", json.string(artist)),
     #("service", json.string(service)),
     #("source_id", json.string(source_id)),
+    #("external_source_url", external_url_json),
     #("order", json.int(order)),
     #("imported_date", nullable_int_json(imported_date)),
     #("adapter_id", json.string(adapter_id)),

@@ -4,6 +4,7 @@ import adapters/cache
 import cli/source_selector as source_pick
 import fetch_ops
 import gleam/list
+import gleam/option.{type Option}
 import output/visual_output
 import source_specs
 
@@ -88,13 +89,24 @@ pub type FetchTrackRow {
     artist: String,
     service: String,
     source_id: String,
+    /// Stable page URL when the adapter could resolve one; `None` when unknown.
+    external_source_url: Option(String),
   )
 }
 
 fn track_view_to_row(view: visual_output.TrackView) -> FetchTrackRow {
-  let visual_output.TrackView(title, artist, service, source_id, _, _, _, _) =
-    view
-  FetchTrackRow(title:, artist:, service:, source_id:)
+  let visual_output.TrackView(
+    title,
+    artist,
+    service,
+    source_id,
+    external_source_url,
+    _,
+    _,
+    _,
+    _,
+  ) = view
+  FetchTrackRow(title:, artist:, service:, source_id:, external_source_url:)
 }
 
 /// One configured source by selector (`"1"`, `"spotify"`, `"spotify-2"`, …). Not `"all"` — use [`fetch_all`](#fetch_all).

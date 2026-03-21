@@ -38,6 +38,8 @@
 /// - `artist`
 /// - `service`
 /// - `source_id`
+/// - `external_source_url`
+/// - `adapter_id`
 /// - `download`
 /// - `cover`
 /// - `tags`
@@ -127,6 +129,7 @@
 /// - output renderer still MUST emit terminal view in Unicode tree format defined above
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import output/tree_view
 
@@ -136,6 +139,7 @@ pub type TrackView {
     artist: String,
     service: String,
     source_id: String,
+    external_source_url: Option(String),
     adapter_id: String,
     download: String,
     cover: String,
@@ -210,7 +214,7 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 }
 
 fn track_label(track: TrackView) -> String {
-  let TrackView(title, artist, _, _, _, _, _, _) = track
+  let TrackView(title, artist, _, _, _, _, _, _, _) = track
   title <> " - " <> artist <> missing_artist_suffix(artist)
 }
 
@@ -220,17 +224,32 @@ pub fn track_csv_row(track: TrackView) -> List(String) {
     artist,
     service,
     source_id,
+    external_source_url,
     adapter_id,
     download,
     cover,
     tags,
   ) =
     track
-  [title, artist, service, source_id, adapter_id, download, cover, tags]
+  let url_cell = case external_source_url {
+    Some(url) -> url
+    None -> ""
+  }
+  [
+    title,
+    artist,
+    service,
+    source_id,
+    url_cell,
+    adapter_id,
+    download,
+    cover,
+    tags,
+  ]
 }
 
 fn full_track_label(track: TrackView) -> String {
-  let TrackView(title, artist, service, _, _, _, _, _) = track
+  let TrackView(title, artist, service, _, _, _, _, _, _) = track
   title
   <> " - "
   <> artist

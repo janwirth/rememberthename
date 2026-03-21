@@ -1,4 +1,5 @@
 import adapters/core
+import gleam/option.{None}
 import default_queue
 import gleam/erlang/process
 import gleam/list
@@ -100,6 +101,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
               service: "demo",
               source_type: "item",
               source_id: "1",
+              external_source_url: None,
             ),
           ],
           lists: [],

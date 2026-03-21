@@ -282,8 +282,19 @@ fn write_csv(key: String, result: core.ResolveResult) {
   let tracks =
     result_items(result)
     |> list.map(fn(item) {
-      let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-      visual_output.TrackView(title, artist, service, source_id, "", "", "", "")
+      let core.UnifiedItem(_, title, artist, service, _, source_id, external_source_url) =
+        item
+      visual_output.TrackView(
+        title,
+        artist,
+        service,
+        source_id,
+        external_source_url,
+        "",
+        "",
+        "",
+        "",
+      )
     })
   let path = "validate_all_" <> key <> "_full.csv"
   let _ = simplifile.write(csv_writer.tracks_csv(tracks), to: path)
@@ -305,7 +316,7 @@ fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
   |> result_items
   |> list.take(count)
   |> list.map(fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _) = item
     id
   })
 }
@@ -314,14 +325,14 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
   result
   |> result_items
   |> list.any(fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _) = item
     id == wanted
   })
 }
 
 fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _) = item
     string.contains(title, wanted)
   })
 }
@@ -329,7 +340,7 @@ fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
 fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
   let wanted_lc = string.lowercase(wanted)
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _) = item
     string.contains(string.lowercase(title), wanted_lc)
   })
 }

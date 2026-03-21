@@ -41,6 +41,7 @@
 import gleam/erlang/process
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
@@ -75,6 +76,8 @@ pub type UnifiedItem {
     service: String,
     source_type: String,
     source_id: String,
+    /// Page URL for yt-dlp / embeds when known.
+    external_source_url: Option(String),
   )
 }
 
@@ -95,11 +98,14 @@ pub fn track_item(
   raw_source_id: String,
   title: String,
   artist: String,
+  explicit_external_source_url: String,
 ) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
   case source_id == "" {
     True -> Error(Nil)
-    False ->
+    False -> {
+      let external_source_url =
+        item_external_source_url(service, source_id, explicit_external_source_url)
       Ok(UnifiedItem(
         id: service <> ":item:" <> source_id,
         title: title,
@@ -107,7 +113,34 @@ pub fn track_item(
         service: service,
         source_type: "item",
         source_id: source_id,
+        external_source_url: external_source_url,
       ))
+    }
+  }
+}
+
+fn item_external_source_url(
+  service: String,
+  source_id: String,
+  explicit: String,
+) -> Option(String) {
+  let trimmed = string.trim(explicit)
+  case trimmed != "" {
+    True -> Some(trimmed)
+    False ->
+      case service {
+        "youtube" ->
+          case source_id != "" {
+            True -> Some("https://www.youtube.com/watch?v=" <> source_id)
+            False -> None
+          }
+        "spotify" ->
+          case source_id != "" {
+            True -> Some("https://open.spotify.com/track/" <> source_id)
+            False -> None
+          }
+        _ -> None
+      }
   }
 }
 
@@ -901,7 +934,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

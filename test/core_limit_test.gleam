@@ -1,6 +1,7 @@
 import adapters/core
 import gleam/int
 import gleam/list
+import gleam/option.{None}
 import gleeunit
 import gleeunit/should
 
@@ -69,13 +70,14 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       service: "demo",
       source_type: "item",
       source_id: source_id,
+      external_source_url: None,
     )
   })
 }
 
 fn item_ids(items: List(core.UnifiedItem)) -> List(String) {
   list.map(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _) = item
     id
   })
 }

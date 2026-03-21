@@ -264,6 +264,7 @@ fn make_item(
     video_id,
     normalize_text(title),
     normalize_text(default_if_empty(artist, "unknown")),
+    "",
   )
 }
 
@@ -274,7 +275,7 @@ fn make_collection(
 ) -> core.UnifiedCollection {
   let track_ids =
     list.map(items, fn(item) {
-      let core.UnifiedItem(id, _, _, _, _, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _) = item
       id
     })
   let source_id = "youtube:collection:" <> playlist_id

@@ -102,8 +102,8 @@ fn result_items(result: core.ResolveResult) -> List(core.UnifiedItem) {
 }
 
 fn item_source_id_ok(item: core.UnifiedItem) -> Bool {
-  let core.UnifiedItem(_, title, artist, service, _, source_id) = item
-  case core.track_item(service, source_id, title, artist) {
+  let core.UnifiedItem(_, title, artist, service, _, source_id, _) = item
+  case core.track_item(service, source_id, title, artist, "") {
     Ok(_) -> True
     Error(_) -> False
   }

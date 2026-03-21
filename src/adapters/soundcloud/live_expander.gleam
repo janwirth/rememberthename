@@ -275,13 +275,19 @@ fn parse_tracks(
   let lines = parse_lines(cached_json_tracks_tsv(json, cache_mode))
   list.index_map(lines, fn(line, idx) {
     let cols = string.split(line, "\t")
-    let #(raw_source_id, title, artist) = case cols {
-      [id, title, artist] -> #(id, title, artist)
-      [id, title] -> #(id, title, "unknown")
-      [id] -> #(id, "untitled", "unknown")
-      _ -> #(kind <> ":" <> int.to_string(idx + 1), "untitled", "unknown")
+    let #(raw_source_id, title, artist, perm_url) = case cols {
+      [id, title, artist, u] -> #(id, title, artist, string.trim(u))
+      [id, title, artist] -> #(id, title, artist, "")
+      [id, title] -> #(id, title, "unknown", "")
+      [id] -> #(id, "untitled", "unknown", "")
+      _ -> #(
+        kind <> ":" <> int.to_string(idx + 1),
+        "untitled",
+        "unknown",
+        "",
+      )
     }
-    core.track_item("soundcloud", raw_source_id, title, artist)
+    core.track_item("soundcloud", raw_source_id, title, artist, perm_url)
   })
   |> list.filter_map(fn(item) { item })
 }
@@ -378,10 +384,49 @@ fn decode_path_or(
   |> result.unwrap(fallback)
 }
 
+fn soundcloud_track_permalink_url(
+  data: dynamic.Dynamic,
+  path_prefix: List(String),
+) -> String {
+  let direct =
+    decode_path_or(
+      data,
+      list.append(path_prefix, ["permalink_url"]),
+      "",
+      decode.string,
+    )
+    |> string.trim
+  case direct != "" {
+    True -> direct
+    False -> {
+      let user_p =
+        decode_path_or(
+          data,
+          list.append(path_prefix, ["user", "permalink"]),
+          "",
+          decode.string,
+        )
+        |> string.trim
+      let track_p =
+        decode_path_or(
+          data,
+          list.append(path_prefix, ["permalink"]),
+          "",
+          decode.string,
+        )
+        |> string.trim
+      case user_p != "" && track_p != "" {
+        True -> "https://soundcloud.com/" <> user_p <> "/" <> track_p
+        False -> ""
+      }
+    }
+  }
+}
+
 fn track_tuple_from_dynamic(
   data: dynamic.Dynamic,
   path_prefix: List(String),
-) -> Option(#(String, String, String)) {
+) -> Option(#(String, String, String, String)) {
   let id_path = list.append(path_prefix, ["id"])
   let title_path = list.append(path_prefix, ["title"])
   let artist_path = list.append(path_prefix, ["user", "username"])
@@ -390,14 +435,15 @@ fn track_tuple_from_dynamic(
     Some(id) -> {
       let title = decode_path_or(data, title_path, "untitled", decode.string)
       let artist = decode_path_or(data, artist_path, "unknown", decode.string)
-      Some(#(id, title, artist))
+      let perm_url = soundcloud_track_permalink_url(data, path_prefix)
+      Some(#(id, title, artist, perm_url))
     }
   }
 }
 
 fn track_tuple_from_entry(
   entry: dynamic.Dynamic,
-) -> Option(#(String, String, String)) {
+) -> Option(#(String, String, String, String)) {
   case track_tuple_from_dynamic(entry, ["track"]) {
     Some(track) -> Some(track)
     None ->
@@ -441,9 +487,9 @@ fn collect_track_rows(
     [entry, ..rest] ->
       case track_tuple_from_entry(entry) {
         Some(track) -> {
-          let #(id, title, artist) = track
+          let #(id, title, artist, perm_url) = track
           collect_track_rows(rest, [
-            id <> "\t" <> title <> "\t" <> artist,
+            id <> "\t" <> title <> "\t" <> artist <> "\t" <> perm_url,
             ..acc
           ])
         }

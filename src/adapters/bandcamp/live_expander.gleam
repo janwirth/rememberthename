@@ -300,12 +300,14 @@ fn parse_item_parts_with_album_nodes(
             album_nodes_added,
           )
         False -> {
+          let page_url = decode(item_url)
           let maybe_item =
             core.track_item(
               "bandcamp",
               id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
+              page_url,
             )
           let #(nodes_acc, album_nodes_added) = case
             item_type == "album" && item_url != "" && album_nodes_added < 2
@@ -364,6 +366,7 @@ fn parse_track_id_parts(
       let track_id = first_segment(part, ",")
       let title = extract_between(part, "\"title\":\"", "\"")
       let artist = extract_between(part, "\"artist\":\"", "\"")
+      let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
       case track_id == "" || title == "" {
         True -> parse_track_id_parts(rest, acc)
         False -> {
@@ -373,6 +376,7 @@ fn parse_track_id_parts(
               track_id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
+              title_link,
             )
           parse_track_id_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -424,6 +428,7 @@ fn parse_album_track_titles(
           extract_between(part, "\"artist\":\"", "\""),
           "unknown",
         ))
+      let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
       case title == "" {
         True -> parse_album_track_titles(rest, album_id, index + 1, acc)
         False -> {
@@ -432,7 +437,7 @@ fn parse_album_track_titles(
             _ -> track_id
           }
           let maybe_item =
-            core.track_item("bandcamp", raw_source_id, title, artist)
+            core.track_item("bandcamp", raw_source_id, title, artist, title_link)
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc
@@ -461,6 +466,7 @@ fn parse_item_parts(
       let item_type = extract_between(part, "\"item_type\":\"", "\"")
       let title = extract_between(part, "\"item_title\":\"", "\"")
       let artist = extract_between(part, "\"band_name\":\"", "\"")
+      let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
       case id == "" || item_type == "" || title == "" {
         True -> parse_item_parts(rest, acc)
         False -> {
@@ -470,6 +476,7 @@ fn parse_item_parts(
               id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
+              item_url,
             )
           parse_item_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]

@@ -103,6 +103,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "spotify",
         decode_path_or(row, ["spotify_id"], "", decode.string),
         preferred_title,
@@ -115,6 +116,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "youtube",
         decode_path_or(row, ["youtube_id"], "", decode.string),
         preferred_title,
@@ -127,6 +129,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "soundcloud",
         decode_path_or(row, ["soundcloud_id"], "", decode.string),
         preferred_title,
@@ -139,6 +142,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "bandcamp",
         decode_path_or(row, ["bandcamp_track_id"], "", decode.string),
         preferred_title,
@@ -151,6 +155,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "file",
         decode_path_or(row, ["file_path"], "", decode.string),
         preferred_title,
@@ -163,6 +168,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "itunes",
         decode_path_or(row, ["itunes_track_id"], "", decode.string),
         preferred_title,
@@ -175,6 +181,7 @@ fn rows_to_items_with_metadata(
     let acc =
       push_item_with_metadata(
         acc,
+        row,
         "itunes",
         decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
         preferred_title,
@@ -225,6 +232,7 @@ fn push_fishbone_item_with_metadata(
     False ->
       push_item_with_metadata(
         acc,
+        row,
         service,
         fishbone_source_id,
         preferred_title,
@@ -269,8 +277,29 @@ fn fishbone_service_for_platform(platform: String) -> String {
   }
 }
 
+fn row_explicit_external_source_url(row: dynamic.Dynamic, service: String) -> String {
+  let primary =
+    decode_path_or(row, ["external_source_url"], "", decode.string)
+    |> string.trim
+  case primary != "" {
+    True -> primary
+    False -> {
+      let legacy = decode_path_or(row, ["source_url"], "", decode.string)
+      |> string.trim
+      case legacy != "" {
+        True -> legacy
+        False -> {
+          let keyed = decode_path_or(row, [service <> "_url"], "", decode.string)
+          string.trim(keyed)
+        }
+      }
+    }
+  }
+}
+
 fn push_item_with_metadata(
   acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
+  row: dynamic.Dynamic,
   service: String,
   raw_source_id: String,
   preferred_title: String,
@@ -288,9 +317,10 @@ fn push_item_with_metadata(
       case
         core.track_item(
           service,
-          normalized,
+          raw_source_id,
           choose_title(preferred_title, normalized),
           choose_artist(artist),
+          row_explicit_external_source_url(row, service),
         )
       {
         Ok(item) -> {

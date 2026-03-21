@@ -1,4 +1,5 @@
 import cli
+import gleam/option.{None}
 import gleeunit
 import gleeunit/should
 import gleam/string
@@ -16,6 +17,7 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
         "Artist A",
         "bandcamp",
         "2365071502",
+        None,
         "bandcamp + profile",
         "",
         "",
@@ -37,6 +39,9 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
 
   string.contains(content, "\"imported_date\":null")
   |> should.equal(True)
+
+  string.contains(content, "\"external_source_url\":null")
+  |> should.equal(True)
 }
 
 pub fn tracks_json_exports_file_and_split_tag_list_test() {
@@ -47,6 +52,7 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
         "Artist B",
         "soundcloud",
         "1685501811",
+        None,
         "tuna + fishbone",
         "/tmp/track-b.mp3",
         "/tmp/track-b.jpg",
@@ -78,6 +84,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "Artist A",
         "youtube",
         "yt-new",
+        None,
         "youtube + profile",
         "",
         "",
@@ -88,6 +95,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "Artist B",
         "youtube",
         "yt-old",
+        None,
         "youtube + profile",
         "",
         "",
@@ -95,9 +103,15 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
       ),
     ])
 
-  string.contains(content, "\"source_id\":\"yt-new\",\"order\":2")
+  {
+    string.contains(content, "\"source_id\":\"yt-new\"")
+    && string.contains(content, "\"order\":2")
+  }
   |> should.equal(True)
 
-  string.contains(content, "\"source_id\":\"yt-old\",\"order\":1")
+  {
+    string.contains(content, "\"source_id\":\"yt-old\"")
+    && string.contains(content, "\"order\":1")
+  }
   |> should.equal(True)
 }

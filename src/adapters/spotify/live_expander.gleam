@@ -405,7 +405,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -455,22 +455,30 @@ fn parse_track_items(json: String) -> List(core.UnifiedItem) {
   |> list.filter_map(fn(chunk) {
     let cols = string.split(chunk, "\t")
     let track_id = case cols {
+      [id, _, _, _] -> id
       [id, _, _] -> id
       _ -> ""
     }
     let title = case cols {
+      [_, t, _, _] -> t
       [_, t, _] -> t
       _ -> ""
     }
     let artist_name = case cols {
+      [_, _, a, _] -> a
       [_, _, a] -> a
       _ -> "unknown"
+    }
+    let track_url = case cols {
+      [_, _, _, u] -> u
+      _ -> ""
     }
     core.track_item(
       "spotify",
       track_id,
       normalize(title),
       normalize(default_if_empty(artist_name, "unknown")),
+      string.trim(track_url),
     )
   })
 }
@@ -530,7 +538,14 @@ fn spotify_track_tsv(item: dynamic.Dynamic) -> Option(String) {
           decode.list(of: decode.dynamic),
         )
       let artist = first_artist_name(artists)
-      Some(id <> "\t" <> title <> "\t" <> artist)
+      let track_url =
+        decode_path_or(
+          item,
+          ["track", "external_urls", "spotify"],
+          "",
+          decode.string,
+        )
+      Some(id <> "\t" <> title <> "\t" <> artist <> "\t" <> track_url)
     }
   }
 }
