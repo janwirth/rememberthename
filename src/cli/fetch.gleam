@@ -15,7 +15,8 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
         True -> cache.CacheReadOnly
         False -> cache.CacheOverride
       }
-      case fetch_ops.fetch_with_cache_mode(selector, cache_mode) {
+      let on_update = fn(line) { io.println(line) }
+      case fetch_ops.fetch_with_cache_mode(selector, cache_mode, on_update) {
         Error(msg) -> io.println(msg)
         Ok(Nil) -> Nil
       }
@@ -54,12 +55,16 @@ fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
 pub fn fetch_with_cache_mode(
   selector: String,
   cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  fetch_ops.fetch_with_cache_mode(selector, cache_mode)
+  fetch_ops.fetch_with_cache_mode(selector, cache_mode, on_update)
 }
 
-pub fn fetch_all_sources(cache_mode: cache.CacheMode) {
-  fetch_ops.fetch_all_sources(cache_mode)
+pub fn fetch_all_sources(
+  cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
+) {
+  fetch_ops.fetch_all_sources(cache_mode, on_update)
 }
 
 pub fn run_fetch(
@@ -69,6 +74,7 @@ pub fn run_fetch(
   depth_label: String,
   cache_mode: cache.CacheMode,
   always_validate: Bool,
+  on_update: fn(String) -> Nil,
 ) -> #(List(TrackView), Dict(String, Int)) {
   fetch_ops.run_fetch(
     source,
@@ -77,5 +83,7 @@ pub fn run_fetch(
     depth_label,
     cache_mode,
     always_validate,
+    True,
+    on_update,
   )
 }

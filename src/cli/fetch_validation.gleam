@@ -4,7 +4,6 @@ import cli/resolve_adapter
 import cli/terminal
 import gleam/dict
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -37,13 +36,14 @@ pub fn merge_imported_dates(
   })
 }
 
-/// When `always_validate` or full depth, runs `validate_source_run` and prints PASS/FAIL.
+/// When `always_validate` or full depth, runs `validate_source_run` and reports PASS/FAIL via `on_update`.
 pub fn print_runtime_validation(
   source: source_specs.SourceSpec,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
   always_validate: Bool,
+  on_update: fn(String) -> Nil,
 ) {
   case always_validate || depth == core.All {
     False -> Nil
@@ -51,17 +51,17 @@ pub fn print_runtime_validation(
       let run =
         validation_run_for_depth(source, depth, cache_mode, depth_result)
       let validation_errors = validate_source_run(run)
-      io.println("")
+      on_update("")
       case validation_errors == [] {
-        True -> io.println(terminal.color("Validation: PASS", terminal.ansi_green()))
+        True -> on_update(terminal.color("Validation: PASS", terminal.ansi_green()))
         False -> {
-          io.println(
+          on_update(
             terminal.color("Validation: FAIL", terminal.ansi_red())
             <> " ("
             <> int.to_string(list.length(validation_errors))
             <> " errors)",
           )
-          list.each(validation_errors, fn(line) { io.println("  - " <> line) })
+          list.each(validation_errors, fn(line) { on_update("  - " <> line) })
         }
       }
     }

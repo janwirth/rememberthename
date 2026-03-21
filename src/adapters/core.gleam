@@ -128,14 +128,8 @@ pub type ResolveResult {
   )
 }
 
-pub type ResolveProgressEvent {
-  FetchStarted
-  FetchFinished
-}
-
 pub type ResolveProgress {
   ResolveProgress(
-    event: ResolveProgressEvent,
     label: String,
     level: Int,
     items_total: Int,
@@ -145,30 +139,32 @@ pub type ResolveProgress {
   )
 }
 
-/// One-line status for CLI / UI (human-oriented, no raw adapter tokens).
+/// Increment line after a node finishes (new tracks/lists merged, then running totals).
+/// Omits `+N tracks` / `+N lists` when the delta is zero.
 pub fn format_resolve_progress_line(p: ResolveProgress) -> String {
-  case p.event {
-    FetchStarted ->
-      "> "
-      <> p.label
-      <> " · "
-      <> int.to_string(p.items_total)
-      <> " tracks · "
-      <> int.to_string(p.lists_total)
-      <> " lists"
-    FetchFinished ->
-      "+ "
-      <> p.label
+  let prefix = "+ " <> p.label
+  let with_tracks = case p.step_items > 0 {
+    True ->
+      prefix
       <> " · +"
       <> int.to_string(p.step_items)
-      <> " tracks · +"
-      <> int.to_string(p.step_lists)
-      <> " lists · total "
-      <> int.to_string(p.items_total)
-      <> " tracks · "
-      <> int.to_string(p.lists_total)
-      <> " lists"
+      <> " tracks"
+    False -> prefix
   }
+  let with_lists = case p.step_lists > 0 {
+    True ->
+      with_tracks
+      <> " · +"
+      <> int.to_string(p.step_lists)
+      <> " lists"
+    False -> with_tracks
+  }
+  with_lists
+  <> " · total "
+  <> int.to_string(p.items_total)
+  <> " tracks · "
+  <> int.to_string(p.lists_total)
+  <> " lists"
 }
 
 /// Best-effort human label for the node being expanded (hides long opaque tokens where possible).
@@ -194,7 +190,6 @@ fn human_node_ctx(kind: String, ctx: String) -> String {
 
 fn emit_progress(
   on_progress: fn(ResolveProgress) -> Nil,
-  event: ResolveProgressEvent,
   node: AdapterNode,
   level: Int,
   items_total: Int,
@@ -203,7 +198,6 @@ fn emit_progress(
   step_lists: Int,
 ) {
   on_progress(ResolveProgress(
-    event: event,
     label: progress_label(node),
     level: level,
     items_total: items_total,
@@ -355,7 +349,6 @@ fn resolve_profile_url_with_default_queue(
       subject,
       expand,
       on_debug,
-      on_progress,
     )
   let ResolveResult(items, lists, unresolved) =
     concurrent_loop(
@@ -398,7 +391,6 @@ fn start_workers(
   subject: process.Subject(WorkerMsg),
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
-  on_progress: fn(ResolveProgress) -> Nil,
 ) -> #(
   List(#(AdapterNode, Int)),
   Int,
@@ -452,7 +444,6 @@ fn start_workers(
             subject,
             expand,
             on_debug,
-            on_progress,
           )
         False -> {
           let visited = set.insert(visited, key)
@@ -471,16 +462,6 @@ fn start_workers(
               <> node_debug_label(node)
               <> " level="
               <> int.to_string(level),
-          )
-          emit_progress(
-            on_progress,
-            FetchStarted,
-            node,
-            level,
-            list.length(items),
-            list.length(lists),
-            0,
-            0,
           )
           let _ =
             process.spawn_unlinked(fn() {
@@ -509,7 +490,6 @@ fn start_workers(
             subject,
             expand,
             on_debug,
-            on_progress,
           )
         }
       }
@@ -577,7 +557,6 @@ fn concurrent_loop(
           subject,
           expand,
           on_debug,
-          on_progress,
         )
       case running == 0 {
         True -> ResolveResult(items, lists, unresolved)
@@ -598,6 +577,8 @@ fn concurrent_loop(
               <> " next="
               <> int.to_string(list.length(next_nodes)),
           )
+          let items_before = list.length(items)
+          let lists_before = list.length(lists)
           let #(items, item_seen, limit_hit) =
             merge_items(items, item_seen, next_items, max_items)
           let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
@@ -614,13 +595,12 @@ fn concurrent_loop(
           )
           emit_progress(
             on_progress,
-            FetchFinished,
             node,
             level,
             list.length(items),
             list.length(lists),
-            list.length(next_items),
-            list.length(next_lists),
+            list.length(items) - items_before,
+            list.length(lists) - lists_before,
           )
           case limit_hit {
             True -> {
@@ -755,16 +735,6 @@ fn loop(
                   <> " level="
                   <> int.to_string(level),
               )
-              emit_progress(
-                on_progress,
-                FetchStarted,
-                node,
-                level,
-                list.length(items),
-                list.length(lists),
-                0,
-                0,
-              )
               let ExpandResult(
                 next_items,
                 next_lists,
@@ -783,19 +753,20 @@ fn loop(
                   <> " next="
                   <> int.to_string(list.length(next_nodes)),
               )
+              let items_before = list.length(items)
+              let lists_before = list.length(lists)
               let #(items, item_seen, limit_hit) =
                 merge_items(items, item_seen, next_items, max_items)
               let #(lists, list_seen) =
                 merge_lists(lists, list_seen, next_lists)
               emit_progress(
                 on_progress,
-                FetchFinished,
                 node,
                 level,
                 list.length(items),
                 list.length(lists),
-                list.length(next_items),
-                list.length(next_lists),
+                list.length(items) - items_before,
+                list.length(lists) - lists_before,
               )
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)

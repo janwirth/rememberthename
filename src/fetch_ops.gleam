@@ -10,7 +10,6 @@ import cli/terminal
 import cli/track_view
 import gleam/dict
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import output/visual_output
@@ -21,10 +20,11 @@ import source_specs
 pub fn fetch_with_cache_mode(
   selector: String,
   cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
   case selector == "all" {
     True -> {
-      fetch_all_sources(cache_mode)
+      fetch_all_sources(cache_mode, on_update)
       Ok(Nil)
     }
     False ->
@@ -32,7 +32,16 @@ pub fn fetch_with_cache_mode(
         Error(_) -> Error("Invalid source selector: " <> selector)
         Ok(#(source_index, source)) -> {
           let _ =
-            run_fetch(source, source_index, core.All, "full", cache_mode, True)
+            run_fetch(
+              source,
+              source_index,
+              core.All,
+              "full",
+              cache_mode,
+              True,
+              True,
+              on_update,
+            )
           Ok(Nil)
         }
       }
@@ -40,10 +49,15 @@ pub fn fetch_with_cache_mode(
 }
 
 /// Merge every configured source into `output/all_items_latest.json`.
-pub fn fetch_all_sources(cache_mode: cache.CacheMode) {
-  io.println(terminal.color("Fetching all sources...", terminal.ansi_bright_cyan()))
+pub fn fetch_all_sources(
+  cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
+) {
+  on_update(
+    terminal.color("Fetching all sources...", terminal.ansi_bright_cyan()),
+  )
   let #(all_tracks, all_imported_dates) =
-    fetch_all_sources_loop(source_specs.all(), 1, cache_mode)
+    fetch_all_sources_loop(source_specs.all(), 1, cache_mode, on_update)
   let canonical_start_ms = runtime.now_ms()
   let canonical_content =
     export_json.tracks_json_with_imported_dates(
@@ -54,11 +68,11 @@ pub fn fetch_all_sources(cache_mode: cache.CacheMode) {
   let canonical_path = export_json.artifact_path("all_items_latest.json")
   let _ = simplifile.write(canonical_content, to: canonical_path)
   let canonical_elapsed_ms = runtime.now_ms() - canonical_start_ms
-  io.println("")
-  io.println(
+  on_update("")
+  on_update(
     terminal.color("Canonical JSON written: ", terminal.ansi_green()) <> canonical_path,
   )
-  io.println(
+  on_update(
     terminal.color("Canonical info: ", terminal.ansi_yellow())
     <> "items="
     <> int.to_string(list.length(all_tracks))
@@ -74,15 +88,25 @@ fn fetch_all_sources_loop(
   sources: List(source_specs.SourceSpec),
   index: Int,
   cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   case sources {
     [] -> #([], dict.new())
     [source, ..rest] -> {
       let #(tracks, imported_dates) =
-        run_fetch(source, index, core.All, "full", cache_mode, True)
-      io.println("")
+        run_fetch(
+          source,
+          index,
+          core.All,
+          "full",
+          cache_mode,
+          True,
+          True,
+          on_update,
+        )
+      on_update("")
       let #(rest_tracks, rest_imported_dates) =
-        fetch_all_sources_loop(rest, index + 1, cache_mode)
+        fetch_all_sources_loop(rest, index + 1, cache_mode, on_update)
       #(
         list.append(tracks, rest_tracks),
         fetch_validation.merge_imported_dates(
@@ -95,7 +119,36 @@ fn fetch_all_sources_loop(
   }
 }
 
-/// Resolve, export per-source JSON, validation, timings.
+/// Resolve one source and return tracks without writing `output/cli_result_*.json`.
+pub fn fetch_source_tracks(
+  selector: String,
+  cache_mode: cache.CacheMode,
+  on_update: fn(String) -> Nil,
+) -> Result(List(visual_output.TrackView), String) {
+  case selector == "all" {
+    True -> Error("use fetch_all for all sources")
+    False ->
+      case source_pick.source_by_selector(source_specs.all(), selector) {
+        Error(_) -> Error("Invalid source selector: " <> selector)
+        Ok(#(source_index, source)) -> {
+          let #(tracks, _) =
+            run_fetch(
+              source,
+              source_index,
+              core.All,
+              "full",
+              cache_mode,
+              True,
+              False,
+              on_update,
+            )
+          Ok(tracks)
+        }
+      }
+  }
+}
+
+/// Resolve, export per-source JSON (optional), validation, timings.
 pub fn run_fetch(
   source: source_specs.SourceSpec,
   source_index: Int,
@@ -103,25 +156,25 @@ pub fn run_fetch(
   depth_label: String,
   cache_mode: cache.CacheMode,
   always_validate: Bool,
+  write_json_artifact: Bool,
+  on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   let run_start_ms = runtime.now_ms()
   let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
     source
   let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-  io.println(
+  on_update(
     terminal.color(
       "Fetching source " <> int.to_string(source_index) <> ": " <> name,
       terminal.ansi_bright_cyan(),
     ),
   )
-  io.println(
-    terminal.color("Depth: ", terminal.ansi_yellow()) <> depth_label,
-  )
-  io.println(
+  on_update(terminal.color("Depth: ", terminal.ansi_yellow()) <> depth_label)
+  on_update(
     terminal.color("Cache: ", terminal.ansi_yellow())
     <> resolve_adapter.cache_mode_text(cache_mode),
   )
-  io.println("")
+  on_update("")
 
   let resolve_start_ms = runtime.now_ms()
   let #(result, tuna_export_metadata) = case key == "tuna" {
@@ -131,7 +184,7 @@ pub fn run_fetch(
         export_metadata,
       ) =
         tuna_normalized_source.resolve_with_metadata(depth, cache_mode, fn(line) {
-          io.println(line)
+          on_update(line)
         })
       #(resolve_result, Some(export_metadata))
     }
@@ -146,7 +199,7 @@ pub fn run_fetch(
           cache_mode,
           fn(_line) { Nil },
           fn(progress) {
-            io.println(core.format_resolve_progress_line(progress))
+            on_update(core.format_resolve_progress_line(progress))
           },
         ),
         None,
@@ -169,8 +222,8 @@ pub fn run_fetch(
     )
   }
   let files_count = export_json.count_tracks_with_file(tracks)
-  io.println("")
-  io.println(
+  on_update("")
+  on_update(
     terminal.color("Done.", terminal.ansi_green())
     <> " items="
     <> int.to_string(list.length(items))
@@ -181,31 +234,34 @@ pub fn run_fetch(
     <> " files="
     <> int.to_string(files_count),
   )
-  let content =
-    export_json.tracks_json_with_imported_dates(
-      tracks,
-      imported_dates,
-      key != "tuna",
-    )
-  let json_path =
-    export_json.artifact_path(
-      "cli_result_"
-      <> key
-      <> "_depth_"
-      <> track_view.sanitize_depth_label(depth_label)
-      <> ".json",
-    )
-  let export_start_ms = runtime.now_ms()
-  let _ = simplifile.write(content, to: json_path)
-  let export_elapsed_ms = runtime.now_ms() - export_start_ms
-  io.println(
-    terminal.color("JSON written: ", terminal.ansi_green()) <> json_path,
-  )
-  io.println(
-    terminal.color("Export duration: ", terminal.ansi_yellow())
-    <> int.to_string(export_elapsed_ms)
-    <> "ms",
-  )
+  case write_json_artifact {
+    True -> {
+      let content =
+        export_json.tracks_json_with_imported_dates(
+          tracks,
+          imported_dates,
+          key != "tuna",
+        )
+      let json_path =
+        export_json.artifact_path(
+          "cli_result_"
+          <> key
+          <> "_depth_"
+          <> track_view.sanitize_depth_label(depth_label)
+          <> ".json",
+        )
+      let export_start_ms = runtime.now_ms()
+      let _ = simplifile.write(content, to: json_path)
+      let export_elapsed_ms = runtime.now_ms() - export_start_ms
+      on_update(terminal.color("JSON written: ", terminal.ansi_green()) <> json_path)
+      on_update(
+        terminal.color("Export duration: ", terminal.ansi_yellow())
+        <> int.to_string(export_elapsed_ms)
+        <> "ms",
+      )
+    }
+    False -> Nil
+  }
   let validation_start_ms = runtime.now_ms()
   fetch_validation.print_runtime_validation(
     source,
@@ -213,20 +269,21 @@ pub fn run_fetch(
     cache_mode,
     result,
     always_validate,
+    on_update,
   )
   let validation_elapsed_ms = runtime.now_ms() - validation_start_ms
   let total_elapsed_ms = runtime.now_ms() - run_start_ms
-  io.println(
+  on_update(
     terminal.color("Resolve duration: ", terminal.ansi_yellow())
     <> int.to_string(resolve_elapsed_ms)
     <> "ms",
   )
-  io.println(
+  on_update(
     terminal.color("Validation duration: ", terminal.ansi_yellow())
     <> int.to_string(validation_elapsed_ms)
     <> "ms",
   )
-  io.println(
+  on_update(
     terminal.color("Total duration: ", terminal.ansi_yellow())
     <> int.to_string(total_elapsed_ms)
     <> "ms",
