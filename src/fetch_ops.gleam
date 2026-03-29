@@ -123,6 +123,7 @@ fn fetch_all_sources_loop(
 pub fn fetch_source_tracks(
   selector: String,
   cache_mode: cache.CacheMode,
+  write_json_artifact: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(List(visual_output.TrackView), String) {
   case selector == "all" {
@@ -139,7 +140,7 @@ pub fn fetch_source_tracks(
               "full",
               cache_mode,
               True,
-              False,
+              write_json_artifact,
               on_update,
             )
           Ok(tracks)

@@ -80,6 +80,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
           core.ListNode("list-b"),
         ],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.CategoryNode("likes") ->
@@ -88,6 +90,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [make_list("list-b", "Category List B", [], [])],
         next_nodes: [core.PageNode("likes:2")],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.PageNode("likes:2") ->
@@ -96,6 +100,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [make_list("list-c", "Page List C", ["track-c"], [])],
         next_nodes: [],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.ListNode("list-a") ->
@@ -107,6 +113,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [make_list("list-a", "List A", ["track-a"], [])],
         next_nodes: [],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.ListNode("list-b") ->
@@ -121,6 +129,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
           core.ListNode("list-missing"),
         ],
         unresolved: [core.ListNode("list-missing")],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.ListNode("list-c") ->
@@ -129,9 +139,19 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [make_list("list-c", "List C", ["track-c"], [])],
         next_nodes: [],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
-    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 

@@ -45,7 +45,14 @@ pub fn resolve_with_metadata(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> ResolveWithMetadataResult {
-  let payload = cached_tracks_source_ids_json(cache_mode)
+  let #(payload, #(cache_hits, cache_fetches)) =
+    cached_tracks_source_ids_json(cache_mode)
+  on_debug(
+    "[tuna] cache hits="
+      <> int.to_string(cache_hits)
+      <> " fetches="
+      <> int.to_string(cache_fetches),
+  )
   let rows = decode_rows(payload)
   let #(all_items, all_metadata) = rows_to_items_with_metadata(rows)
   let items = apply_depth_limit(all_items, depth)
@@ -61,7 +68,9 @@ pub fn resolve_with_metadata(
   )
 }
 
-fn cached_tracks_source_ids_json(cache_mode: cache.CacheMode) -> String {
+fn cached_tracks_source_ids_json(
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch(
     "tuna_tracks_source_ids_enriched_json",
     "tuna_main_default_track_sources_enriched",

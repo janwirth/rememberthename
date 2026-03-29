@@ -1,41 +1,57 @@
 # fishbone-2026
 
-Gleam CLI for fetching/exporting music source data (Bandcamp, SoundCloud, Spotify, YouTube, Tuna) into CSV artifacts.
+Short intro: `rememberthename` is a Gleam module for resolving music sources (Bandcamp, SoundCloud, Spotify, YouTube, Tuna) and optionally writing per-source JSON artifacts.
 
-## CLI cache behavior
+## Installation
 
-Cache mode is controlled by command shape:
+```toml
+[dependencies]
+rememberthename = { path = "../rememberthename" }
+```
 
-- `use-cache` -> `readonly` mode (`CacheReadOnly`): read cache only, never fetch from network.
-- no `use-cache` -> `override` mode (`CacheOverride`): fetch live and overwrite cache.
-- explicit `cache <upsert|ignore|override|readonly>` is available on `source fetch` commands.
+If published to Hex, replace `path` with a normal version constraint.
 
-### Important logging note
+## Usage
 
-Debug lines like `[fetch] start ...` are traversal events from the resolver queue, not guaranteed network calls.
-With `use-cache`, you can still see `[fetch]` lines even when payloads are served from cache.
+```gleam
+import rememberthename
+```
 
-## Export commands
+### Public API example
 
-- `gleam run -m cli -- export all csv`
-- `gleam run -m cli -- export all csv use-cache`
-- `gleam run -m cli -- export source csv <entry_point_id> depth <1|2|full> [use-cache]`
+`fetch_source` is the main public fetch function:
+- `selector`: `"1"`, `"spotify"`, `"spotify-2"`, ...
+- `cache`: `ReadOnly | Override | Upsert | Ignore`
+- `write_to_json_file`: `True` writes `output/cli_result_*.json`, `False` keeps it in memory only
 
-Exports now always run validation checks.
+```gleam
+import gleam/int
+import gleam/io
+import gleam/list
+import rememberthename
 
-- `export all csv` validates all source runs and Tuna output.
-- `export source csv ... depth ...` validates source invariants for depth-1/depth-2/full on every export run.
+pub fn main() {
+  list.each(rememberthename.list_sources(), fn(row) {
+    io.println(row.key <> " | " <> row.entry_point)
+  })
 
-## Completion signal
+  case rememberthename.fetch_source(
+    "spotify",
+    rememberthename.ReadOnly,
+    False,
+    fn(line) { io.println(line) },
+  ) {
+    Ok(tracks) ->
+      io.println("resolved tracks: " <> int.to_string(list.length(tracks)))
+    Error(reason) -> io.println("error: " <> reason)
+  }
+}
+```
 
-The CLI now emits a deterministic completion line at the end of command execution:
+### Private API example (for maintainers of this repo)
 
-- `CLI_EXIT:0`
+The module also has private helpers for internal flows:
+- `fetch_tuna(...)`
+- all-sources export flow in internal modules (`fetch_ops`, CLI paths)
 
-This can be used by scripts/watchers as a simple end-of-run signal.
-
-## Typical usage
-
-- `gleam run -m cli -- list`
-- `gleam run -m cli -- source fetch id spotify depth full use-cache`
-- `gleam run -m cli -- export all csv use-cache`
+Those are not public and cannot be imported from outside this package.

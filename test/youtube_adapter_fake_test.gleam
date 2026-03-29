@@ -51,6 +51,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
           core.PageNode("https://www.youtube.com/playlist?list=PLdemo|10"),
         ],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
 
     core.PageNode(ctx) -> {
@@ -69,6 +71,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
             ],
             next_nodes: [],
             unresolved: [],
+            cache_hits: 0,
+            cache_fetches: 0,
           )
         _ ->
           core.ExpandResult(
@@ -76,11 +80,21 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
             lists: [],
             next_nodes: [],
             unresolved: [],
+            cache_hits: 0,
+            cache_fetches: 0,
           )
       }
     }
 
-    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 

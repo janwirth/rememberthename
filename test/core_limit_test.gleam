@@ -37,6 +37,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [],
         next_nodes: [core.PageNode("page-2")],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
     core.PageNode("page-2") ->
       core.ExpandResult(
@@ -44,6 +46,8 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [],
         next_nodes: [core.PageNode("page-3")],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
     core.PageNode("page-3") ->
       core.ExpandResult(
@@ -51,8 +55,18 @@ fn fake_expand(node: core.AdapterNode) -> core.ExpandResult {
         lists: [],
         next_nodes: [],
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
-    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 

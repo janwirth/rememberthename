@@ -5,6 +5,7 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import cli/config_paths
 import source_specs
 
 /// Short string for logging cache behavior.
@@ -79,20 +80,22 @@ pub fn resolve_source(
       )
     }
     "spotify" -> {
+      let spotify_root = config_paths.spotify_config_root()
+      let session_file =
+        config_paths.join_under(spotify_root, ".spotify_oauth_session.json")
+      let env_file = config_paths.join_under(spotify_root, ".env")
       let access_token =
-        spotify_live_expander.read_access_token_file(
-          ".spotify_oauth_session.json",
-        )
+        spotify_live_expander.read_access_token_file(session_file)
       let config =
         spotify_live_expander.spotify_config(
           access_token: access_token,
-          session_file: ".spotify_oauth_session.json",
+          session_file: session_file,
           client_id: spotify_live_expander.read_env_value(
-            ".env",
+            env_file,
             "SPOTIFY_CLIENT_ID",
           ),
           client_secret: spotify_live_expander.read_env_value(
-            ".env",
+            env_file,
             "SPOTIFY_CLIENT_SECRET",
           ),
           redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",

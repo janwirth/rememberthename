@@ -107,6 +107,8 @@ pub fn depth_all_debug_logs_order_and_content_test() {
           lists: [],
           next_nodes: [],
           unresolved: [],
+          cache_hits: 0,
+          cache_fetches: 0,
         )
       },
       fn(line) { process.send(debug_subject, line) },

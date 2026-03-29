@@ -123,7 +123,15 @@ pub fn expand(
   case node {
     core.ProfileEntry(profile_url) -> expand_profile(profile_url, cache_mode)
     core.PageNode(ctx) -> expand_page(ctx, cache_mode)
-    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -134,23 +142,39 @@ fn expand_profile(
   let playlist_id = parse_playlist_id(profile_url)
   case playlist_id == "" {
     True ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.ProfileEntry(profile_url),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.ProfileEntry(profile_url)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
     False -> {
-      let items =
-        parse_tracks(cached_playlist_first_tsv(profile_url, cache_mode))
+      let #(tsv_raw, c1) =
+        cached_playlist_first_tsv(profile_url, cache_mode)
+      let items = parse_tracks(tsv_raw)
+      let #(title_raw, c2) =
+        cached_playlist_title(profile_url, cache_mode)
       let title =
-        default_if_empty(
-          string.trim(cached_playlist_title(profile_url, cache_mode)),
-          "YouTube Playlist",
+        default_if_empty(string.trim(title_raw), "YouTube Playlist")
+      let #(api_key_raw, c3) =
+        cached_playlist_api_key(profile_url, cache_mode)
+      let api_key = string.trim(api_key_raw)
+      let #(client_version_raw, c4) =
+        cached_playlist_client_version(profile_url, cache_mode)
+      let client_version = string.trim(client_version_raw)
+      let #(token_raw, c5) =
+        cached_playlist_first_next_token(profile_url, cache_mode)
+      let token = string.trim(token_raw)
+      let #(hits, fetches) =
+        cache.merge_rollups(
+          cache.merge_rollups(
+            cache.merge_rollups(cache.merge_rollups(c1, c2), c3),
+            c4,
+          ),
+          c5,
         )
-      let api_key =
-        string.trim(cached_playlist_api_key(profile_url, cache_mode))
-      let client_version =
-        string.trim(cached_playlist_client_version(profile_url, cache_mode))
-      let token =
-        string.trim(cached_playlist_first_next_token(profile_url, cache_mode))
       let next_nodes = case
         api_key != "" && client_version != "" && token != ""
       {
@@ -167,15 +191,22 @@ fn expand_profile(
       }
       case items == [] {
         True ->
-          core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-            core.ProfileEntry(profile_url),
-          ])
+          core.ExpandResult(
+            items: [],
+            lists: [],
+            next_nodes: [],
+            unresolved: [core.ProfileEntry(profile_url)],
+            cache_hits: hits,
+            cache_fetches: fetches,
+          )
         False ->
           core.ExpandResult(
             items: items,
             lists: [make_collection(playlist_id, title, items)],
             next_nodes: next_nodes,
             unresolved: [],
+            cache_hits: hits,
+            cache_fetches: fetches,
           )
       }
     }
@@ -186,20 +217,23 @@ fn expand_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     [profile_url, playlist_id, api_key, client_version, token] -> {
-      let items =
-        parse_tracks(cached_continuation_tsv(
+      let #(tsv_body, c_tsv) =
+        cached_continuation_tsv(
           api_key,
           client_version,
           token,
           cache_mode,
-        ))
-      let next_token =
-        string.trim(cached_continuation_next_token(
+        )
+      let items = parse_tracks(tsv_body)
+      let #(next_raw, c_next) =
+        cached_continuation_next_token(
           api_key,
           client_version,
           token,
           cache_mode,
-        ))
+        )
+      let next_token = string.trim(next_raw)
+      let #(hits, fetches) = cache.merge_rollups(c_tsv, c_next)
       let next_nodes = case next_token != "" {
         True -> [
           core.PageNode(page_ctx(
@@ -217,12 +251,19 @@ fn expand_page(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
         lists: [make_collection(playlist_id, "YouTube Playlist", items)],
         next_nodes: next_nodes,
         unresolved: [],
+        cache_hits: hits,
+        cache_fetches: fetches,
       )
     }
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.PageNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.PageNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -348,7 +389,10 @@ fn normalize_text(value: String) -> String {
   |> string.replace("  ", " ")
 }
 
-fn cached_playlist_first_tsv(url: String, cache_mode: cache.CacheMode) -> String {
+fn cached_playlist_first_tsv(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("youtube_playlist_first_tsv", url, cache_mode, fn() {
     playlist_first_tsv(url)
   })
@@ -357,7 +401,7 @@ fn cached_playlist_first_tsv(url: String, cache_mode: cache.CacheMode) -> String
 fn cached_playlist_first_next_token(
   url: String,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch(
     "youtube_playlist_first_next_token",
     url,
@@ -366,7 +410,10 @@ fn cached_playlist_first_next_token(
   )
 }
 
-fn cached_playlist_api_key(url: String, cache_mode: cache.CacheMode) -> String {
+fn cached_playlist_api_key(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("youtube_playlist_api_key", url, cache_mode, fn() {
     playlist_api_key(url)
   })
@@ -375,13 +422,16 @@ fn cached_playlist_api_key(url: String, cache_mode: cache.CacheMode) -> String {
 fn cached_playlist_client_version(
   url: String,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("youtube_playlist_client_version", url, cache_mode, fn() {
     playlist_client_version(url)
   })
 }
 
-fn cached_playlist_title(url: String, cache_mode: cache.CacheMode) -> String {
+fn cached_playlist_title(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("youtube_playlist_title", url, cache_mode, fn() {
     playlist_title(url)
   })
@@ -392,7 +442,7 @@ fn cached_continuation_tsv(
   client_version: String,
   token: String,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   let key = api_key <> "|" <> client_version <> "|" <> token
   cache.read_or_fetch("youtube_continuation_tsv", key, cache_mode, fn() {
     continuation_tsv(api_key, client_version, token)
@@ -404,7 +454,7 @@ fn cached_continuation_next_token(
   client_version: String,
   token: String,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   let key = api_key <> "|" <> client_version <> "|" <> token
   cache.read_or_fetch("youtube_continuation_next_token", key, cache_mode, fn() {
     continuation_next_token(api_key, client_version, token)

@@ -118,7 +118,15 @@ pub fn expand(
     core.ProfileEntry(profile_url) -> expand_profile(profile_url, cache_mode)
     core.CategoryNode(ctx) -> expand_category(ctx, cache_mode)
     core.ListNode(ctx) -> expand_album(ctx, cache_mode)
-    _ -> core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [])
+    _ ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -127,7 +135,7 @@ fn expand_profile(
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
-  let html = cached_fetch(profile_url, cache_mode)
+  let #(html, #(hits, fetches)) = cached_fetch(profile_url, cache_mode)
   let entry_items = parse_entry_items(html)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
   let collection_token =
@@ -150,6 +158,8 @@ fn expand_profile(
         lists: [],
         next_nodes: [],
         unresolved: [core.ProfileEntry(profile_url)],
+        cache_hits: hits,
+        cache_fetches: fetches,
       )
     False ->
       core.ExpandResult(
@@ -164,6 +174,8 @@ fn expand_profile(
           ),
         ],
         unresolved: [],
+        cache_hits: hits,
+        cache_fetches: fetches,
       )
   }
 }
@@ -177,9 +189,14 @@ fn expand_category(
     [kind, fan_id, token] ->
       fetch_category_page(kind, fan_id, token, cache_mode)
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.CategoryNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.CategoryNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -202,7 +219,7 @@ fn fetch_category_page(
     <> token
     <> "\",\"count\":50}"
 
-  let json = cached_post_json(endpoint, body, cache_mode)
+  let #(json, #(hits, fetches)) = cached_post_json(endpoint, body, cache_mode)
   let #(page_items, album_nodes) = parse_category_payload(json, kind)
   let items = list.append(page_items, parse_tracklist_items(json, kind))
   let next = extract_between(json, "\"last_token\":\"", "\"")
@@ -219,6 +236,8 @@ fn fetch_category_page(
     lists: [],
     next_nodes: next_nodes,
     unresolved: [],
+    cache_hits: hits,
+    cache_fetches: fetches,
   )
 }
 
@@ -226,22 +245,32 @@ fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
     ["album", album_url, album_id] -> {
-      let html = cached_fetch(album_url, cache_mode)
+      let #(html, #(hits, fetches)) = cached_fetch(album_url, cache_mode)
       core.ExpandResult(
         items: parse_album_tracks(html, album_id),
         lists: [],
         next_nodes: [],
         unresolved: [],
+        cache_hits: hits,
+        cache_fetches: fetches,
       )
     }
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.ListNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.ListNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
-fn cached_fetch(url: String, cache_mode: cache.CacheMode) -> String {
+fn cached_fetch(
+  url: String,
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("bandcamp_fetch", url, cache_mode, fn() { fetch(url) })
 }
 
@@ -249,7 +278,7 @@ fn cached_post_json(
   url: String,
   body: String,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch(
     "bandcamp_post_json",
     url <> "|" <> body,

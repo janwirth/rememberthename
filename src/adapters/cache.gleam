@@ -25,36 +25,60 @@ pub type CacheMode {
   CacheReadOnly
 }
 
+/// Pair is `(cache_hits, cache_fetches)` for this call: hit = value from DB without
+/// running `fetch`; fetch = `fetch` closure ran (network / live read).
+pub fn merge_rollups(a: #(Int, Int), b: #(Int, Int)) -> #(Int, Int) {
+  let #(ha, fa) = a
+  let #(hb, fb) = b
+  #(ha + hb, fa + fb)
+}
+
 pub fn read_or_fetch(
   namespace: String,
   key: String,
   cache_mode: CacheMode,
   fetch: fn() -> String,
-) -> String {
+) -> #(String, #(Int, Int)) {
   let key_hash = phash(key)
   case cache_mode {
-    CacheIgnore -> fetch()
+    CacheIgnore -> #(fetch(), #(0, 1))
     CacheOverride -> compute_and_store(namespace, key_hash, fetch)
-    CacheReadOnly -> read_cached(namespace, key_hash)
+    CacheReadOnly -> readonly_result(namespace, key_hash)
     CacheUpsert -> upsert_mode(namespace, key_hash, fetch)
   }
 }
 
-fn upsert_mode(namespace: String, key_hash: String, fetch: fn() -> String) -> String {
-  case read_cached(namespace, key_hash) {
-    "" -> compute_and_store(namespace, key_hash, fetch)
-    cached -> cached
+fn readonly_result(namespace: String, key_hash: String) -> #(String, #(Int, Int)) {
+  let v = read_cached(namespace, key_hash)
+  case v != "" {
+    True -> #(v, #(1, 0))
+    False -> #("", #(0, 0))
   }
 }
 
-fn compute_and_store(namespace: String, key_hash: String, fetch: fn() -> String) -> String {
+fn upsert_mode(
+  namespace: String,
+  key_hash: String,
+  fetch: fn() -> String,
+) -> #(String, #(Int, Int)) {
+  case read_cached(namespace, key_hash) {
+    "" -> compute_and_store(namespace, key_hash, fetch)
+    cached -> #(cached, #(1, 0))
+  }
+}
+
+fn compute_and_store(
+  namespace: String,
+  key_hash: String,
+  fetch: fn() -> String,
+) -> #(String, #(Int, Int)) {
   let value = fetch()
   case value != "" {
     True -> {
       let _ = write_cached(namespace, key_hash, value)
-      value
+      #(value, #(0, 1))
     }
-    False -> ""
+    False -> #("", #(0, 1))
   }
 }
 

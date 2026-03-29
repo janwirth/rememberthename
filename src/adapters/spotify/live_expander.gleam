@@ -239,9 +239,14 @@ fn expand_profile(
     |> string.trim
   case user_id == "" || token == "" {
     True ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.ProfileEntry(profile_url),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.ProfileEntry(profile_url)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
     False -> emit_liked_tracks(token, user_id, 0, cache_mode)
   }
 }
@@ -349,12 +354,19 @@ fn expand_playlists(ctx: String) -> core.ExpandResult {
         lists: [],
         next_nodes: next_nodes,
         unresolved: [],
+        cache_hits: 0,
+        cache_fetches: 0,
       )
     }
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.CategoryNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.CategoryNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -369,9 +381,14 @@ fn expand_playlist_tracks(
     ["likes", cache_scope, token, offset_str] ->
       emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.ListNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.ListNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -386,9 +403,14 @@ fn expand_track_page(
     ["likes_page", cache_scope, token, offset_str] ->
       emit_liked_tracks(token, cache_scope, to_int(offset_str), cache_mode)
     _ ->
-      core.ExpandResult(items: [], lists: [], next_nodes: [], unresolved: [
-        core.PageNode(ctx),
-      ])
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.PageNode(ctx)],
+        cache_hits: 0,
+        cache_fetches: 0,
+      )
   }
 }
 
@@ -398,8 +420,11 @@ fn emit_liked_tracks(
   offset: Int,
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
-  let json = cached_liked_tracks_json(token, cache_scope, offset, cache_mode)
-  let items = parse_track_items(cached_tracks_tsv(json, cache_mode))
+  let #(json, cj) =
+    cached_liked_tracks_json(token, cache_scope, offset, cache_mode)
+  let #(tsv, ct) = cached_tracks_tsv(json, cache_mode)
+  let #(hits, fetches) = cache.merge_rollups(cj, ct)
+  let items = parse_track_items(tsv)
   let collection =
     core.UnifiedCollection(
       id: "spotify:collection:likes",
@@ -427,6 +452,8 @@ fn emit_liked_tracks(
     lists: [collection],
     next_nodes: next_nodes,
     unresolved: [],
+    cache_hits: hits,
+    cache_fetches: fetches,
   )
 }
 
@@ -435,7 +462,7 @@ fn cached_liked_tracks_json(
   cache_scope: String,
   offset: Int,
   cache_mode: cache.CacheMode,
-) -> String {
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch(
     "spotify_liked_tracks_json",
     cache_scope <> "|" <> int.to_string(offset),
@@ -444,7 +471,10 @@ fn cached_liked_tracks_json(
   )
 }
 
-fn cached_tracks_tsv(json: String, cache_mode: cache.CacheMode) -> String {
+fn cached_tracks_tsv(
+  json: String,
+  cache_mode: cache.CacheMode,
+) -> #(String, #(Int, Int)) {
   cache.read_or_fetch("spotify_tracks_tsv", json, cache_mode, fn() {
     tracks_tsv(json)
   })

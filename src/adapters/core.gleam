@@ -10,7 +10,7 @@
 //// - Adapters expose service-specific opaque profile types + constructors.
 //// - Root traversal starts at `ProfileEntry(profile_url)`.
 //// - Adapter `expand` keeps this shape:
-////   `AdapterNode -> ExpandResult(items, lists, next_nodes, unresolved)`.
+////   `AdapterNode -> ExpandResult(items, lists, next_nodes, unresolved, cache_hits, cache_fetches)`.
 //// - Emitted `next_nodes` must keep deterministic order.
 //// - Partially resolved lists stay internal; exported lists are complete.
 ////
@@ -150,6 +150,10 @@ pub type ExpandResult {
     lists: List(UnifiedCollection),
     next_nodes: List(AdapterNode),
     unresolved: List(AdapterNode),
+    /// Adapter-cache rows served without running a fetch closure this expand.
+    cache_hits: Int,
+    /// Times the fetch closure ran (live / network) this expand.
+    cache_fetches: Int,
   )
 }
 
@@ -169,6 +173,8 @@ pub type ResolveProgress {
     lists_total: Int,
     step_items: Int,
     step_lists: Int,
+    cache_hits: Int,
+    cache_fetches: Int,
   )
 }
 
@@ -192,12 +198,22 @@ pub fn format_resolve_progress_line(p: ResolveProgress) -> String {
       <> " lists"
     False -> with_tracks
   }
-  with_lists
-  <> " · total "
-  <> int.to_string(p.items_total)
-  <> " tracks · "
-  <> int.to_string(p.lists_total)
-  <> " lists"
+  let with_totals =
+    with_lists
+    <> " · total "
+    <> int.to_string(p.items_total)
+    <> " tracks · "
+    <> int.to_string(p.lists_total)
+    <> " lists"
+  case p.cache_hits + p.cache_fetches > 0 {
+    True ->
+      with_totals
+      <> " · cache hits="
+      <> int.to_string(p.cache_hits)
+      <> " fetches="
+      <> int.to_string(p.cache_fetches)
+    False -> with_totals
+  }
 }
 
 /// Best-effort human label for the node being expanded (hides long opaque tokens where possible).
@@ -229,6 +245,8 @@ fn emit_progress(
   lists_total: Int,
   step_items: Int,
   step_lists: Int,
+  cache_hits: Int,
+  cache_fetches: Int,
 ) {
   on_progress(ResolveProgress(
     label: progress_label(node),
@@ -237,6 +255,8 @@ fn emit_progress(
     lists_total: lists_total,
     step_items: step_items,
     step_lists: step_lists,
+    cache_hits: cache_hits,
+    cache_fetches: cache_fetches,
   ))
 }
 
@@ -596,8 +616,14 @@ fn concurrent_loop(
         False -> {
           let message = process.receive_forever(subject)
           let WorkerDone(node, level, payload) = message
-          let ExpandResult(next_items, next_lists, next_nodes, next_unresolved) =
-            payload
+          let ExpandResult(
+            next_items,
+            next_lists,
+            next_nodes,
+            next_unresolved,
+            cache_hits: step_cache_hits,
+            cache_fetches: step_cache_fetches,
+          ) = payload
           emit_debug(
             All,
             on_debug,
@@ -634,6 +660,8 @@ fn concurrent_loop(
             list.length(lists),
             list.length(items) - items_before,
             list.length(lists) - lists_before,
+            step_cache_hits,
+            step_cache_fetches,
           )
           case limit_hit {
             True -> {
@@ -773,6 +801,8 @@ fn loop(
                 next_lists,
                 next_nodes,
                 next_unresolved,
+                cache_hits: step_cache_hits,
+                cache_fetches: step_cache_fetches,
               ) = expand(node)
               emit_debug(
                 depth,
@@ -800,6 +830,8 @@ fn loop(
                 list.length(lists),
                 list.length(items) - items_before,
                 list.length(lists) - lists_before,
+                step_cache_hits,
+                step_cache_fetches,
               )
               let queue = list.append(rest, with_level(next_nodes, level + 1))
               let unresolved = list.append(unresolved, next_unresolved)
