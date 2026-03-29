@@ -85,10 +85,15 @@ fn fetch_cache_as_mode(pref: FetchCacheMode) -> cache.CacheMode {
 /// One track row returned by [`fetch_source`](#fetch_source).
 pub type FetchTrackRow {
   FetchTrackRow(
+    /// Example: `"Windowlicker"`
     title: String,
+    /// Example: `"Aphex Twin"`
     artist: String,
+    /// Example: `"spotify"` (also `"youtube"`, `"soundcloud"`, `"bandcamp"`, `"tuna"`)
     service: String,
+    /// Example: `"3VQAKWf7U8s3B7vQfQ8kqM"` (service-specific id format)
     source_id: String,
+    /// Example: `Some("https://open.spotify.com/track/3VQAKWf7U8s3B7vQfQ8kqM")` or `None`
     /// Stable page URL when the adapter could resolve one; `None` when unknown.
     external_source_url: Option(String),
   )
