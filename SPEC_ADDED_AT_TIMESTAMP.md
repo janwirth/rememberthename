@@ -34,7 +34,7 @@ Source notes (from research):
 - [x] Bandcamp: map `added` -> `added_at` + tests
 - [x] SoundCloud: map collection `created_at` -> `added_at` + tests
 - [ ] YouTube: fetch playlist-item `snippet.publishedAt` via Data API -> `added_at` + tests
-- [ ] Spotify: map saved-item added timestamp -> `added_at` + tests
+- [x] Spotify: map saved-item added timestamp -> `added_at` + tests
 - [x] Tuna: map `created_on` -> `added_at` + tests
 - [ ] Ensure API/export include `added_at` when present
 
