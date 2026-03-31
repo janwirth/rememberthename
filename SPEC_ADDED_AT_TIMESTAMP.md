@@ -34,6 +34,15 @@ Source notes (from research):
 - [ ] Ensure API/export include `added_at` when present
 - [ ] Add resolver test: duplicate-track merge keeps earliest added-at
 
+## Development flow
+
+For each service:
+- run shallow fetch first, example:
+  - `gleam run -m cli -- fetch spotify --shallow`
+- log raw payload from service
+- try to extract library-added timestamp field
+- if no timestamp is found, report back and keep `added_at` missing
+
 ## Open Questions
 
 - Confirm exact Tuna schema path for `created_at`.
