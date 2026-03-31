@@ -9,7 +9,10 @@ pub fn print_exit_signal() {
 pub fn print_usage() {
   io.println(color("Usage:", ansi_bright_cyan()))
   io.println(
-    "  cli fetch <source> [override-cache|use-cache]",
+    "  cli fetch <source> [override-cache|use-cache] [--shallow]",
+  )
+  io.println(
+    "  cli shallow [source]",
   )
   io.println("")
   io.println(color("Examples:", ansi_bright_cyan()))
@@ -18,6 +21,12 @@ pub fn print_usage() {
   )
   io.println(
     "  gleam run -m cli -- fetch spotify use-cache       # full depth from cache",
+  )
+  io.println(
+    "  gleam run -m cli -- fetch spotify --shallow       # first page only, list output",
+  )
+  io.println(
+    "  gleam run -m cli -- shallow                       # first page only for source 1",
   )
   io.println("")
   io.println(color("Tip:", ansi_bright_cyan()))

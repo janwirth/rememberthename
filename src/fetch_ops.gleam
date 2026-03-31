@@ -126,6 +126,25 @@ pub fn fetch_source_tracks(
   write_json_artifact: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(List(visual_output.TrackView), String) {
+  fetch_source_tracks_with_depth(
+    selector,
+    core.All,
+    "full",
+    cache_mode,
+    write_json_artifact,
+    on_update,
+  )
+}
+
+/// Resolve one source and return tracks with explicit depth control.
+pub fn fetch_source_tracks_with_depth(
+  selector: String,
+  depth: core.DepthMode,
+  depth_label: String,
+  cache_mode: cache.CacheMode,
+  write_json_artifact: Bool,
+  on_update: fn(String) -> Nil,
+) -> Result(List(visual_output.TrackView), String) {
   case selector == "all" {
     True -> Error("use fetch_all for all sources")
     False ->
@@ -136,8 +155,8 @@ pub fn fetch_source_tracks(
             run_fetch(
               source,
               source_index,
-              core.All,
-              "full",
+              depth,
+              depth_label,
               cache_mode,
               True,
               write_json_artifact,

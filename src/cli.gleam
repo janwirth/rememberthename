@@ -21,6 +21,7 @@ pub fn main() {
 pub fn run(args: List(String)) {
   case args {
     [] -> easy_start()
+    ["shallow", ..rest] -> fetch.fetch_source_shallow_simple(rest)
     ["fetch", source_selector, ..rest] ->
       fetch.fetch_source_simple(source_selector, rest)
     _ -> terminal.print_usage()
