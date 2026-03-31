@@ -31,7 +31,7 @@ Source notes (from research):
 ## TODO
 
 - [x] Add `added_at` to canonical `UnifiedItem` (optional/missing allowed)
-- [ ] Bandcamp: map `added` -> `added_at` + tests
+- [x] Bandcamp: map `added` -> `added_at` + tests
 - [ ] SoundCloud: map collection `created_at` -> `added_at` + tests
 - [ ] YouTube: fetch playlist-item `snippet.publishedAt` via Data API -> `added_at` + tests
 - [ ] Spotify: map saved-item added timestamp -> `added_at` + tests

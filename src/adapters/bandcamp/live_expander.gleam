@@ -36,6 +36,7 @@ import adapters/cache
 import adapters/core
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some, type Option}
 import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
@@ -330,13 +331,18 @@ fn parse_item_parts_with_album_nodes(
           )
         False -> {
           let page_url = decode(item_url)
+          let added_at =
+            parse_bandcamp_added_at(
+              decode(extract_between(part, "\"added\":\"", "\"")),
+            )
           let maybe_item =
-            core.track_item(
+            core.track_item_with_added_at(
               "bandcamp",
               id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               page_url,
+              added_at,
             )
           let #(nodes_acc, album_nodes_added) = case
             item_type == "album" && item_url != "" && album_nodes_added < 2
@@ -396,16 +402,21 @@ fn parse_track_id_parts(
       let title = extract_between(part, "\"title\":\"", "\"")
       let artist = extract_between(part, "\"artist\":\"", "\"")
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
+      let added_at =
+        parse_bandcamp_added_at(
+          decode(extract_between(part, "\"added\":\"", "\"")),
+        )
       case track_id == "" || title == "" {
         True -> parse_track_id_parts(rest, acc)
         False -> {
           let maybe_item =
-            core.track_item(
+            core.track_item_with_added_at(
               "bandcamp",
               track_id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               title_link,
+              added_at,
             )
           parse_track_id_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -458,6 +469,10 @@ fn parse_album_track_titles(
           "unknown",
         ))
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
+      let added_at =
+        parse_bandcamp_added_at(
+          decode(extract_between(part, "\"added\":\"", "\"")),
+        )
       case title == "" {
         True -> parse_album_track_titles(rest, album_id, index + 1, acc)
         False -> {
@@ -466,7 +481,14 @@ fn parse_album_track_titles(
             _ -> track_id
           }
           let maybe_item =
-            core.track_item("bandcamp", raw_source_id, title, artist, title_link)
+            core.track_item_with_added_at(
+              "bandcamp",
+              raw_source_id,
+              title,
+              artist,
+              title_link,
+              added_at,
+            )
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc
@@ -496,16 +518,21 @@ fn parse_item_parts(
       let title = extract_between(part, "\"item_title\":\"", "\"")
       let artist = extract_between(part, "\"band_name\":\"", "\"")
       let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
+      let added_at =
+        parse_bandcamp_added_at(
+          decode(extract_between(part, "\"added\":\"", "\"")),
+        )
       case id == "" || item_type == "" || title == "" {
         True -> parse_item_parts(rest, acc)
         False -> {
           let maybe_item =
-            core.track_item(
+            core.track_item_with_added_at(
               "bandcamp",
               id,
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               item_url,
+              added_at,
             )
           parse_item_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -546,5 +573,107 @@ fn first_segment(value: String, separator: String) -> String {
   case parts {
     [first, ..] -> first
     _ -> ""
+  }
+}
+
+fn parse_bandcamp_added_at(raw: String) -> Option(String) {
+  let value = string.trim(raw)
+  case is_iso8601_utc(value) {
+    True -> Some(value)
+    False ->
+      case string.split(value, " ") {
+        [day, month, year, hhmmss, zone] -> {
+          let day = zero_pad_2(day)
+          let month = bandcamp_month_to_number(month)
+          let time_parts = string.split(hhmmss, ":")
+          case month != "" && zone == "GMT" && is_year(year) && is_hms(time_parts) {
+            True -> Some(year <> "-" <> month <> "-" <> day <> "T" <> hhmmss <> "Z")
+            False -> None
+          }
+        }
+        _ -> None
+      }
+  }
+}
+
+fn bandcamp_month_to_number(value: String) -> String {
+  case value {
+    "Jan" -> "01"
+    "Feb" -> "02"
+    "Mar" -> "03"
+    "Apr" -> "04"
+    "May" -> "05"
+    "Jun" -> "06"
+    "Jul" -> "07"
+    "Aug" -> "08"
+    "Sep" -> "09"
+    "Oct" -> "10"
+    "Nov" -> "11"
+    "Dec" -> "12"
+    _ -> ""
+  }
+}
+
+fn zero_pad_2(value: String) -> String {
+  let chars = string.to_graphemes(value)
+  case list.length(chars) {
+    1 -> "0" <> value
+    2 -> value
+    _ -> value
+  }
+}
+
+fn is_year(value: String) -> Bool {
+  let chars = string.to_graphemes(value)
+  list.length(chars) == 4 && list.all(chars, is_ascii_digit)
+}
+
+fn is_hms(parts: List(String)) -> Bool {
+  case parts {
+    [h, m, s] ->
+      is_two_digits(h) && is_two_digits(m) && is_two_digits(s)
+    _ -> False
+  }
+}
+
+fn is_two_digits(value: String) -> Bool {
+  let chars = string.to_graphemes(value)
+  list.length(chars) == 2 && list.all(chars, is_ascii_digit)
+}
+
+fn is_iso8601_utc(value: String) -> Bool {
+  let chars = string.to_graphemes(value)
+  list.length(chars) >= 20
+  && string.ends_with(value, "Z")
+  && list.all(string.to_graphemes(slice(value, 0, 4)), is_ascii_digit)
+  && list.all(string.to_graphemes(slice(value, 5, 2)), is_ascii_digit)
+  && list.all(string.to_graphemes(slice(value, 8, 2)), is_ascii_digit)
+  && list.all(string.to_graphemes(slice(value, 11, 2)), is_ascii_digit)
+  && list.all(string.to_graphemes(slice(value, 14, 2)), is_ascii_digit)
+  && list.all(string.to_graphemes(slice(value, 17, 2)), is_ascii_digit)
+  && slice(value, 4, 1) == "-"
+  && slice(value, 7, 1) == "-"
+  && slice(value, 10, 1) == "T"
+  && slice(value, 13, 1) == ":"
+  && slice(value, 16, 1) == ":"
+}
+
+fn slice(value: String, at_index: Int, length: Int) -> String {
+  string.slice(value, at_index: at_index, length: length)
+}
+
+fn is_ascii_digit(char: String) -> Bool {
+  case char {
+    "0" -> True
+    "1" -> True
+    "2" -> True
+    "3" -> True
+    "4" -> True
+    "5" -> True
+    "6" -> True
+    "7" -> True
+    "8" -> True
+    "9" -> True
+    _ -> False
   }
 }
