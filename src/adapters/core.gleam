@@ -78,6 +78,8 @@ pub type UnifiedItem {
     source_id: String,
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
+    /// Best-effort timestamp for when this item was added to the source library.
+    added_at: Option(String),
   )
 }
 
@@ -100,6 +102,24 @@ pub fn track_item(
   artist: String,
   explicit_external_source_url: String,
 ) -> Result(UnifiedItem, Nil) {
+  track_item_with_added_at(
+    service,
+    raw_source_id,
+    title,
+    artist,
+    explicit_external_source_url,
+    None,
+  )
+}
+
+pub fn track_item_with_added_at(
+  service: String,
+  raw_source_id: String,
+  title: String,
+  artist: String,
+  explicit_external_source_url: String,
+  added_at: Option(String),
+) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
   case source_id == "" {
     True -> Error(Nil)
@@ -114,6 +134,7 @@ pub fn track_item(
         source_type: "item",
         source_id: source_id,
         external_source_url: external_source_url,
+        added_at: added_at,
       ))
     }
   }
@@ -966,7 +987,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

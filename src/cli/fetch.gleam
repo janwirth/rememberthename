@@ -80,7 +80,7 @@ fn print_track_lines(
 }
 
 fn track_line(track: visual_output.TrackView) -> String {
-  let visual_output.TrackView(title, artist, service, _, _, _, _, _, _) = track
+  let visual_output.TrackView(title, artist, service, _, _, _, _, _, _, _) = track
   title <> " - " <> artist <> " [" <> service <> "]"
 }
 

@@ -140,6 +140,7 @@ pub type TrackView {
     service: String,
     source_id: String,
     external_source_url: Option(String),
+    added_at: Option(String),
     adapter_id: String,
     download: String,
     cover: String,
@@ -214,7 +215,7 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 }
 
 fn track_label(track: TrackView) -> String {
-  let TrackView(title, artist, _, _, _, _, _, _, _) = track
+  let TrackView(title, artist, _, _, _, _, _, _, _, _) = track
   title <> " - " <> artist <> missing_artist_suffix(artist)
 }
 
@@ -225,6 +226,7 @@ pub fn track_csv_row(track: TrackView) -> List(String) {
     service,
     source_id,
     external_source_url,
+    _added_at,
     adapter_id,
     download,
     cover,
@@ -249,7 +251,7 @@ pub fn track_csv_row(track: TrackView) -> List(String) {
 }
 
 fn full_track_label(track: TrackView) -> String {
-  let TrackView(title, artist, service, _, _, _, _, _, _) = track
+  let TrackView(title, artist, service, _, _, _, _, _, _, _) = track
   title
   <> " - "
   <> artist

@@ -96,6 +96,8 @@ pub type FetchTrackRow {
     /// Example: `Some("https://open.spotify.com/track/3VQAKWf7U8s3B7vQfQ8kqM")` or `None`
     /// Stable page URL when the adapter could resolve one; `None` when unknown.
     external_source_url: Option(String),
+    /// Optional normalized UTC ISO-8601 added timestamp (when source exposes it).
+    added_at: Option(String),
   )
 }
 
@@ -106,12 +108,20 @@ fn track_view_to_row(view: visual_output.TrackView) -> FetchTrackRow {
     service,
     source_id,
     external_source_url,
+    added_at,
     _,
     _,
     _,
     _,
   ) = view
-  FetchTrackRow(title:, artist:, service:, source_id:, external_source_url:)
+  FetchTrackRow(
+    title: title,
+    artist: artist,
+    service: service,
+    source_id: source_id,
+    external_source_url: external_source_url,
+    added_at: added_at,
+  )
 }
 
 /// One configured source by selector (`"1"`, `"spotify"`, `"spotify-2"`, …). Not `"all"` — this public API

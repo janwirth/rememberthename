@@ -671,14 +671,23 @@ fn resolve_source(
 }
 
 fn to_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
-  let core.UnifiedItem(_, title, artist, service, _, source_id, external_source_url) =
-    item
+  let core.UnifiedItem(
+    _,
+    title,
+    artist,
+    service,
+    _,
+    source_id,
+    external_source_url,
+    added_at,
+  ) = item
   visual_output.TrackView(
     title,
     artist,
     service,
     source_id,
     external_source_url,
+    added_at,
     "",
     "",
     "",
