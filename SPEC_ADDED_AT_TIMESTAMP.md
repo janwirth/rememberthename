@@ -26,18 +26,17 @@ Source notes (from research):
 - Bandcamp: `added` value like `"19 Nov 2025 17:20:23 GMT"` is added timestamp.
 - YouTube: scraper path may not expose it; use YouTube Data API where `snippet.publishedAt` on playlist item is when video was added to playlist/library context.
 - Spotify: use API added timestamp field for saved tracks/items (confirm exact field path in code/tests).
-- Tuna: use source `created_at` (confirm exact schema field path).
+- Tuna: use `created_on` on `default::Dated` (Track extends it; exposed by the gel query as `created_on`).
 
 ## TODO
 
 - [x] Add `added_at` to canonical `UnifiedItem` (optional/missing allowed)
 - [x] Bandcamp: map `added` -> `added_at` + tests
-- [ ] SoundCloud: map collection `created_at` -> `added_at` + tests
+- [x] SoundCloud: map collection `created_at` -> `added_at` + tests
 - [ ] YouTube: fetch playlist-item `snippet.publishedAt` via Data API -> `added_at` + tests
 - [ ] Spotify: map saved-item added timestamp -> `added_at` + tests
-- [ ] Tuna: map `created_at` -> `added_at` + tests
+- [x] Tuna: map `created_on` -> `added_at` + tests
 - [ ] Ensure API/export include `added_at` when present
-- [ ] Add resolver test: duplicate-track merge keeps earliest added-at
 
 ## Development flow
 
@@ -51,5 +50,5 @@ One service at a time:
 
 ## Open Questions
 
-- Confirm exact Tuna schema path for `created_at`.
+- ~~Confirm exact Tuna schema path~~ → `default::Dated.created_on` (query field `created_on`).
 - Confirm exact Spotify API field(s) for added timestamp in all supported flows.

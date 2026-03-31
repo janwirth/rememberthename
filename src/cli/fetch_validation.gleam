@@ -48,9 +48,14 @@ pub fn print_runtime_validation(
   case always_validate || depth == core.All {
     False -> Nil
     True -> {
-      let run =
-        validation_run_for_depth(source, depth, cache_mode, depth_result)
-      let validation_errors = validate_source_run(run)
+      let validation_errors = case depth {
+        core.All -> {
+          let run =
+            validation_run_for_depth(source, depth, cache_mode, depth_result)
+          validate_source_run(run)
+        }
+        _ -> validate_single_depth_result(source, depth, depth_result)
+      }
       on_update("")
       case validation_errors == [] {
         True -> on_update(terminal.color("Validation: PASS", terminal.ansi_green()))
@@ -66,6 +71,51 @@ pub fn print_runtime_validation(
       }
     }
   }
+}
+
+fn validate_single_depth_result(
+  source: source_specs.SourceSpec,
+  depth: core.DepthMode,
+  depth_result: core.ResolveResult,
+) -> List(String) {
+  let source_specs.SourceSpec(key, name, _, _, assert_spec) = source
+  let source_specs.SourceAssertSpec(
+    min_depth_1_items,
+    _,
+    source_limit,
+    _,
+    anchor_fragments,
+    _,
+  ) = assert_spec
+  let core.ResolveResult(items, _, _) = depth_result
+  let item_count = list.length(items)
+  let min_depth_ok = case depth {
+    core.Depth1 -> item_count >= min_depth_1_items
+    _ -> True
+  }
+  let anchors_ok =
+    list.all(anchor_fragments, fn(fragment) {
+      has_title_fragment(items, fragment)
+    })
+  let source_limit_ok = item_count <= source_limit
+  []
+  |> add_validation_error(
+    !min_depth_ok,
+    key <> " (" <> name <> "): min depth-1 items failed",
+  )
+  |> add_validation_error(
+    !anchors_ok,
+    key <> " (" <> name <> "): anchor fragments failed",
+  )
+  |> add_validation_error(
+    !source_limit_ok,
+    key
+      <> " ("
+      <> name
+      <> "): source limit exceeded ("
+      <> int.to_string(source_limit)
+      <> ")",
+  )
 }
 
 /// Builds a `SourceRun`: current `depth_result` plus sibling resolves (tuna reuses full result slices).

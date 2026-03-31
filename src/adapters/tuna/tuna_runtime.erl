@@ -9,6 +9,7 @@ tracks_source_ids_json() ->
             " title := t.title,"
             " normalized_title := t.title_any_ascii_fixed,"
             " date_added := <str>t.date_added,"
+            " created_on := <str>t.created_on,"
             " artist := (select t.artist_label limit 1),"
             " tags := (select t.tags { label, emoji } order by .label),"
             " rating := t.rating,"

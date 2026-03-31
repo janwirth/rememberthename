@@ -327,19 +327,34 @@ fn parse_tracks(
   #(
     list.index_map(lines, fn(line, idx) {
       let cols = string.split(line, "\t")
-      let #(raw_source_id, title, artist, perm_url) = case cols {
-        [id, title, artist, u] -> #(id, title, artist, string.trim(u))
-        [id, title, artist] -> #(id, title, artist, "")
-        [id, title] -> #(id, title, "unknown", "")
-        [id] -> #(id, "untitled", "unknown", "")
+      let #(raw_source_id, title, artist, perm_url, added_at) = case cols {
+        [id, title, artist, u, added] -> #(
+          id,
+          title,
+          artist,
+          string.trim(u),
+          normalize_soundcloud_added_at(added),
+        )
+        [id, title, artist, u] -> #(id, title, artist, string.trim(u), None)
+        [id, title, artist] -> #(id, title, artist, "", None)
+        [id, title] -> #(id, title, "unknown", "", None)
+        [id] -> #(id, "untitled", "unknown", "", None)
         _ -> #(
           kind <> ":" <> int.to_string(idx + 1),
           "untitled",
           "unknown",
           "",
+          None,
         )
       }
-      core.track_item("soundcloud", raw_source_id, title, artist, perm_url)
+      core.track_item_with_added_at(
+        "soundcloud",
+        raw_source_id,
+        title,
+        artist,
+        perm_url,
+        added_at,
+      )
     })
       |> list.filter_map(fn(item) { item }),
     rollup,
@@ -495,7 +510,7 @@ fn soundcloud_track_permalink_url(
 fn track_tuple_from_dynamic(
   data: dynamic.Dynamic,
   path_prefix: List(String),
-) -> Option(#(String, String, String, String)) {
+) -> Option(#(String, String, String, String, Option(String))) {
   let id_path = list.append(path_prefix, ["id"])
   let title_path = list.append(path_prefix, ["title"])
   let artist_path = list.append(path_prefix, ["user", "username"])
@@ -505,26 +520,45 @@ fn track_tuple_from_dynamic(
       let title = decode_path_or(data, title_path, "untitled", decode.string)
       let artist = decode_path_or(data, artist_path, "unknown", decode.string)
       let perm_url = soundcloud_track_permalink_url(data, path_prefix)
-      Some(#(id, title, artist, perm_url))
+      Some(#(id, title, artist, perm_url, None))
     }
   }
 }
 
 fn track_tuple_from_entry(
   entry: dynamic.Dynamic,
-) -> Option(#(String, String, String, String)) {
+) -> Option(#(String, String, String, String, Option(String))) {
+  let added_at =
+    decode_path_or(entry, ["created_at"], "", decode.string)
+    |> normalize_soundcloud_added_at
   case track_tuple_from_dynamic(entry, ["track"]) {
-    Some(track) -> Some(track)
+    Some(track) -> Some(with_added_at(track, added_at))
     None ->
       case decode_path_or(entry, ["kind"], "", decode.string) == "track" {
         True ->
           case track_tuple_from_dynamic(entry, []) {
-            Some(track) -> Some(track)
-            None -> track_tuple_from_dynamic(entry, ["origin", "track"])
+            Some(track) -> Some(with_added_at(track, added_at))
+            None ->
+              case track_tuple_from_dynamic(entry, ["origin", "track"]) {
+                Some(track) -> Some(with_added_at(track, added_at))
+                None -> None
+              }
           }
-        False -> track_tuple_from_dynamic(entry, ["origin", "track"])
+        False ->
+          case track_tuple_from_dynamic(entry, ["origin", "track"]) {
+            Some(track) -> Some(with_added_at(track, added_at))
+            None -> None
+          }
       }
   }
+}
+
+fn with_added_at(
+  track: #(String, String, String, String, Option(String)),
+  added_at: Option(String),
+) -> #(String, String, String, String, Option(String)) {
+  let #(id, title, artist, perm_url, _) = track
+  #(id, title, artist, perm_url, added_at)
 }
 
 fn collect_track_ids(
@@ -556,14 +590,84 @@ fn collect_track_rows(
     [entry, ..rest] ->
       case track_tuple_from_entry(entry) {
         Some(track) -> {
-          let #(id, title, artist, perm_url) = track
+          let #(id, title, artist, perm_url, added_at) = track
+          let added_cell = case added_at {
+            Some(value) -> value
+            None -> ""
+          }
           collect_track_rows(rest, [
-            id <> "\t" <> title <> "\t" <> artist <> "\t" <> perm_url,
+            id
+            <> "\t"
+            <> title
+            <> "\t"
+            <> artist
+            <> "\t"
+            <> perm_url
+            <> "\t"
+            <> added_cell,
             ..acc
           ])
         }
         None -> collect_track_rows(rest, acc)
       }
+  }
+}
+
+fn normalize_soundcloud_added_at(raw: String) -> Option(String) {
+  let value = string.trim(raw)
+  case is_iso8601_utc(value) {
+    True -> Some(value)
+    False ->
+      case is_date_only(value) {
+        True -> Some(value <> "T00:00:00Z")
+        False -> None
+      }
+  }
+}
+
+fn is_date_only(value: String) -> Bool {
+  list.length(string.to_graphemes(value)) == 10
+  && string.slice(value, at_index: 4, length: 1) == "-"
+  && string.slice(value, at_index: 7, length: 1) == "-"
+  && is_digits(string.slice(value, at_index: 0, length: 4))
+  && is_digits(string.slice(value, at_index: 5, length: 2))
+  && is_digits(string.slice(value, at_index: 8, length: 2))
+}
+
+fn is_iso8601_utc(value: String) -> Bool {
+  list.length(string.to_graphemes(value)) >= 20
+  && string.ends_with(value, "Z")
+  && string.slice(value, at_index: 4, length: 1) == "-"
+  && string.slice(value, at_index: 7, length: 1) == "-"
+  && string.slice(value, at_index: 10, length: 1) == "T"
+  && string.slice(value, at_index: 13, length: 1) == ":"
+  && string.slice(value, at_index: 16, length: 1) == ":"
+  && is_digits(string.slice(value, at_index: 0, length: 4))
+  && is_digits(string.slice(value, at_index: 5, length: 2))
+  && is_digits(string.slice(value, at_index: 8, length: 2))
+  && is_digits(string.slice(value, at_index: 11, length: 2))
+  && is_digits(string.slice(value, at_index: 14, length: 2))
+  && is_digits(string.slice(value, at_index: 17, length: 2))
+}
+
+fn is_digits(value: String) -> Bool {
+  let chars = string.to_graphemes(value)
+  chars != [] && list.all(chars, is_ascii_digit)
+}
+
+fn is_ascii_digit(char: String) -> Bool {
+  case char {
+    "0" -> True
+    "1" -> True
+    "2" -> True
+    "3" -> True
+    "4" -> True
+    "5" -> True
+    "6" -> True
+    "7" -> True
+    "8" -> True
+    "9" -> True
+    _ -> False
   }
 }
 

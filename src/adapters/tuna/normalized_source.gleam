@@ -6,6 +6,7 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some, type Option}
 import gleam/result
 import gleam/string
 import source_id_normalizer
@@ -320,16 +321,18 @@ fn push_item_with_metadata(
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
   let #(items, metadata) = acc
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
+  let added_at = row_added_at(row)
   case normalized == "" {
     True -> acc
     False ->
       case
-        core.track_item(
+        core.track_item_with_added_at(
           service,
           raw_source_id,
           choose_title(preferred_title, normalized),
           choose_artist(artist),
           row_explicit_external_source_url(row, service),
+          added_at,
         )
       {
         Ok(item) -> {
@@ -345,6 +348,116 @@ fn push_item_with_metadata(
         Error(_) -> acc
       }
   }
+}
+
+fn row_added_at(row: dynamic.Dynamic) -> Option(String) {
+  // Canonical Tuna field: `default::Dated.created_on` (see `gel_schema_tuna_main.sdl`).
+  let created_on = decode_path_or(row, ["created_on"], "", decode.string)
+  let direct = decode_path_or(row, ["created_at"], "", decode.string)
+  let source_created = decode_path_or(row, ["source", "created_at"], "", decode.string)
+  let fishbone_created =
+    decode_path_or(row, ["fishbone_created_at"], "", decode.string)
+  let date_added = decode_path_or(row, ["date_added"], "", decode.string)
+  first_non_empty_string([
+    created_on,
+    direct,
+    source_created,
+    fishbone_created,
+    date_added,
+  ])
+  |> normalize_added_at_value
+}
+
+fn first_non_empty_string(values: List(String)) -> String {
+  case values {
+    [] -> ""
+    [value, ..rest] ->
+      case string.trim(value) {
+        "" -> first_non_empty_string(rest)
+        cleaned -> cleaned
+      }
+  }
+}
+
+fn normalize_added_at_value(value: String) -> Option(String) {
+  let cleaned = string.trim(value)
+  case is_iso8601_utc(cleaned) {
+    True -> Some(cleaned)
+    False ->
+      case is_date_only(cleaned) {
+        True -> Some(cleaned <> "T00:00:00Z")
+        False ->
+          case is_datetime_no_timezone(cleaned) {
+            True -> Some(string.replace(cleaned, " ", "T") <> "Z")
+            False -> None
+          }
+      }
+  }
+}
+
+fn is_date_only(value: String) -> Bool {
+  list.length(string.to_graphemes(value)) == 10
+  && slice(value, 4, 1) == "-"
+  && slice(value, 7, 1) == "-"
+  && is_digits(slice(value, 0, 4))
+  && is_digits(slice(value, 5, 2))
+  && is_digits(slice(value, 8, 2))
+}
+
+fn is_datetime_no_timezone(value: String) -> Bool {
+  list.length(string.to_graphemes(value)) == 19
+  && slice(value, 4, 1) == "-"
+  && slice(value, 7, 1) == "-"
+  && slice(value, 10, 1) == " "
+  && slice(value, 13, 1) == ":"
+  && slice(value, 16, 1) == ":"
+  && is_digits(slice(value, 0, 4))
+  && is_digits(slice(value, 5, 2))
+  && is_digits(slice(value, 8, 2))
+  && is_digits(slice(value, 11, 2))
+  && is_digits(slice(value, 14, 2))
+  && is_digits(slice(value, 17, 2))
+}
+
+fn is_iso8601_utc(value: String) -> Bool {
+  list.length(string.to_graphemes(value)) >= 20
+  && string.ends_with(value, "Z")
+  && slice(value, 4, 1) == "-"
+  && slice(value, 7, 1) == "-"
+  && slice(value, 10, 1) == "T"
+  && slice(value, 13, 1) == ":"
+  && slice(value, 16, 1) == ":"
+  && is_digits(slice(value, 0, 4))
+  && is_digits(slice(value, 5, 2))
+  && is_digits(slice(value, 8, 2))
+  && is_digits(slice(value, 11, 2))
+  && is_digits(slice(value, 14, 2))
+  && is_digits(slice(value, 17, 2))
+}
+
+fn is_digits(value: String) -> Bool {
+  let chars = string.to_graphemes(value)
+  chars != [] && list.all(chars, is_ascii_digit)
+}
+
+fn is_ascii_digit(char: String) -> Bool {
+  case char {
+    "0" -> True
+    "1" -> True
+    "2" -> True
+    "3" -> True
+    "4" -> True
+    "5" -> True
+    "6" -> True
+    "7" -> True
+    "8" -> True
+    "9" -> True
+    _ -> False
+  }
+}
+
+fn slice(value: String, at_index: Int, length: Int) -> String {
+  string.slice(value, at_index: at_index, length: length)
 }
 
 fn row_audio_path(row: dynamic.Dynamic) -> String {
