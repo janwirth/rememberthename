@@ -485,30 +485,39 @@ fn parse_track_items(json: String) -> List(core.UnifiedItem) {
   |> list.filter_map(fn(chunk) {
     let cols = string.split(chunk, "\t")
     let track_id = case cols {
+      [id, _, _, _, _] -> id
       [id, _, _, _] -> id
       [id, _, _] -> id
       _ -> ""
     }
     let title = case cols {
+      [_, t, _, _, _] -> t
       [_, t, _, _] -> t
       [_, t, _] -> t
       _ -> ""
     }
     let artist_name = case cols {
+      [_, _, a, _, _] -> a
       [_, _, a, _] -> a
       [_, _, a] -> a
       _ -> "unknown"
     }
     let track_url = case cols {
+      [_, _, _, u, _] -> u
       [_, _, _, u] -> u
       _ -> ""
     }
-    core.track_item(
+    let added_at = case cols {
+      [_, _, _, _, raw_added_at] -> normalize_spotify_added_at(raw_added_at)
+      _ -> None
+    }
+    core.track_item_with_added_at(
       "spotify",
       track_id,
       normalize(title),
       normalize(default_if_empty(artist_name, "unknown")),
       string.trim(track_url),
+      added_at,
     )
   })
 }
@@ -575,9 +584,63 @@ fn spotify_track_tsv(item: dynamic.Dynamic) -> Option(String) {
           "",
           decode.string,
         )
-      Some(id <> "\t" <> title <> "\t" <> artist <> "\t" <> track_url)
+      let added_at_raw = decode_path_or(item, ["added_at"], "", decode.string)
+      let added_at = case normalize_spotify_added_at(added_at_raw) {
+        Some(value) -> value
+        None -> ""
+      }
+      Some(
+        id
+        <> "\t"
+        <> title
+        <> "\t"
+        <> artist
+        <> "\t"
+        <> track_url
+        <> "\t"
+        <> added_at,
+      )
     }
   }
+}
+
+fn normalize_spotify_added_at(raw: String) -> Option(String) {
+  let value = string.trim(raw)
+  case is_iso8601_utc(value) {
+    True -> Some(value)
+    False -> None
+  }
+}
+
+fn is_iso8601_utc(value: String) -> Bool {
+  let graphemes = string.to_graphemes(value)
+  let len = list.length(graphemes)
+  case len >= 20 && string.ends_with(value, "Z") {
+    False -> False
+    True -> {
+      let year = take_graphemes(graphemes, 0, 4)
+      let month = take_graphemes(graphemes, 5, 2)
+      let day = take_graphemes(graphemes, 8, 2)
+      let hour = take_graphemes(graphemes, 11, 2)
+      let minute = take_graphemes(graphemes, 14, 2)
+      let second = take_graphemes(graphemes, 17, 2)
+      list.all(string.to_graphemes(year), is_ascii_digit)
+      && list.all(string.to_graphemes(month), is_ascii_digit)
+      && list.all(string.to_graphemes(day), is_ascii_digit)
+      && list.all(string.to_graphemes(hour), is_ascii_digit)
+      && list.all(string.to_graphemes(minute), is_ascii_digit)
+      && list.all(string.to_graphemes(second), is_ascii_digit)
+      && string.slice(value, at_index: 4, length: 1) == "-"
+      && string.slice(value, at_index: 7, length: 1) == "-"
+      && string.slice(value, at_index: 10, length: 1) == "T"
+      && string.slice(value, at_index: 13, length: 1) == ":"
+      && string.slice(value, at_index: 16, length: 1) == ":"
+    }
+  }
+}
+
+fn take_graphemes(chars: List(String), offset: Int, length: Int) -> String {
+  chars |> list.drop(offset) |> list.take(length) |> string.concat
 }
 
 fn first_artist_name(artists: List(dynamic.Dynamic)) -> String {

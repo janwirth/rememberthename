@@ -1,5 +1,5 @@
 import cli
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleeunit
 import gleeunit/should
 import gleam/string
@@ -18,7 +18,7 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
         "bandcamp",
         "2365071502",
         None,
-        None,
+        Some("2026-03-31T00:00:00Z"),
         "bandcamp + profile",
         "",
         "",
@@ -42,6 +42,9 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
   |> should.equal(True)
 
   string.contains(content, "\"external_source_url\":null")
+  |> should.equal(True)
+
+  string.contains(content, "\"added_at\":\"2026-03-31T00:00:00Z\"")
   |> should.equal(True)
 }
 

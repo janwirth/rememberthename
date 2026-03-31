@@ -4,6 +4,7 @@ import fetch_ops
 import gleam/dict.{type Dict}
 import gleam/io
 import gleam/list
+import gleam/option.{None, Some}
 import output/visual_output
 import source_specs
 
@@ -80,8 +81,23 @@ fn print_track_lines(
 }
 
 fn track_line(track: visual_output.TrackView) -> String {
-  let visual_output.TrackView(title, artist, service, _, _, _, _, _, _, _) = track
-  title <> " - " <> artist <> " [" <> service <> "]"
+  let visual_output.TrackView(
+    title,
+    artist,
+    service,
+    _,
+    _,
+    added_at,
+    _,
+    _,
+    _,
+    _,
+  ) = track
+  let added_suffix = case added_at {
+    Some(value) -> " · added_at: " <> value
+    None -> ""
+  }
+  title <> " - " <> artist <> " [" <> service <> "]" <> added_suffix
 }
 
 type FetchArgs {
