@@ -38,6 +38,7 @@
 //// - progress
 //// - completed
 
+import gleam/time/timestamp
 import gleam/erlang/process
 import gleam/int
 import gleam/list
@@ -79,7 +80,7 @@ pub type UnifiedItem {
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
     /// When unknown, use `""`. Otherwise normalized UTC ISO-8601 (see added-at spec).
-    added_at: String,
+    added_at: timestamp.Timestamp,
   )
 }
 
