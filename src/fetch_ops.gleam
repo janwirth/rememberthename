@@ -1,6 +1,8 @@
+import adapters/api_keys
 import adapters/cache
 import adapters/core
 import adapters/tuna/normalized_source as tuna_normalized_source
+import cli/api_credentials
 import cli/export_json
 import cli/fetch_validation
 import cli/resolve_adapter
@@ -197,6 +199,7 @@ pub fn run_fetch(
   on_update("")
 
   let resolve_start_ms = runtime.now_ms()
+  let creds = api_credentials.load_api_keys()
   let #(result, tuna_export_metadata) = case key == "tuna" {
     True -> {
       let tuna_normalized_source.ResolveWithMetadataResult(
@@ -209,7 +212,7 @@ pub fn run_fetch(
       #(resolve_result, Some(export_metadata))
     }
     False ->
-      #(
+      case
         resolve_adapter.resolve_source(
           key,
           entry_point,
@@ -221,9 +224,21 @@ pub fn run_fetch(
           fn(progress) {
             on_update(core.format_resolve_progress_line(progress))
           },
-        ),
-        None,
-      )
+          creds,
+        )
+      {
+        Ok(r) -> #(r, None)
+        Error(err) -> {
+          on_update(
+            terminal.color("Resolve error: ", terminal.ansi_red())
+            <> api_keys.format_resolve_adapter_error(err),
+          )
+          #(
+            core.ResolveResult(items: [], lists: [], unresolved: []),
+            None,
+          )
+        }
+      }
   }
   let resolve_elapsed_ms = runtime.now_ms() - resolve_start_ms
 
@@ -290,6 +305,7 @@ pub fn run_fetch(
     result,
     always_validate,
     on_update,
+    creds,
   )
   let validation_elapsed_ms = runtime.now_ms() - validation_start_ms
   let total_elapsed_ms = runtime.now_ms() - run_start_ms

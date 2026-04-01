@@ -5,6 +5,7 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import cli/api_credentials
 import gleam/list
 import sources
 
@@ -93,7 +94,14 @@ fn resolve_youtube_all() -> core.ResolveResult {
   let source = sources.youtube()
   let profile =
     youtube_live_expander.youtube_playlist(sources.entry_point(source))
-  youtube_live_expander.resolve_profile(profile, core.All, cache.CacheUpsert)
+  let assert Ok(result) =
+    youtube_live_expander.resolve_profile(
+      profile,
+      core.All,
+      cache.CacheUpsert,
+      api_credentials.load_api_keys(),
+    )
+  result
 }
 
 fn result_items(result: core.ResolveResult) -> List(core.UnifiedItem) {

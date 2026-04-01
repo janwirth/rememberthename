@@ -5,6 +5,7 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
 import cli
+import cli/api_credentials
 import gleam/list
 import gleam/string
 import simplifile
@@ -80,11 +81,14 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
         let source = sources.youtube()
         let profile =
           youtube_live_expander.youtube_playlist(sources.entry_point(source))
-        youtube_live_expander.resolve_profile(
-          profile,
-          core.All,
-          cache.CacheUpsert,
-        )
+        let assert Ok(result) =
+          youtube_live_expander.resolve_profile(
+            profile,
+            core.All,
+            cache.CacheUpsert,
+            api_credentials.load_api_keys(),
+          )
+        result
       })
     }
   }

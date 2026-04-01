@@ -1,6 +1,6 @@
 # YouTube Data API via gleetube
 
-This spec covers **YouTube** only. Shared rules for explicit credentials and `ApiKeys` live in [SPEC_OFFICIAL_API_CLIENTS_AND_KEYS.md](./SPEC_OFFICIAL_API_CLIENTS_AND_KEYS.md). Normalization for `added_at` lives in [SPEC_ADDED_AT_TIMESTAMP.md](./SPEC_ADDED_AT_TIMESTAMP.md).
+This spec covers **YouTube** only. Shared rules for **`ApiKeys` and adapter credentials** live in [SPEC_ADAPTER_API_KEYS.md](./SPEC_ADAPTER_API_KEYS.md). **Spotify** official API usage lives in [SPEC_OFFICIAL_API_CLIENTS_AND_KEYS.md](./SPEC_OFFICIAL_API_CLIENTS_AND_KEYS.md). Normalization for `added_at` lives in [SPEC_ADDED_AT_TIMESTAMP.md](./SPEC_ADDED_AT_TIMESTAMP.md).
 
 ## 1) Library
 
@@ -10,7 +10,7 @@ The project may keep Erlang/HTTP helpers for **non–Data-API** concerns (for ex
 
 ## 2) `ApiKeys.google_cloud`
 
-Per the umbrella spec, adapters receive `ApiKeys { spotify, google_cloud }`. For the YouTube path:
+Per [SPEC_ADAPTER_API_KEYS.md](./SPEC_ADAPTER_API_KEYS.md), adapters receive `ApiKeys { spotify, google_cloud }`. For the YouTube path:
 
 - **`google_cloud`**: credential for YouTube Data API v3 — typically an **API key** from Google Cloud with the YouTube Data API enabled, passed into `gleetube` (for example `gleetube.new("...")` or `auth.api_key` + `config` as in the Hex docs).
 

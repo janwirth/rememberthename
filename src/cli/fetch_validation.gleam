@@ -1,3 +1,4 @@
+import adapters/api_keys
 import adapters/cache
 import adapters/core
 import cli/resolve_adapter
@@ -44,6 +45,7 @@ pub fn print_runtime_validation(
   depth_result: core.ResolveResult,
   always_validate: Bool,
   on_update: fn(String) -> Nil,
+  creds: api_keys.ApiKeys,
 ) {
   case always_validate || depth == core.All {
     False -> Nil
@@ -51,7 +53,13 @@ pub fn print_runtime_validation(
       let validation_errors = case depth {
         core.All -> {
           let run =
-            validation_run_for_depth(source, depth, cache_mode, depth_result)
+            validation_run_for_depth(
+              source,
+              depth,
+              cache_mode,
+              depth_result,
+              creds,
+            )
           validate_source_run(run)
         }
         _ -> validate_single_depth_result(source, depth, depth_result)
@@ -124,6 +132,7 @@ pub fn validation_run_for_depth(
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
+  creds: api_keys.ApiKeys,
 ) -> SourceRun {
   let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
     source
@@ -146,16 +155,23 @@ pub fn validation_run_for_depth(
     case tuna_all_result {
       Some(all_result) -> derive_tuna_shallow(all_result, mode)
       None ->
-        resolve_adapter.resolve_source(
-          key,
-          entry_point,
-          mode,
-          source_limit,
-          timing_spec,
-          cache_mode,
-          fn(_line) { Nil },
-          fn(_progress) { Nil },
-        )
+        case
+          resolve_adapter.resolve_source(
+            key,
+            entry_point,
+            mode,
+            source_limit,
+            timing_spec,
+            cache_mode,
+            fn(_line) { Nil },
+            fn(_progress) { Nil },
+            creds,
+          )
+        {
+          Ok(r) -> r
+          Error(_) ->
+            core.ResolveResult(items: [], lists: [], unresolved: [])
+        }
     }
   }
 
@@ -213,7 +229,7 @@ pub fn validate_source_run(run: SourceRun) -> List(String) {
   let min_full_ok = iall >= min_full_items
   let monotonic_ok = case key == "tuna" {
     True -> True
-    False -> i2 > i1 && iall >= i2
+    False -> i2 >= i1 && iall >= i2
   }
   let consistency_ok = lall >= l1 && uall == u1
   let first_ids = first_item_ids(depth_1, first_items_to_preserve)

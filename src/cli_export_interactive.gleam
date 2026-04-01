@@ -1,9 +1,12 @@
+import adapters/api_keys
 import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
+import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import cli/api_credentials
 import gleam/erlang/process
 import gleam/int
 import gleam/io
@@ -591,6 +594,7 @@ fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
+  let creds = api_credentials.load_api_keys()
   let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
   let queue_policy =
@@ -655,17 +659,27 @@ fn resolve_source(
         fn(_) { Nil },
       )
     }
+    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
+      case
+        youtube_live_expander.resolve_profile_with_debug_limited_timed(
+          profile,
+          depth,
+          cache_mode,
+          creds,
+          source_limit,
+          queue_policy,
+          on_debug,
+          fn(_) { Nil },
+        )
+      {
+        Ok(result) -> result
+        Error(err) -> {
+          io.println(api_keys.format_resolve_adapter_error(err))
+          core.ResolveResult(items: [], lists: [], unresolved: [])
+        }
+      }
     }
   }
 }

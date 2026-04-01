@@ -1,3 +1,4 @@
+import adapters/api_keys
 import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
@@ -46,7 +47,8 @@ pub fn resolve_source(
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
   on_progress: fn(core.ResolveProgress) -> Nil,
-) -> core.ResolveResult {
+  keys: api_keys.ApiKeys,
+) -> Result(core.ResolveResult, api_keys.ResolveAdapterError) {
   let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
   let queue_policy = queue_policy_for_cache_mode(
@@ -57,26 +59,30 @@ pub fn resolve_source(
   case key {
     "bandcamp" -> {
       let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        on_progress,
+      Ok(
+        bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
+          profile,
+          depth,
+          cache_mode,
+          source_limit,
+          queue_policy,
+          on_debug,
+          on_progress,
+        ),
       )
     }
     "soundcloud" -> {
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        on_progress,
+      Ok(
+        soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
+          profile,
+          depth,
+          cache_mode,
+          source_limit,
+          queue_policy,
+          on_debug,
+          on_progress,
+        ),
       )
     }
     "spotify" -> {
@@ -102,24 +108,27 @@ pub fn resolve_source(
           scopes: "playlist-read-private playlist-read-collaborative user-library-read",
         )
       let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        config,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        on_progress,
+      Ok(
+        spotify_live_expander.resolve_profile_with_debug_limited_timed(
+          profile,
+          depth,
+          config,
+          cache_mode,
+          source_limit,
+          queue_policy,
+          on_debug,
+          on_progress,
+        ),
       )
     }
-    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
+    "tuna" -> Ok(tuna_normalized_source.resolve(depth, cache_mode, on_debug))
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
       youtube_live_expander.resolve_profile_with_debug_limited_timed(
         profile,
         depth,
         cache_mode,
+        keys,
         source_limit,
         queue_policy,
         on_debug,

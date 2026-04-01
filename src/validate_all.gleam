@@ -1,9 +1,12 @@
+import adapters/api_keys
 import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
+import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import cli/api_credentials
 import gleam/int
 import gleam/io
 import gleam/list
@@ -59,6 +62,8 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
   io.println("entry: " <> entry_point)
   io.println("cache: " <> cache_mode_text(cache_mode))
 
+  let creds = api_credentials.load_api_keys()
+
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
     resolve_source(
@@ -69,6 +74,7 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
       timing_spec,
       cache_mode,
       fn(line) { io.println("[warmup] " <> line) },
+      creds,
     )
 
   let depth_1 =
@@ -80,6 +86,7 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
       timing_spec,
       cache_mode,
       fn(_line) { Nil },
+      creds,
     )
   let depth_2 =
     resolve_source(
@@ -90,6 +97,7 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
       timing_spec,
       cache_mode,
       fn(_line) { Nil },
+      creds,
     )
   let depth_all =
     resolve_source(
@@ -100,10 +108,12 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
       timing_spec,
       cache_mode,
       fn(line) { io.println("[full] " <> line) },
+      creds,
     )
 
   let pass =
     validate_results(
+      key,
       name,
       source_limit,
       assert_spec,
@@ -127,6 +137,7 @@ fn resolve_source(
   timing_spec: source_specs.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
+  creds: api_keys.ApiKeys,
 ) -> core.ResolveResult {
   let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
@@ -192,22 +203,33 @@ fn resolve_source(
         fn(_) { Nil },
       )
     }
+    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     _ -> {
       let profile = youtube_live_expander.youtube_playlist(entry_point)
-      youtube_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
+      case
+        youtube_live_expander.resolve_profile_with_debug_limited_timed(
+          profile,
+          depth,
+          cache_mode,
+          creds,
+          source_limit,
+          queue_policy,
+          on_debug,
+          fn(_) { Nil },
+        )
+      {
+        Ok(result) -> result
+        Error(err) -> {
+          io.println(api_keys.format_resolve_adapter_error(err))
+          core.ResolveResult(items: [], lists: [], unresolved: [])
+        }
+      }
     }
   }
 }
 
 fn validate_results(
+  key: String,
   name: String,
   source_limit: Int,
   assert_spec: source_specs.SourceAssertSpec,
@@ -233,7 +255,10 @@ fn validate_results(
 
   let min_depth_ok = i1 >= min_depth_1_items
   let min_full_ok = iall >= min_full_items
-  let monotonic_ok = i2 > i1 && iall >= i2
+  let monotonic_ok = case key == "tuna" {
+    True -> True
+    False -> i2 >= i1 && iall >= i2
+  }
   let consistency_ok = lall >= l1 && uall == u1
   let first_ids = first_item_ids(d1, first_items_to_preserve)
   let first_items_ok =

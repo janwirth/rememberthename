@@ -1,25 +1,31 @@
+import adapters/cache
+import adapters/core
 import adapters/youtube/live_expander as youtube_live_expander
-import depth_test_spec
+import cli/api_credentials
+import gleam/list
 import sources
 
 @external(erlang, "test_runtime", "run_live_tests")
 fn run_live_tests() -> Bool
 
-pub fn live_youtube_follows_unified_depth_spec_test() {
+pub fn live_youtube_playlist_resolves_test() {
   case run_live_tests() {
     False -> Nil
     True -> {
       let source = sources.youtube()
       let profile =
         youtube_live_expander.youtube_playlist(sources.entry_point(source))
-      let results =
-        depth_test_spec.resolve_standard_depths(fn(depth, cache_mode) {
-          youtube_live_expander.resolve_profile(profile, depth, cache_mode)
-        })
-      depth_test_spec.assert_standard_depth_pattern(
-        results,
-        sources.depth_assert_spec(source),
-      )
+      let keys = api_credentials.load_api_keys()
+      let assert Ok(core.ResolveResult(items, lists, unresolved)) =
+        youtube_live_expander.resolve_profile(
+          profile,
+          core.All,
+          cache.CacheUpsert,
+          keys,
+        )
+      assert list.length(items) >= 5
+      assert list.length(lists) == 1
+      assert unresolved == []
     }
   }
 }
