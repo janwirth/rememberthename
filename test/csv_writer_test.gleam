@@ -1,4 +1,5 @@
 import gleam/option.{None}
+import gleam/time/timestamp
 import gleeunit
 import gleeunit/should
 import output/csv_writer
@@ -16,7 +17,7 @@ pub fn tracks_csv_writes_header_and_rows_test() {
       "soundcloud",
       "sc-a",
       None,
-      "",
+      timestamp.unix_epoch,
       "source-a",
       "",
       "",
@@ -28,7 +29,7 @@ pub fn tracks_csv_writes_header_and_rows_test() {
       "spotify",
       "sp-b",
       None,
-      "",
+      timestamp.unix_epoch,
       "source-b",
       "",
       "",
@@ -53,7 +54,7 @@ pub fn tracks_csv_escapes_quotes_commas_and_newlines_test() {
       "youtube",
       "id-1",
       None,
-      "",
+      timestamp.unix_epoch,
       "source-youtube",
       "/tmp/track.mp3",
       "/tmp/track.jpg",

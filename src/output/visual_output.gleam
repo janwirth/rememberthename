@@ -131,6 +131,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleam/time/timestamp
 import output/tree_view
 
 pub type TrackView {
@@ -140,7 +141,7 @@ pub type TrackView {
     service: String,
     source_id: String,
     external_source_url: Option(String),
-    added_at: String,
+    added_at: timestamp.Timestamp,
     adapter_id: String,
     download: String,
     cover: String,

@@ -38,9 +38,11 @@
 //// - progress
 //// - completed
 
+import gleam/time/calendar
 import gleam/time/timestamp
 import gleam/erlang/process
 import gleam/int
+import gleam/order
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -79,7 +81,7 @@ pub type UnifiedItem {
     source_id: String,
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
-    /// When unknown, use `""`. Otherwise normalized UTC ISO-8601 (see added-at spec).
+    /// When the source has no date, use [`timestamp.unix_epoch`]. Otherwise a parsed instant (RFC 3339 at boundaries).
     added_at: timestamp.Timestamp,
   )
 }
@@ -113,6 +115,20 @@ pub fn track_item(
   )
 }
 
+/// Normalizes a wire-format added-at string into a [`timestamp.Timestamp`].
+/// Blank or unparseable values become [`timestamp.unix_epoch`].
+pub fn added_at_timestamp_from_raw(raw: String) -> timestamp.Timestamp {
+  let s = string.trim(raw)
+  case s == "" {
+    True -> timestamp.unix_epoch
+    False ->
+      case timestamp.parse_rfc3339(s) {
+        Ok(t) -> t
+        Error(_) -> timestamp.unix_epoch
+      }
+  }
+}
+
 pub fn track_item_with_added_at(
   service: String,
   raw_source_id: String,
@@ -127,7 +143,7 @@ pub fn track_item_with_added_at(
     False -> {
       let external_source_url =
         item_external_source_url(service, source_id, explicit_external_source_url)
-      let added = string.trim(added_at)
+      let added = added_at_timestamp_from_raw(added_at)
       Ok(UnifiedItem(
         id: service <> ":item:" <> source_id,
         title: title,
@@ -139,6 +155,15 @@ pub fn track_item_with_added_at(
         added_at: added,
       ))
     }
+  }
+}
+
+/// UTC RFC 3339 for display/export; [`timestamp.unix_epoch`] becomes an empty string.
+pub fn added_at_display(ts: timestamp.Timestamp) -> String {
+  case timestamp.compare(ts, timestamp.unix_epoch) {
+    order.Eq -> ""
+    _ ->
+      timestamp.to_rfc3339(ts, calendar.utc_offset)
   }
 }
 

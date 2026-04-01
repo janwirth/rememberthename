@@ -1,3 +1,4 @@
+import adapters/core
 import cli/tuna_tags
 import gleam/dict
 import gleam/json
@@ -106,7 +107,7 @@ fn track_json_with_order(
     Some(url) -> json.string(url)
     None -> json.null()
   }
-  let added_at_json = case added_at {
+  let added_at_json = case core.added_at_display(added_at) {
     "" -> json.null()
     value -> json.string(value)
   }

@@ -2,6 +2,7 @@ import adapters/core
 import gleam/int
 import gleam/list
 import gleam/option.{None}
+import gleam/time/timestamp
 import gleeunit
 import gleeunit/should
 
@@ -85,7 +86,7 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       source_type: "item",
       source_id: source_id,
       external_source_url: None,
-      added_at: "",
+      added_at: timestamp.unix_epoch,
     )
   })
 }

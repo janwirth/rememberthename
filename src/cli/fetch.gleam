@@ -92,9 +92,10 @@ fn track_line(track: visual_output.TrackView) -> String {
     _,
     _,
   ) = track
-  let added_suffix = case added_at {
-    "" -> ""
-    value -> " · added_at: " <> value
+  let added_str = core.added_at_display(added_at)
+  let added_suffix = case added_str == "" {
+    True -> ""
+    False -> " · added_at: " <> added_str
   }
   title <> " - " <> artist <> " [" <> service <> "]" <> added_suffix
 }

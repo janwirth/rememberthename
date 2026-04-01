@@ -1,5 +1,7 @@
 import cli
 import gleam/option.{None}
+import gleam/result
+import gleam/time/timestamp
 import gleeunit
 import gleeunit/should
 import gleam/string
@@ -10,6 +12,8 @@ pub fn main() {
 }
 
 pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
+  let added_march =
+    result.unwrap(timestamp.parse_rfc3339("2026-03-31T00:00:00Z"), timestamp.unix_epoch)
   let content =
     cli.tracks_json([
       visual_output.TrackView(
@@ -18,7 +22,7 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
         "bandcamp",
         "2365071502",
         None,
-        "2026-03-31T00:00:00Z",
+        added_march,
         "bandcamp + profile",
         "",
         "",
@@ -57,7 +61,7 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
         "soundcloud",
         "1685501811",
         None,
-        "",
+        timestamp.unix_epoch,
         "tuna + fishbone",
         "/tmp/track-b.mp3",
         "/tmp/track-b.jpg",
@@ -90,7 +94,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "youtube",
         "yt-new",
         None,
-        "",
+        timestamp.unix_epoch,
         "youtube + profile",
         "",
         "",
@@ -102,7 +106,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         "youtube",
         "yt-old",
         None,
-        "",
+        timestamp.unix_epoch,
         "youtube + profile",
         "",
         "",

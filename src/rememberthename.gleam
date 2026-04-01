@@ -5,6 +5,7 @@ import cli/source_selector as source_pick
 import fetch_ops
 import gleam/list
 import gleam/option.{type Option}
+import gleam/time/timestamp
 import output/visual_output
 import source_specs
 
@@ -96,8 +97,8 @@ pub type FetchTrackRow {
     /// Example: `Some("https://open.spotify.com/track/3VQAKWf7U8s3B7vQfQ8kqM")` or `None`
     /// Stable page URL when the adapter could resolve one; `None` when unknown.
     external_source_url: Option(String),
-    /// Normalized UTC ISO-8601 when known; empty string when the source did not expose it.
-    added_at: String,
+    /// When known, the instant the source reported; [`timestamp.unix_epoch`] when missing.
+    added_at: timestamp.Timestamp,
   )
 }
 

@@ -3,6 +3,7 @@ import gleam/option.{None}
 import default_queue
 import gleam/erlang/process
 import gleam/list
+import gleam/time/timestamp
 import gleeunit
 import gleeunit/should
 
@@ -102,7 +103,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
               source_type: "item",
               source_id: "1",
               external_source_url: None,
-              added_at: "",
+              added_at: timestamp.unix_epoch,
             ),
           ],
           lists: [],

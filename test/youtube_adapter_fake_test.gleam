@@ -3,6 +3,7 @@ import gleam/int
 import gleam/option.{None}
 import gleam/list
 import gleam/string
+import gleam/time/timestamp
 
 pub fn depth_1_stops_after_profile_test() {
   let result =
@@ -107,7 +108,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
-    added_at: "",
+    added_at: timestamp.unix_epoch,
   )
 }
 
