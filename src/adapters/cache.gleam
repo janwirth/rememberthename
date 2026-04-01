@@ -11,12 +11,38 @@
 //// - `CacheOverride`: always fetch live and overwrite cache
 //// - `CacheReadOnly`: read cache only, never fetch on miss/empty
 
+import gleam/bit_array
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import sqlight
 
-@external(erlang, "cache_hash", "phash")
-fn phash(value: String) -> String
+/// Stable 32-bit FNV-1a over UTF-8 bytes (replaces `erlang:phash2`; invalidates old cache rows).
+fn phash(value: String) -> String {
+  let bits = bit_array.from_string(value)
+  let h = fnv1a_u32_loop(bits, 0, 2_166_136_261)
+  int.to_string(int.bitwise_and(h, 4_294_967_295))
+}
+
+const fnv_prime: Int = 16_777_619
+
+const fnv_mask: Int = 4_294_967_295
+
+fn fnv1a_u32_loop(bits: BitArray, offset: Int, hash: Int) -> Int {
+  let len = bit_array.byte_size(bits)
+  case offset >= len {
+    True -> int.bitwise_and(hash, fnv_mask)
+    False ->
+      case bit_array.slice(bits, offset, 1) {
+        Ok(<<b>>) -> {
+          let x = int.bitwise_and(int.bitwise_exclusive_or(hash, b), fnv_mask)
+          let x = int.bitwise_and(int.multiply(x, fnv_prime), fnv_mask)
+          fnv1a_u32_loop(bits, offset + 1, x)
+        }
+        _ -> int.bitwise_and(hash, fnv_mask)
+      }
+  }
+}
 
 pub type CacheMode {
   CacheUpsert

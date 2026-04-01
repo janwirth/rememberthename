@@ -15,6 +15,9 @@ gleam_time = ">= 1.0.0 and < 2.0.0"
 sqlight = ">= 1.0.3 and < 2.0.0"
 gleetube = ">= 1.0.0 and < 2.0.0"
 spotify_client = { git = "https://github.com/janwirth/gleam_spotify_client", ref = "gleam-http-4" }
+argv = ">= 1.0.2 and < 2.0.0"
+envoy = ">= 1.1.0 and < 2.0.0"
+shellout = ">= 1.8.0 and < 2.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

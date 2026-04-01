@@ -1,7 +1,14 @@
-/// Raw command-line arguments from the Erlang runtime (`argv`).
-@external(erlang, "cli_runtime_args", "argv")
-pub fn argv() -> List(String)
+import argv as argv_loader
+import gleam/time/timestamp
 
-/// Monotonic clock in milliseconds (for durations and probes).
-@external(erlang, "cli_runtime_args", "now_ms")
-pub fn now_ms() -> Int
+/// Raw command-line arguments from the runtime (via `argv` package).
+pub fn argv() -> List(String) {
+  argv_loader.load().arguments
+}
+
+/// Wall-clock time in milliseconds (suitable for durations in normal runs).
+pub fn now_ms() -> Int {
+  let t = timestamp.system_time()
+  let #(s, ns) = timestamp.to_unix_seconds_and_nanoseconds(t)
+  s * 1000 + ns / 1_000_000
+}

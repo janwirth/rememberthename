@@ -34,17 +34,49 @@
 
 import adapters/cache
 import adapters/core
+import gleam/http.{Post}
+import gleam/http/request
+import gleam/hackney
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
 import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
-@external(erlang, "soundcloud_http", "fetch")
-fn fetch(url: String) -> String
 
-@external(erlang, "soundcloud_http", "post_json")
-fn post_json(url: String, body: String) -> String
+fn fetch(url: String) -> String {
+  case request.to(url) {
+    Error(_) -> ""
+    Ok(req) -> {
+      let req =
+        req
+        |> request.set_header("user-agent", "Mozilla/5.0")
+        |> request.set_header("accept", "application/json,text/html,*/*")
+      case hackney.send(req) {
+        Ok(response) -> response.body
+        Error(_) -> ""
+      }
+    }
+  }
+}
+
+fn post_json(url: String, body: String) -> String {
+  case request.to(url) {
+    Error(_) -> ""
+    Ok(req) -> {
+      let req =
+        req
+        |> request.set_method(Post)
+        |> request.set_header("content-type", "application/json")
+        |> request.set_header("user-agent", "Mozilla/5.0")
+        |> request.set_body(body)
+      case hackney.send(req) {
+        Ok(response) -> response.body
+        Error(_) -> ""
+      }
+    }
+  }
+}
 
 pub opaque type BandcampProfile {
   BandcampProfile(profile_url: String)

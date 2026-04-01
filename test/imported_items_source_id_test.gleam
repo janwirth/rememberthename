@@ -10,12 +10,10 @@ import cli/api_credentials
 import cli/spotify_credentials
 import gleam/list
 import sources
-
-@external(erlang, "test_runtime", "run_live_perf_tests")
-fn run_live_perf_tests() -> Bool
+import test_env
 
 pub fn every_imported_item_has_valid_source_id_constructor_ok_test() {
-  case run_live_perf_tests() {
+  case test_env.run_live_perf_tests() {
     False -> Nil
     True -> {
       let all_items = all_imported_items()

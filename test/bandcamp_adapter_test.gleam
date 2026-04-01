@@ -2,11 +2,10 @@ import adapters/bandcamp/live_expander as bandcamp_live_expander
 import depth_test_spec
 import sources
 
-@external(erlang, "test_runtime", "run_live_tests")
-fn run_live_tests() -> Bool
+import test_env
 
 pub fn live_bandcamp_follows_unified_depth_spec_test() {
-  case run_live_tests() {
+  case test_env.run_live_tests() {
     False -> Nil
     True -> {
       let source = sources.bandcamp()

@@ -4,12 +4,10 @@ import adapters/youtube/live_expander as youtube_live_expander
 import cli/api_credentials
 import gleam/list
 import sources
-
-@external(erlang, "test_runtime", "run_live_tests")
-fn run_live_tests() -> Bool
+import test_env
 
 pub fn live_youtube_playlist_resolves_test() {
-  case run_live_tests() {
+  case test_env.run_live_tests() {
     False -> Nil
     True -> {
       let source = sources.youtube()

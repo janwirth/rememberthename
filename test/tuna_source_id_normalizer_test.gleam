@@ -1,21 +1,17 @@
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
+import adapters/tuna/tracks_source_ids_query
 import gleam/list
 import gleam/result
 import source_id_normalizer
-
-@external(erlang, "tuna_runtime", "tracks_source_ids_json")
-fn tracks_source_ids_json() -> String
-
-@external(erlang, "test_runtime", "run_live_perf_tests")
-fn run_live_perf_tests() -> Bool
+import test_env
 
 pub fn live_tuna_source_ids_normalize_when_available_test() {
-  case run_live_perf_tests() {
+  case test_env.run_live_perf_tests() {
     False -> Nil
     True -> {
-      let raw = tracks_source_ids_json()
+      let raw = tracks_source_ids_query.fetch_tracks_source_ids_json()
       assert raw != ""
 
       let decoded =

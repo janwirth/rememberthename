@@ -7,20 +7,16 @@ import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
 import cli
 import cli/api_credentials
+import cli/runtime
 import cli/spotify_credentials
 import gleam/list
 import gleam/string
 import simplifile
 import sources
-
-@external(erlang, "test_runtime", "now_ms")
-fn now_ms() -> Int
-
-@external(erlang, "test_runtime", "run_live_perf_tests")
-fn run_live_perf_tests() -> Bool
+import test_env
 
 pub fn warm_cache_full_depth_under_one_second_per_source_test() {
-  case run_live_perf_tests() {
+  case test_env.run_live_perf_tests() {
     False -> Nil
     True -> {
       assert_source_under_one_second(fn() {
@@ -95,14 +91,14 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
 }
 
 pub fn export_all_csv_with_cache_under_one_second_test() {
-  case run_live_perf_tests() {
+  case test_env.run_live_perf_tests() {
     False -> Nil
     True -> {
       let _ = cli.run(["export", "all", "csv", "use-cache"])
       let warm_length = csv_line_count("output/all_items_latest.csv")
-      let start = now_ms()
+      let start = runtime.now_ms()
       let _ = cli.run(["export", "all", "csv", "use-cache"])
-      let elapsed_ms = now_ms() - start
+      let elapsed_ms = runtime.now_ms() - start
       let cached_length = csv_line_count("output/all_items_latest.csv")
       assert warm_length > 1
       assert cached_length == warm_length
@@ -113,9 +109,9 @@ pub fn export_all_csv_with_cache_under_one_second_test() {
 
 fn assert_source_under_one_second(resolve_all: fn() -> core.ResolveResult) {
   let _ = resolve_all()
-  let start = now_ms()
+  let start = runtime.now_ms()
   let result = resolve_all()
-  let elapsed_ms = now_ms() - start
+  let elapsed_ms = runtime.now_ms() - start
   let core.ResolveResult(items, _, _) = result
   assert items != []
   assert elapsed_ms <= 1000

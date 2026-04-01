@@ -9,11 +9,9 @@ import gleam/list
 import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
 import gleam/result
 import gleam/string
-import source_id_normalizer
 import adapters/tuna/tuna_mirror_path
-
-@external(erlang, "tuna_runtime", "tracks_source_ids_json")
-fn tracks_source_ids_json() -> String
+import adapters/tuna/tracks_source_ids_query
+import source_id_normalizer
 
 pub type ExportMetadata {
   ExportMetadata(
@@ -76,7 +74,7 @@ fn cached_tracks_source_ids_json(
     "tuna_tracks_source_ids_enriched_json",
     "tuna_main_default_track_sources_enriched",
     cache_mode,
-    tracks_source_ids_json,
+    tracks_source_ids_query.fetch_tracks_source_ids_json,
   )
 }
 

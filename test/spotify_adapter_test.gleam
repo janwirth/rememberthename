@@ -3,12 +3,10 @@ import adapters/spotify/live_expander as spotify_live_expander
 import cli/spotify_credentials
 import depth_test_spec
 import sources
-
-@external(erlang, "test_runtime", "run_live_tests")
-fn run_live_tests() -> Bool
+import test_env
 
 pub fn live_spotify_user_follows_unified_depth_spec_test() {
-  case run_live_tests() {
+  case test_env.run_live_tests() {
     False -> Nil
     True -> {
       let source = sources.spotify()

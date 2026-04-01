@@ -22,12 +22,16 @@ import shore/key
 import shore/layout
 import shore/style
 import shore/ui
+import shellout
 import simplifile
 import source_specs
 
 pub fn main() {
   case otp_supported() {
-    True -> run_guarded(start_ui, restore_terminal_cursor)
+    True -> {
+      start_ui()
+      restore_terminal_after_ui()
+    }
     False ->
       io.println(
         "interactive export requires Erlang/OTP 28 or newer. Detected OTP "
@@ -37,21 +41,78 @@ pub fn main() {
   }
 }
 
-@external(erlang, "runtime_otp", "otp_major")
-fn otp_major() -> Int
+fn otp_major() -> Int {
+  case
+    shellout.command(
+      "erl",
+      [
+        "-noshell",
+        "-eval",
+        "io:format(\"~s\", [erlang:system_info(otp_release)]), halt().",
+      ],
+      in: ".",
+      opt: [],
+    )
+  {
+    Ok(out) -> parse_leading_int(string.trim(out))
+    Error(_) -> 0
+  }
+}
 
-@external(erlang, "runtime_guard", "run")
-fn run_guarded(run: fn() -> Nil, cleanup: fn() -> Nil) -> Nil
+fn parse_leading_int(s: String) -> Int {
+  case s {
+    "" -> 0
+    _ -> take_leading_digits(s, "")
+  }
+}
 
-@external(erlang, "runtime_terminal", "restore_shell")
-fn restore_shell() -> Nil
+fn take_leading_digits(rest: String, acc: String) -> Int {
+  case string.pop_grapheme(rest) {
+    Error(Nil) ->
+      case acc {
+        "" -> 0
+        _ ->
+          case int.parse(acc) {
+            Ok(n) -> n
+            Error(_) -> 0
+          }
+      }
+    Ok(#(g, more)) ->
+      case is_digit_grapheme(g) {
+        True -> take_leading_digits(more, acc <> g)
+        False ->
+          case acc {
+            "" -> 0
+            _ ->
+              case int.parse(acc) {
+                Ok(n) -> n
+                Error(_) -> 0
+              }
+          }
+      }
+  }
+}
+
+fn is_digit_grapheme(g: String) -> Bool {
+  case int.parse(g) {
+    Ok(n) -> n >= 0 && n <= 9
+    Error(_) -> False
+  }
+}
 
 fn otp_supported() -> Bool {
   otp_major() >= 28
 }
 
-fn restore_terminal_cursor() {
-  restore_shell()
+fn restore_terminal_after_ui() {
+  io.print("\u{1b}[?25h\u{1b}[0m\u{1b}[?7h\u{1b}[?1049l")
+  let _ =
+    shellout.command(
+      "sh",
+      ["-c", "stty sane < /dev/tty 2>/dev/null"],
+      in: ".",
+      opt: [],
+    )
   io.print("")
 }
 
