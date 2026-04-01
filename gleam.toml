@@ -14,7 +14,7 @@ gleam_json = ">= 3.1.0 and < 4.0.0"
 gleam_time = ">= 1.0.0 and < 2.0.0"
 sqlight = ">= 1.0.3 and < 2.0.0"
 gleetube = ">= 1.0.0 and < 2.0.0"
-spotify_client = { path = "../vendor/gleam_spotify_client" }
+spotify_client = { git = "https://github.com/janwirth/gleam_spotify_client", ref = "gleam-http-4" }
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
