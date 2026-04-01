@@ -1,8 +1,8 @@
 //// Application-layer credential loading for `ApiKeys` (reads `.env` only here).
 
 import adapters/api_keys
-import adapters/spotify/live_expander as spotify_live_expander
 import cli/config_paths
+import cli/spotify_credentials
 import gleam/option.{None, Some}
 import gleam/string
 
@@ -11,7 +11,7 @@ pub fn load_api_keys() -> api_keys.ApiKeys {
   let root = config_paths.spotify_config_root()
   let env_file = config_paths.join_under(root, ".env")
   let raw =
-    spotify_live_expander.read_env_value(env_file, "GOOGLE_CLOUD_API_KEY")
+    spotify_credentials.read_env_value(env_file, "GOOGLE_CLOUD_API_KEY")
     |> string.trim
   let google_cloud = case raw {
     "" -> None

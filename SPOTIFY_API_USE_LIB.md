@@ -31,9 +31,9 @@ For Spotify, use the API fields that represent when a track (or saved item) was 
 
 ## 6) Checklist (Spotify)
 
-- [ ] Add `spotify_client` to `gleam.toml` with a pinned version.
-- [ ] Thread `ApiKeys` through Spotify adapter entry points used for fetch/resolve; validate `spotify` per [SPEC_ADAPTER_API_KEYS.md](./SPEC_ADAPTER_API_KEYS.md).
-- [ ] Replace or narrow any non-API paths so `added_at` for Spotify comes from official responses where available; align tests with [SPEC_ADDED_AT_TIMESTAMP.md](./SPEC_ADDED_AT_TIMESTAMP.md).
+- [x] Add `spotify_client` to `gleam.toml` with a pinned version (path: `./vendor/gleam_spotify_client` — vendored fork compatible with `gleam_http` 4 / `gleam_hackney`; upstream Hex constraints differ).
+- [x] Thread `ApiKeys` through Spotify adapter entry points used for fetch/resolve; validate `spotify` per [SPEC_ADAPTER_API_KEYS.md](./SPEC_ADAPTER_API_KEYS.md).
+- [x] Replace or narrow any non-API paths so `added_at` for Spotify comes from official responses where available; align tests with [SPEC_ADDED_AT_TIMESTAMP.md](./SPEC_ADDED_AT_TIMESTAMP.md).
 
 ## 7) Related work outside this doc
 

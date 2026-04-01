@@ -96,8 +96,8 @@ pub type FetchTrackRow {
     /// Example: `Some("https://open.spotify.com/track/3VQAKWf7U8s3B7vQfQ8kqM")` or `None`
     /// Stable page URL when the adapter could resolve one; `None` when unknown.
     external_source_url: Option(String),
-    /// Optional normalized UTC ISO-8601 added timestamp (when source exposes it).
-    added_at: Option(String),
+    /// Normalized UTC ISO-8601 when known; empty string when the source did not expose it.
+    added_at: String,
   )
 }
 

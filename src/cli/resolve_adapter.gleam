@@ -7,6 +7,7 @@ import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import cli/config_paths
+import cli/spotify_credentials
 import source_specs
 
 /// Short string for logging cache behavior.
@@ -90,36 +91,33 @@ pub fn resolve_source(
       let session_file =
         config_paths.join_under(spotify_root, ".spotify_oauth_session.json")
       let env_file = config_paths.join_under(spotify_root, ".env")
-      let access_token =
-        spotify_live_expander.read_access_token_file(session_file)
-      let config =
-        spotify_live_expander.spotify_config(
-          access_token: access_token,
-          session_file: session_file,
-          client_id: spotify_live_expander.read_env_value(
-            env_file,
-            "SPOTIFY_CLIENT_ID",
-          ),
-          client_secret: spotify_live_expander.read_env_value(
-            env_file,
-            "SPOTIFY_CLIENT_SECRET",
-          ),
-          redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
-          scopes: "playlist-read-private playlist-read-collaborative user-library-read",
+      let redirect = "https://127.0.0.1:8080/spotify-oauth-success"
+      let keys_with_spotify =
+        spotify_credentials.with_spotify_from_disk(
+          keys,
+          session_file,
+          env_file,
+          redirect,
         )
-      let profile = spotify_live_expander.spotify_user(entry_point)
-      Ok(
-        spotify_live_expander.resolve_profile_with_debug_limited_timed(
-          profile,
-          depth,
-          config,
-          cache_mode,
-          source_limit,
-          queue_policy,
-          on_debug,
-          on_progress,
-        ),
-      )
+      case api_keys.require_spotify_credentials(keys_with_spotify) {
+        Error(e) -> Error(e)
+        Ok(creds) -> {
+          let config = spotify_live_expander.spotify_config(creds)
+          let profile = spotify_live_expander.spotify_user(entry_point)
+          Ok(
+            spotify_live_expander.resolve_profile_with_debug_limited_timed(
+              profile,
+              depth,
+              config,
+              cache_mode,
+              source_limit,
+              queue_policy,
+              on_debug,
+              on_progress,
+            ),
+          )
+        }
+      }
     }
     "tuna" -> Ok(tuna_normalized_source.resolve(depth, cache_mode, on_debug))
     _ -> {

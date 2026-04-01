@@ -107,8 +107,8 @@ fn track_json_with_order(
     None -> json.null()
   }
   let added_at_json = case added_at {
-    Some(value) -> json.string(value)
-    None -> json.null()
+    "" -> json.null()
+    value -> json.string(value)
   }
   json.object([
     #("title", json.string(title)),

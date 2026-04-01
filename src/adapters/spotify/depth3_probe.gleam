@@ -1,30 +1,32 @@
+import adapters/api_keys
 import adapters/cache
 import adapters/core
 import adapters/spotify/live_expander as spotify_live_expander
+import cli/spotify_credentials
 import gleam/int
 import gleam/io
 import gleam/list
-
 pub fn main() {
-  let client_id =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
+  let client_id = spotify_credentials.read_env_value(".env", "SPOTIFY_CLIENT_ID")
   let client_secret =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
-  let access_token =
-    spotify_live_expander.read_access_token_file(".spotify_oauth_session.json")
+    spotify_credentials.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
+  let session = ".spotify_oauth_session.json"
+  let access_token = spotify_credentials.read_access_token_file(session)
+  let refresh_token = spotify_credentials.read_refresh_token_file(session)
   assert client_id != ""
   assert client_secret != ""
   assert access_token != ""
 
-  let config =
-    spotify_live_expander.spotify_config(
+  let creds =
+    api_keys.SpotifyCredentials(
       access_token: access_token,
-      session_file: ".spotify_oauth_session.json",
+      refresh_token: refresh_token,
       client_id: client_id,
       client_secret: client_secret,
       redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
-      scopes: "playlist-read-private playlist-read-collaborative user-library-read",
     )
+
+  let config = spotify_live_expander.spotify_config(creds)
 
   let profile =
     spotify_live_expander.spotify_user(

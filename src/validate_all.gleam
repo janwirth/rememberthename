@@ -7,6 +7,8 @@ import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import cli/api_credentials
+import cli/config_paths
+import cli/spotify_credentials
 import gleam/int
 import gleam/io
 import gleam/list
@@ -172,36 +174,36 @@ fn resolve_source(
       )
     }
     "spotify" -> {
-      let access_token =
-        spotify_live_expander.read_access_token_file(
-          ".spotify_oauth_session.json",
+      let root = config_paths.spotify_config_root()
+      let session_file =
+        config_paths.join_under(root, ".spotify_oauth_session.json")
+      let env_file = config_paths.join_under(root, ".env")
+      let redirect = "https://127.0.0.1:8080/spotify-oauth-success"
+      let keys =
+        spotify_credentials.with_spotify_from_disk(
+          creds,
+          session_file,
+          env_file,
+          redirect,
         )
-      let config =
-        spotify_live_expander.spotify_config(
-          access_token: access_token,
-          session_file: ".spotify_oauth_session.json",
-          client_id: spotify_live_expander.read_env_value(
-            ".env",
-            "SPOTIFY_CLIENT_ID",
-          ),
-          client_secret: spotify_live_expander.read_env_value(
-            ".env",
-            "SPOTIFY_CLIENT_SECRET",
-          ),
-          redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
-          scopes: "playlist-read-private playlist-read-collaborative user-library-read",
-        )
-      let profile = spotify_live_expander.spotify_user(entry_point)
-      spotify_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        config,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
+      case api_keys.require_spotify_credentials(keys) {
+        Error(_) ->
+          core.ResolveResult(items: [], lists: [], unresolved: [])
+        Ok(spotify_creds) -> {
+          let config = spotify_live_expander.spotify_config(spotify_creds)
+          let profile = spotify_live_expander.spotify_user(entry_point)
+          spotify_live_expander.resolve_profile_with_debug_limited_timed(
+            profile,
+            depth,
+            config,
+            cache_mode,
+            source_limit,
+            queue_policy,
+            on_debug,
+            fn(_) { Nil },
+          )
+        }
+      }
     }
     "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
     _ -> {

@@ -1,4 +1,4 @@
-import adapters/spotify/live_expander as spotify_live_expander
+import cli/spotify_credentials
 import gleam/bytes_tree
 import gleam/erlang/process
 import gleam/hackney
@@ -18,13 +18,13 @@ fn open_url(url: String) -> Nil {
 
 pub fn main() {
   let client_id =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_ID")
+    spotify_credentials.read_env_value(".env", "SPOTIFY_CLIENT_ID")
   let client_secret =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
+    spotify_credentials.read_env_value(".env", "SPOTIFY_CLIENT_SECRET")
   let cert_file =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_CERT_FILE")
+    spotify_credentials.read_env_value(".env", "SPOTIFY_OAUTH_CERT_FILE")
   let key_file =
-    spotify_live_expander.read_env_value(".env", "SPOTIFY_OAUTH_KEY_FILE")
+    spotify_credentials.read_env_value(".env", "SPOTIFY_OAUTH_KEY_FILE")
   assert client_id != ""
   assert client_secret != ""
   assert client_id != client_secret

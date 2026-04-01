@@ -36,7 +36,7 @@ import adapters/cache
 import adapters/core
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some, type Option}
+import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
 import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
@@ -332,8 +332,11 @@ fn parse_item_parts_with_album_nodes(
         False -> {
           let page_url = decode(item_url)
           let added_at =
-            parse_bandcamp_added_at(
-              decode(extract_between(part, "\"added\":\"", "\"")),
+            option_unwrap(
+              parse_bandcamp_added_at(
+                decode(extract_between(part, "\"added\":\"", "\"")),
+              ),
+              "",
             )
           let maybe_item =
             core.track_item_with_added_at(
@@ -403,8 +406,11 @@ fn parse_track_id_parts(
       let artist = extract_between(part, "\"artist\":\"", "\"")
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
       let added_at =
-        parse_bandcamp_added_at(
-          decode(extract_between(part, "\"added\":\"", "\"")),
+        option_unwrap(
+          parse_bandcamp_added_at(
+            decode(extract_between(part, "\"added\":\"", "\"")),
+          ),
+          "",
         )
       case track_id == "" || title == "" {
         True -> parse_track_id_parts(rest, acc)
@@ -470,8 +476,11 @@ fn parse_album_track_titles(
         ))
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
       let added_at =
-        parse_bandcamp_added_at(
-          decode(extract_between(part, "\"added\":\"", "\"")),
+        option_unwrap(
+          parse_bandcamp_added_at(
+            decode(extract_between(part, "\"added\":\"", "\"")),
+          ),
+          "",
         )
       case title == "" {
         True -> parse_album_track_titles(rest, album_id, index + 1, acc)
@@ -519,8 +528,11 @@ fn parse_item_parts(
       let artist = extract_between(part, "\"band_name\":\"", "\"")
       let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
       let added_at =
-        parse_bandcamp_added_at(
-          decode(extract_between(part, "\"added\":\"", "\"")),
+        option_unwrap(
+          parse_bandcamp_added_at(
+            decode(extract_between(part, "\"added\":\"", "\"")),
+          ),
+          "",
         )
       case id == "" || item_type == "" || title == "" {
         True -> parse_item_parts(rest, acc)

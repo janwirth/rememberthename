@@ -85,7 +85,7 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       source_type: "item",
       source_id: source_id,
       external_source_url: None,
-      added_at: None,
+      added_at: "",
     )
   })
 }

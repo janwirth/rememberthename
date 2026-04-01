@@ -1,3 +1,4 @@
+import adapters/api_keys
 import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
@@ -6,6 +7,7 @@ import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
 import cli
 import cli/api_credentials
+import cli/spotify_credentials
 import gleam/list
 import gleam/string
 import simplifile
@@ -47,26 +49,24 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
 
       assert_source_under_one_second(fn() {
         let source = sources.spotify()
-        let access_token =
-          spotify_live_expander.read_access_token_file(
-            ".spotify_oauth_session.json",
-          )
+        let session = ".spotify_oauth_session.json"
+        let access_token = spotify_credentials.read_access_token_file(session)
         assert access_token != ""
-        let config =
-          spotify_live_expander.spotify_config(
+        let creds =
+          api_keys.SpotifyCredentials(
             access_token: access_token,
-            session_file: ".spotify_oauth_session.json",
-            client_id: spotify_live_expander.read_env_value(
+            refresh_token: spotify_credentials.read_refresh_token_file(session),
+            client_id: spotify_credentials.read_env_value(
               ".env",
               "SPOTIFY_CLIENT_ID",
             ),
-            client_secret: spotify_live_expander.read_env_value(
+            client_secret: spotify_credentials.read_env_value(
               ".env",
               "SPOTIFY_CLIENT_SECRET",
             ),
             redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
-            scopes: "playlist-read-private playlist-read-collaborative user-library-read",
           )
+        let config = spotify_live_expander.spotify_config(creds)
         let profile =
           spotify_live_expander.spotify_user(sources.entry_point(source))
         spotify_live_expander.resolve_profile(

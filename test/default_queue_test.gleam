@@ -102,7 +102,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
               source_type: "item",
               source_id: "1",
               external_source_url: None,
-              added_at: None,
+              added_at: "",
             ),
           ],
           lists: [],

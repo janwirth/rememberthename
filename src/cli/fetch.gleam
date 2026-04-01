@@ -4,7 +4,6 @@ import fetch_ops
 import gleam/dict.{type Dict}
 import gleam/io
 import gleam/list
-import gleam/option.{None, Some}
 import output/visual_output
 import source_specs
 
@@ -94,8 +93,8 @@ fn track_line(track: visual_output.TrackView) -> String {
     _,
   ) = track
   let added_suffix = case added_at {
-    Some(value) -> " · added_at: " <> value
-    None -> ""
+    "" -> ""
+    value -> " · added_at: " <> value
   }
   title <> " - " <> artist <> " [" <> service <> "]" <> added_suffix
 }

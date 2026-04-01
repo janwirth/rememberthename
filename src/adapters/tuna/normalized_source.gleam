@@ -6,7 +6,7 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some, type Option}
+import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
 import gleam/result
 import gleam/string
 import source_id_normalizer
@@ -321,7 +321,7 @@ fn push_item_with_metadata(
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
   let #(items, metadata) = acc
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
-  let added_at = row_added_at(row)
+  let added_at = option_unwrap(row_added_at(row), "")
   case normalized == "" {
     True -> acc
     False ->

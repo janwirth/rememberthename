@@ -78,8 +78,8 @@ pub type UnifiedItem {
     source_id: String,
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
-    /// Best-effort timestamp for when this item was added to the source library.
-    added_at: Option(String),
+    /// When unknown, use `""`. Otherwise normalized UTC ISO-8601 (see added-at spec).
+    added_at: String,
   )
 }
 
@@ -108,7 +108,7 @@ pub fn track_item(
     title,
     artist,
     explicit_external_source_url,
-    None,
+    "",
   )
 }
 
@@ -118,7 +118,7 @@ pub fn track_item_with_added_at(
   title: String,
   artist: String,
   explicit_external_source_url: String,
-  added_at: Option(String),
+  added_at: String,
 ) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
   case source_id == "" {
@@ -126,6 +126,7 @@ pub fn track_item_with_added_at(
     False -> {
       let external_source_url =
         item_external_source_url(service, source_id, explicit_external_source_url)
+      let added = string.trim(added_at)
       Ok(UnifiedItem(
         id: service <> ":item:" <> source_id,
         title: title,
@@ -134,7 +135,7 @@ pub fn track_item_with_added_at(
         source_type: "item",
         source_id: source_id,
         external_source_url: external_source_url,
-        added_at: added_at,
+        added_at: added,
       ))
     }
   }

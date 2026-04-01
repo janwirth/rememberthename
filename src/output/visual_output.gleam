@@ -140,7 +140,7 @@ pub type TrackView {
     service: String,
     source_id: String,
     external_source_url: Option(String),
-    added_at: Option(String),
+    added_at: String,
     adapter_id: String,
     download: String,
     cover: String,

@@ -107,7 +107,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
-    added_at: None,
+    added_at: "",
   )
 }
 

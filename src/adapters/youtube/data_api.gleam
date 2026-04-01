@@ -3,7 +3,7 @@
 import adapters/core
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
 import gleam/result
 import gleam/string
 import gleetube
@@ -110,8 +110,9 @@ fn playlist_item_to_unified_item(
         vid -> {
           let #(title, artist, published) = snippet_fields(item)
           let added_at = case published {
-            None -> None
-            Some(raw) -> normalize_youtube_published_at(raw)
+            None -> ""
+            Some(raw) ->
+              option_unwrap(normalize_youtube_published_at(raw), "")
           }
           core.track_item_with_added_at(
             "youtube",
