@@ -4,6 +4,11 @@
 import gleam/list
 import simplifile
 
+/// Ordered roots to try for `.env` when cwd may be the package, a parent monorepo, or a sibling app.
+pub fn env_search_roots() -> List(String) {
+  ["", "../rememberthename", "rememberthename", "../../rememberthename"]
+}
+
 pub fn join_under(root: String, file: String) -> String {
   case root {
     "" -> file
@@ -28,13 +33,7 @@ fn dir_has_spotify_config(root: String) -> Bool {
 /// First directory (possibly `""` for cwd) that contains both `.env` and
 /// `.spotify_oauth_session.json`. Falls back to `""` if none match (legacy cwd-only behaviour).
 pub fn spotify_config_root() -> String {
-  let candidates = [
-    "",
-    "../rememberthename",
-    "rememberthename",
-    "../../rememberthename",
-  ]
-  case list.find(candidates, dir_has_spotify_config) {
+  case list.find(env_search_roots(), dir_has_spotify_config) {
     Ok(d) -> d
     Error(Nil) -> ""
   }
