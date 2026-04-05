@@ -23,7 +23,7 @@ pub fn main() {
       refresh_token: refresh_token,
       client_id: client_id,
       client_secret: client_secret,
-      redirect_uri: "https://127.0.0.1:8080/spotify-oauth-success",
+      redirect_uri: spotify_credentials.spotify_redirect_uri(".env"),
     )
 
   let config = spotify_live_expander.spotify_config(creds)

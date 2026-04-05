@@ -1,1 +1,7 @@
-{"access_token": "BQBbJDN9Rqaqnqy8OjgZDbcqZf0MCBG-Yfl4uI3VcE60eL4TB4UY5K6Db6NgJ2bghYewqZ13Xnpq4mEb46txeU6ZT7ekepA18596O0sRnmkbUzvHvORbWk09Cuw23b8Wukhc8eSM1fmSAJ_rJh2muA_4Ae4rOYXv2oLaNrOFcV73wLEsZVxc-MLMlsupAUm1POX0WJFcepZqYvYaGRRl2ikrG5FWDKmR-Ma9yRiabR9XGuBJjBbYhN-ENF63Jr7RkSjNJfHHOtnbQmGKRELGXRn90zAgCK-CKvPD-5WMNkTMsRi-gkk2ZXJ-WQiZbid2qogl9I4VmtNWNl50L2Ju6b4JWIFCvlyP0Wn2n5hGIhDs0ufj254Jz7tmDg", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "AQAoZMTvfB3eis_DBWSjoPSKdY3xYeSbxQKz0HSAyLtZ4KI8NHJFMPGtVQQdbPGA0UnVoXF2vPh9vukyHJyUPMNOYE320EiMN7QphuhiWU5DupgnsnmD4d88Ff4o-CRlcXk", "scope": "playlist-read-private playlist-read-collaborative"}
+{
+  "access_token": "BQCGx0P7e9c7HaQWAtg8ItFzXbgKlyN5RQFv2QB_N_eZ3wtDDJFLfn3oTzTBvWt05mntGj5zM4ivHc7i7zpnXo5NtFSF7VeZP0RWJ-xP5u4izkMHUtm8OReOvpinCBQtZhfxSDWmzrsfnMh5P8sV3mo4ySML01NTHueF8vef1eEMajxkAbF5i43PU5ftlBSN8oQTtZ-cxOh-hZBWudb-159wk06dPHhcOECebp_PGb0UjMf_RcMm3Kej5D-sMknzzg",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "AQAn0GLcwtpcx4HGhAnH0TK-DVbaL2-bhatVIywRyrScvAK79m8dQBs-ZdI1wFPgU-0NiMIF1AmK_xOibvF9gLcmXl2BrSYJHG9cxVC7h-hufOKLWx-1YNy9-VrPXvhNgos",
+  "scope": "playlist-read-private playlist-read-collaborative user-library-read"
+}

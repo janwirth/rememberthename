@@ -640,7 +640,7 @@ fn resolve_source(
       let session_file =
         config_paths.join_under(root, ".spotify_oauth_session.json")
       let env_file = config_paths.join_under(root, ".env")
-      let redirect = "https://127.0.0.1:8080/spotify-oauth-success"
+      let redirect = spotify_credentials.spotify_redirect_uri(env_file)
       let keys =
         spotify_credentials.with_spotify_from_disk(
           creds,

@@ -45,7 +45,7 @@ pub fn load_full_api_keys() -> api_keys.ApiKeys {
   let env_file = config_paths.join_under(root, ".env")
   let session_file =
     config_paths.join_under(root, ".spotify_oauth_session.json")
-  let redirect = "https://127.0.0.1:8080/spotify-oauth-success"
+  let redirect = spotify_credentials.spotify_redirect_uri(env_file)
   let base = load_api_keys()
   spotify_credentials.with_spotify_from_disk(
     base,

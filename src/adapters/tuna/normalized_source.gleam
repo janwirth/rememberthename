@@ -9,6 +9,7 @@ import gleam/list
 import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
 import gleam/result
 import gleam/string
+import gleam/time/timestamp
 import adapters/tuna/tuna_mirror_path
 import adapters/tuna/tracks_source_ids_query
 import source_id_normalizer
@@ -19,6 +20,45 @@ pub type ExportMetadata {
     cover_path: String,
     tags: String,
     imported_date: Int,
+  )
+}
+
+/// One Gel `Track` JSON object: all fields read once per row (no repeated `decode.run` per push).
+type TunaGelRow {
+  TunaGelRow(
+    normalized_title: String,
+    title: String,
+    artist: String,
+    file_path: String,
+    cover_path: String,
+    mirror_audio_md5: String,
+    mirror_audio_ext: String,
+    mirror_cover_md5: String,
+    mirror_cover_ext: String,
+    date_added: String,
+    rating: Int,
+    tags: List(dynamic.Dynamic),
+    created_on: String,
+    created_at: String,
+    source_created_at: String,
+    fishbone_created_at: String,
+    spotify_id: String,
+    youtube_id: String,
+    soundcloud_id: String,
+    bandcamp_track_id: String,
+    itunes_track_id: String,
+    itunes_persistent_track_id: String,
+    fishbone_source_platform: String,
+    fishbone_source_id: String,
+    external_source_url: String,
+    source_url: String,
+    spotify_url: String,
+    youtube_url: String,
+    soundcloud_url: String,
+    bandcamp_url: String,
+    file_url: String,
+    itunes_url: String,
+    fishbone_url: String,
   )
 }
 
@@ -40,7 +80,7 @@ pub fn resolve(
 }
 
 pub fn resolve_with_metadata(
-  depth: core.DepthMode,
+  _depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> ResolveWithMetadataResult {
@@ -52,22 +92,41 @@ pub fn resolve_with_metadata(
       <> " fetches="
       <> int.to_string(cache_fetches),
   )
-  on_debug(
-    "[tuna] postprocessing: JSON decode → unified items → depth limit",
-  )
+  let t_decode_start = wall_ms()
   let rows = decode_rows(payload)
-  let #(all_items, all_metadata) = rows_to_items_with_metadata(rows)
-  let items = apply_depth_limit(all_items, depth)
+  let t_after_decode = wall_ms()
   on_debug(
-    "[tuna] normalized_source_ids total="
-    <> int.to_string(list.length(all_items))
-    <> " returned="
-    <> int.to_string(list.length(items)),
+    "[tuna] postprocessing: JSON decode "
+      <> int.to_string(t_after_decode - t_decode_start)
+      <> "ms rows="
+      <> int.to_string(list.length(rows)),
+  )
+  let #(all_items, all_metadata) = rows_to_items_with_metadata(rows)
+  let t_after_items = wall_ms()
+  on_debug(
+    "[tuna] postprocessing: rows→items "
+      <> int.to_string(t_after_items - t_after_decode)
+      <> "ms unified_items="
+      <> int.to_string(list.length(all_items)),
+  )
+  on_debug(
+    "[tuna] normalized_source_ids items="
+      <> int.to_string(list.length(all_items)),
   )
   ResolveWithMetadataResult(
-    resolve_result: core.ResolveResult(items: items, lists: [], unresolved: []),
+    resolve_result: core.ResolveResult(
+      items: all_items,
+      lists: [],
+      unresolved: [],
+    ),
     export_metadata: all_metadata,
   )
+}
+
+fn wall_ms() -> Int {
+  let t = timestamp.system_time()
+  let #(s, ns) = timestamp.to_unix_seconds_and_nanoseconds(t)
+  s * 1000 + ns / 1_000_000
 }
 
 fn cached_tracks_source_ids_json(
@@ -128,22 +187,278 @@ fn sanitize_json_payload(payload: String) -> String {
   }
 }
 
+/// One `decode.run` per Gel row (all top-level fields in one composed decoder).
+fn empty_tuna_gel_row() -> TunaGelRow {
+  TunaGelRow(
+    normalized_title: "",
+    title: "",
+    artist: "",
+    file_path: "",
+    cover_path: "",
+    mirror_audio_md5: "",
+    mirror_audio_ext: "",
+    mirror_cover_md5: "",
+    mirror_cover_ext: "",
+    date_added: "",
+    rating: 0,
+    tags: [],
+    created_on: "",
+    created_at: "",
+    source_created_at: "",
+    fishbone_created_at: "",
+    spotify_id: "",
+    youtube_id: "",
+    soundcloud_id: "",
+    bandcamp_track_id: "",
+    itunes_track_id: "",
+    itunes_persistent_track_id: "",
+    fishbone_source_platform: "",
+    fishbone_source_id: "",
+    external_source_url: "",
+    source_url: "",
+    spotify_url: "",
+    youtube_url: "",
+    soundcloud_url: "",
+    bandcamp_url: "",
+    file_url: "",
+    itunes_url: "",
+    fishbone_url: "",
+  )
+}
+
+fn tuna_gel_row_decoder() -> decode.Decoder(TunaGelRow) {
+  use normalized_title <- decode.optional_field(
+    "normalized_title",
+    "",
+    decode.string,
+  )
+  use title <- decode.optional_field("title", "", decode.string)
+  use artist <- decode.optional_field("artist", "", decode.string)
+  use file_path <- decode.optional_field("file_path", "", decode.string)
+  use cover_path <- decode.optional_field("cover_path", "", decode.string)
+  use mirror_audio_md5 <- decode.optional_field(
+    "mirror_audio_md5",
+    "",
+    decode.string,
+  )
+  use mirror_audio_ext <- decode.optional_field(
+    "mirror_audio_ext",
+    "",
+    decode.string,
+  )
+  use mirror_cover_md5 <- decode.optional_field(
+    "mirror_cover_md5",
+    "",
+    decode.string,
+  )
+  use mirror_cover_ext <- decode.optional_field(
+    "mirror_cover_ext",
+    "",
+    decode.string,
+  )
+  use date_added <- decode.optional_field("date_added", "", decode.string)
+  use rating <- decode.optional_field("rating", 0, decode.int)
+  use tags <- decode.optional_field("tags", [], decode.list(decode.dynamic))
+  use created_on <- decode.optional_field("created_on", "", decode.string)
+  use created_at <- decode.optional_field("created_at", "", decode.string)
+  use fishbone_created_at <- decode.optional_field(
+    "fishbone_created_at",
+    "",
+    decode.string,
+  )
+  use spotify_id <- decode.optional_field("spotify_id", "", decode.string)
+  use youtube_id <- decode.optional_field("youtube_id", "", decode.string)
+  use soundcloud_id <- decode.optional_field("soundcloud_id", "", decode.string)
+  use bandcamp_track_id <- decode.optional_field(
+    "bandcamp_track_id",
+    "",
+    decode.string,
+  )
+  use itunes_track_id <- decode.optional_field(
+    "itunes_track_id",
+    "",
+    decode.string,
+  )
+  use itunes_persistent_track_id <- decode.optional_field(
+    "itunes_persistent_track_id",
+    "",
+    decode.string,
+  )
+  use fishbone_source_platform <- decode.optional_field(
+    "fishbone_source_platform",
+    "",
+    decode.string,
+  )
+  use fishbone_source_id <- decode.optional_field(
+    "fishbone_source_id",
+    "",
+    decode.string,
+  )
+  use external_source_url <- decode.optional_field(
+    "external_source_url",
+    "",
+    decode.string,
+  )
+  use source_url <- decode.optional_field("source_url", "", decode.string)
+  use spotify_url <- decode.optional_field("spotify_url", "", decode.string)
+  use youtube_url <- decode.optional_field("youtube_url", "", decode.string)
+  use soundcloud_url <- decode.optional_field(
+    "soundcloud_url",
+    "",
+    decode.string,
+  )
+  use bandcamp_url <- decode.optional_field("bandcamp_url", "", decode.string)
+  use file_url <- decode.optional_field("file_url", "", decode.string)
+  use itunes_url <- decode.optional_field("itunes_url", "", decode.string)
+  use fishbone_url <- decode.optional_field("fishbone_url", "", decode.string)
+  decode.then(
+    decode.optionally_at(["source", "created_at"], "", decode.string),
+    fn(source_created_at) {
+      decode.success(TunaGelRow(
+        normalized_title: normalized_title,
+        title: title,
+        artist: artist,
+        file_path: file_path,
+        cover_path: cover_path,
+        mirror_audio_md5: mirror_audio_md5,
+        mirror_audio_ext: mirror_audio_ext,
+        mirror_cover_md5: mirror_cover_md5,
+        mirror_cover_ext: mirror_cover_ext,
+        date_added: date_added,
+        rating: rating,
+        tags: tags,
+        created_on: created_on,
+        created_at: created_at,
+        source_created_at: source_created_at,
+        fishbone_created_at: fishbone_created_at,
+        spotify_id: spotify_id,
+        youtube_id: youtube_id,
+        soundcloud_id: soundcloud_id,
+        bandcamp_track_id: bandcamp_track_id,
+        itunes_track_id: itunes_track_id,
+        itunes_persistent_track_id: itunes_persistent_track_id,
+        fishbone_source_platform: fishbone_source_platform,
+        fishbone_source_id: fishbone_source_id,
+        external_source_url: external_source_url,
+        source_url: source_url,
+        spotify_url: spotify_url,
+        youtube_url: youtube_url,
+        soundcloud_url: soundcloud_url,
+        bandcamp_url: bandcamp_url,
+        file_url: file_url,
+        itunes_url: itunes_url,
+        fishbone_url: fishbone_url,
+      ))
+    },
+  )
+}
+
+fn decode_tuna_gel_row(d: dynamic.Dynamic) -> TunaGelRow {
+  case decode.run(d, tuna_gel_row_decoder()) {
+    Ok(row) -> row
+    Error(_) -> empty_tuna_gel_row()
+  }
+}
+
+fn gel_preferred_title(row: TunaGelRow) -> String {
+  case row.normalized_title != "" {
+    True -> row.normalized_title
+    False -> row.title
+  }
+}
+
+fn gel_audio_path(row: TunaGelRow) -> String {
+  prefer_hashed_path(row.mirror_audio_md5, row.mirror_audio_ext, row.file_path)
+}
+
+fn gel_cover_path(row: TunaGelRow) -> String {
+  prefer_hashed_path(row.mirror_cover_md5, row.mirror_cover_ext, row.cover_path)
+}
+
+fn tuna_tag_label_decoder() -> decode.Decoder(#(String, String)) {
+  use label <- decode.optional_field("label", "", decode.string)
+  use emoji <- decode.optional_field("emoji", "", decode.string)
+  decode.success(#(label, emoji))
+}
+
+fn row_tag_labels_from_tags(tags: List(dynamic.Dynamic)) -> List(String) {
+  list.fold(tags, [], fn(acc, tag) {
+    case decode.run(tag, tuna_tag_label_decoder()) {
+      Ok(#(label, emoji)) ->
+        case label != "" {
+          True -> [encode_tag_token(label, emoji), ..acc]
+          False -> acc
+        }
+      Error(_) -> acc
+    }
+  })
+  |> list.reverse
+}
+
+fn gel_tags_export_string(row: TunaGelRow) -> String {
+  normalize_tags_with_rating(row_tag_labels_from_tags(row.tags), row.rating)
+}
+
+fn gel_imported_date(row: TunaGelRow) -> Int {
+  compact_datetime_to_int(row.date_added)
+}
+
+fn gel_added_at_option(row: TunaGelRow) -> Option(String) {
+  first_non_empty_string([
+    row.created_on,
+    row.created_at,
+    row.source_created_at,
+    row.fishbone_created_at,
+    row.date_added,
+  ])
+  |> normalize_added_at_value
+}
+
+fn gel_external_url(row: TunaGelRow, service: String) -> String {
+  let primary = string.trim(row.external_source_url)
+  case primary != "" {
+    True -> primary
+    False -> {
+      let legacy = string.trim(row.source_url)
+      case legacy != "" {
+        True -> legacy
+        False -> {
+          let keyed = case service {
+            "spotify" -> row.spotify_url
+            "youtube" -> row.youtube_url
+            "soundcloud" -> row.soundcloud_url
+            "bandcamp" -> row.bandcamp_url
+            "file" -> row.file_url
+            "itunes" -> row.itunes_url
+            "fishbone" -> row.fishbone_url
+            _ -> ""
+          }
+          string.trim(keyed)
+        }
+      }
+    }
+  }
+}
+
 fn rows_to_items_with_metadata(
   rows: List(dynamic.Dynamic),
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
-  list.fold(rows, #([], dict.new()), fn(acc, row) {
-    let preferred_title = row_preferred_title(row)
-    let artist = row_artist(row)
-    let file_path = row_audio_path(row)
-    let cover_path = row_cover_path(row)
-    let tags = row_tags_with_rating(row)
-    let imported_date = row_compact_imported_date(row)
+  list.fold(rows, #([], dict.new()), fn(acc, row_dyn) {
+    let row = decode_tuna_gel_row(row_dyn)
+    let preferred_title = gel_preferred_title(row)
+    let artist = row.artist
+    let file_path = gel_audio_path(row)
+    let cover_path = gel_cover_path(row)
+    let tags = gel_tags_export_string(row)
+    let imported_date = gel_imported_date(row)
+    let added_at = option_unwrap(gel_added_at_option(row), "")
     let acc =
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "spotify",
-        decode_path_or(row, ["spotify_id"], "", decode.string),
+        row.spotify_id,
         preferred_title,
         artist,
         file_path,
@@ -155,8 +470,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "youtube",
-        decode_path_or(row, ["youtube_id"], "", decode.string),
+        row.youtube_id,
         preferred_title,
         artist,
         file_path,
@@ -168,8 +484,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "soundcloud",
-        decode_path_or(row, ["soundcloud_id"], "", decode.string),
+        row.soundcloud_id,
         preferred_title,
         artist,
         file_path,
@@ -181,8 +498,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "bandcamp",
-        decode_path_or(row, ["bandcamp_track_id"], "", decode.string),
+        row.bandcamp_track_id,
         preferred_title,
         artist,
         file_path,
@@ -194,8 +512,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "file",
-        decode_path_or(row, ["file_path"], "", decode.string),
+        row.file_path,
         preferred_title,
         artist,
         file_path,
@@ -207,8 +526,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "itunes",
-        decode_path_or(row, ["itunes_track_id"], "", decode.string),
+        row.itunes_track_id,
         preferred_title,
         artist,
         file_path,
@@ -220,8 +540,9 @@ fn rows_to_items_with_metadata(
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         "itunes",
-        decode_path_or(row, ["itunes_persistent_track_id"], "", decode.string),
+        row.itunes_persistent_track_id,
         preferred_title,
         artist,
         file_path,
@@ -232,6 +553,7 @@ fn rows_to_items_with_metadata(
     push_fishbone_item_with_metadata(
       acc,
       row,
+      added_at,
       preferred_title,
       artist,
       file_path,
@@ -252,7 +574,8 @@ fn map_items_reverse(
 
 fn push_fishbone_item_with_metadata(
   acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
-  row: dynamic.Dynamic,
+  row: TunaGelRow,
+  added_at: String,
   preferred_title: String,
   artist: String,
   file_path: String,
@@ -260,19 +583,16 @@ fn push_fishbone_item_with_metadata(
   tags: String,
   imported_date: Int,
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
-  let fishbone_platform =
-    decode_path_or(row, ["fishbone_source_platform"], "", decode.string)
-  let fishbone_source_id =
-    decode_path_or(row, ["fishbone_source_id"], "", decode.string)
-  let service = fishbone_service_for_platform(fishbone_platform)
-  case service == "" || fishbone_source_id == "" {
+  let service = fishbone_service_for_platform(row.fishbone_source_platform)
+  case service == "" || row.fishbone_source_id == "" {
     True -> acc
     False ->
       push_item_with_metadata(
         acc,
         row,
+        added_at,
         service,
-        fishbone_source_id,
+        row.fishbone_source_id,
         preferred_title,
         artist,
         file_path,
@@ -315,29 +635,10 @@ fn fishbone_service_for_platform(platform: String) -> String {
   }
 }
 
-fn row_explicit_external_source_url(row: dynamic.Dynamic, service: String) -> String {
-  let primary =
-    decode_path_or(row, ["external_source_url"], "", decode.string)
-    |> string.trim
-  case primary != "" {
-    True -> primary
-    False -> {
-      let legacy = decode_path_or(row, ["source_url"], "", decode.string)
-      |> string.trim
-      case legacy != "" {
-        True -> legacy
-        False -> {
-          let keyed = decode_path_or(row, [service <> "_url"], "", decode.string)
-          string.trim(keyed)
-        }
-      }
-    }
-  }
-}
-
 fn push_item_with_metadata(
   acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
-  row: dynamic.Dynamic,
+  row: TunaGelRow,
+  added_at: String,
   service: String,
   raw_source_id: String,
   preferred_title: String,
@@ -349,7 +650,6 @@ fn push_item_with_metadata(
 ) -> #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)) {
   let #(items, metadata) = acc
   let normalized = source_id_normalizer.normalize(service, raw_source_id)
-  let added_at = option_unwrap(row_added_at(row), "")
   case normalized == "" {
     True -> acc
     False ->
@@ -359,7 +659,7 @@ fn push_item_with_metadata(
           raw_source_id,
           choose_title(preferred_title, normalized),
           choose_artist(artist),
-          row_explicit_external_source_url(row, service),
+          gel_external_url(row, service),
           added_at,
         )
       {
@@ -376,24 +676,6 @@ fn push_item_with_metadata(
         Error(_) -> acc
       }
   }
-}
-
-fn row_added_at(row: dynamic.Dynamic) -> Option(String) {
-  // Canonical Tuna field: `default::Dated.created_on` (see `gel_schema_tuna_main.sdl`).
-  let created_on = decode_path_or(row, ["created_on"], "", decode.string)
-  let direct = decode_path_or(row, ["created_at"], "", decode.string)
-  let source_created = decode_path_or(row, ["source", "created_at"], "", decode.string)
-  let fishbone_created =
-    decode_path_or(row, ["fishbone_created_at"], "", decode.string)
-  let date_added = decode_path_or(row, ["date_added"], "", decode.string)
-  first_non_empty_string([
-    created_on,
-    direct,
-    source_created,
-    fishbone_created,
-    date_added,
-  ])
-  |> normalize_added_at_value
 }
 
 fn first_non_empty_string(values: List(String)) -> String {
@@ -488,20 +770,6 @@ fn slice(value: String, at_index: Int, length: Int) -> String {
   string.slice(value, at_index: at_index, length: length)
 }
 
-fn row_audio_path(row: dynamic.Dynamic) -> String {
-  let fallback = decode_path_or(row, ["file_path"], "", decode.string)
-  let mirror_md5 = decode_path_or(row, ["mirror_audio_md5"], "", decode.string)
-  let mirror_ext = decode_path_or(row, ["mirror_audio_ext"], "", decode.string)
-  prefer_hashed_path(mirror_md5, mirror_ext, fallback)
-}
-
-fn row_cover_path(row: dynamic.Dynamic) -> String {
-  let fallback = decode_path_or(row, ["cover_path"], "", decode.string)
-  let mirror_md5 = decode_path_or(row, ["mirror_cover_md5"], "", decode.string)
-  let mirror_ext = decode_path_or(row, ["mirror_cover_ext"], "", decode.string)
-  prefer_hashed_path(mirror_md5, mirror_ext, fallback)
-}
-
 pub fn prefer_hashed_path(md5: String, ext: String, fallback_path: String) -> String {
   let hashed = tuna_mirror_path.from_md5_source(md5, ext)
   case hashed == "" {
@@ -512,28 +780,6 @@ pub fn prefer_hashed_path(md5: String, ext: String, fallback_path: String) -> St
 
 fn metadata_key(service: String, source_id: String) -> String {
   service <> ":" <> source_id
-}
-
-fn row_compact_imported_date(row: dynamic.Dynamic) -> Int {
-  decode_path_or(row, ["date_added"], "", decode.string)
-  |> compact_datetime_to_int
-}
-
-fn row_tags_with_rating(row: dynamic.Dynamic) -> String {
-  let rating = decode_path_or(row, ["rating"], 0, decode.int)
-  normalize_tags_with_rating(row_tag_labels(row), rating)
-}
-
-fn row_tag_labels(row: dynamic.Dynamic) -> List(String) {
-  decode_path_or(row, ["tags"], [], decode.list(of: decode.dynamic))
-  |> list.fold([], fn(acc, tag) {
-    let label = decode_path_or(tag, ["label"], "", decode.string)
-    let emoji = decode_path_or(tag, ["emoji"], "", decode.string)
-    case label != "" {
-      True -> list.append(acc, [encode_tag_token(label, emoji)])
-      False -> acc
-    }
-  })
 }
 
 fn normalize_tags_with_rating(tags: List(String), rating: Int) -> String {
@@ -599,19 +845,6 @@ fn compact_datetime_to_int(value: String) -> Int {
   }
 }
 
-fn row_preferred_title(row: dynamic.Dynamic) -> String {
-  let normalized_title =
-    decode_path_or(row, ["normalized_title"], "", decode.string)
-  case normalized_title != "" {
-    True -> normalized_title
-    False -> decode_path_or(row, ["title"], "", decode.string)
-  }
-}
-
-fn row_artist(row: dynamic.Dynamic) -> String {
-  decode_path_or(row, ["artist"], "", decode.string)
-}
-
 fn choose_title(preferred_title: String, fallback: String) -> String {
   case preferred_title != "" {
     True -> preferred_title
@@ -621,26 +854,4 @@ fn choose_title(preferred_title: String, fallback: String) -> String {
 
 fn choose_artist(artist: String) -> String {
   artist
-}
-
-fn apply_depth_limit(
-  items: List(core.UnifiedItem),
-  depth: core.DepthMode,
-) -> List(core.UnifiedItem) {
-  case depth {
-    core.Depth1 -> list.take(items, 5)
-    core.Depth2 -> list.take(items, 10)
-    core.Depth3 -> list.take(items, 20)
-    _ -> items
-  }
-}
-
-fn decode_path_or(
-  data: dynamic.Dynamic,
-  path: List(String),
-  fallback: a,
-  decoder: decode.Decoder(a),
-) -> a {
-  decode.run(data, decode.optionally_at(path, fallback, decoder))
-  |> result.unwrap(fallback)
 }

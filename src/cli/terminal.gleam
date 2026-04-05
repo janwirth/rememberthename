@@ -14,6 +14,12 @@ pub fn print_usage() {
   io.println(
     "  cli shallow [--validate] [source]",
   )
+  io.println(
+    "  cli spotify-oauth-start",
+  )
+  io.println(
+    "  cli spotify-oauth-exchange <code>",
+  )
   io.println("")
   io.println(color("Examples:", ansi_bright_cyan()))
   io.println(
@@ -30,6 +36,12 @@ pub fn print_usage() {
   )
   io.println(
     "  gleam run -m cli -- shallow                       # first page only for source 1",
+  )
+  io.println(
+    "  gleam run -m cli -- spotify-oauth-start           # print Spotify login URL, exit",
+  )
+  io.println(
+    "  gleam run -m cli -- spotify-oauth-exchange \"…\"   # paste code from redirect URL → session file",
   )
   io.println("")
   io.println(color("Tip:", ansi_bright_cyan()))

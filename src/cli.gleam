@@ -1,5 +1,6 @@
 import cli/fetch
 import cli/runtime
+import cli/spotify_oauth
 import cli/terminal
 import gleam/int
 import gleam/io
@@ -21,6 +22,8 @@ pub fn main() {
 pub fn run(args: List(String)) {
   case args {
     [] -> easy_start()
+    ["spotify-oauth-start", ..] -> spotify_oauth.oauth_start()
+    ["spotify-oauth-exchange", ..rest] -> spotify_oauth.oauth_exchange(rest)
     ["shallow", ..rest] -> fetch.fetch_source_shallow_simple(rest)
     ["fetch", source_selector, ..rest] ->
       fetch.fetch_source_simple(source_selector, rest)
