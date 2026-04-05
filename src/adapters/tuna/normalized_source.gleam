@@ -226,93 +226,111 @@ fn empty_tuna_gel_row() -> TunaGelRow {
   )
 }
 
+/// Gel often omits fields, uses `null`, or uses non-JSON-string types; strict decoders
+/// would accumulate errors and fail the whole row (yielding 0 items).
+fn tuna_lenient_string() -> decode.Decoder(String) {
+  decode.one_of(decode.string, or: [decode.success("")])
+}
+
+fn tuna_lenient_int() -> decode.Decoder(Int) {
+  decode.one_of(decode.int, or: [decode.success(0)])
+}
+
+fn tuna_lenient_tags() -> decode.Decoder(List(dynamic.Dynamic)) {
+  decode.one_of(decode.list(decode.dynamic), or: [decode.success([])])
+}
+
 fn tuna_gel_row_decoder() -> decode.Decoder(TunaGelRow) {
   use normalized_title <- decode.optional_field(
     "normalized_title",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
-  use title <- decode.optional_field("title", "", decode.string)
-  use artist <- decode.optional_field("artist", "", decode.string)
-  use file_path <- decode.optional_field("file_path", "", decode.string)
-  use cover_path <- decode.optional_field("cover_path", "", decode.string)
+  use title <- decode.optional_field("title", "", tuna_lenient_string())
+  use artist <- decode.optional_field("artist", "", tuna_lenient_string())
+  use file_path <- decode.optional_field("file_path", "", tuna_lenient_string())
+  use cover_path <- decode.optional_field("cover_path", "", tuna_lenient_string())
   use mirror_audio_md5 <- decode.optional_field(
     "mirror_audio_md5",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use mirror_audio_ext <- decode.optional_field(
     "mirror_audio_ext",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use mirror_cover_md5 <- decode.optional_field(
     "mirror_cover_md5",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use mirror_cover_ext <- decode.optional_field(
     "mirror_cover_ext",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
-  use date_added <- decode.optional_field("date_added", "", decode.string)
-  use rating <- decode.optional_field("rating", 0, decode.int)
-  use tags <- decode.optional_field("tags", [], decode.list(decode.dynamic))
-  use created_on <- decode.optional_field("created_on", "", decode.string)
-  use created_at <- decode.optional_field("created_at", "", decode.string)
+  use date_added <- decode.optional_field("date_added", "", tuna_lenient_string())
+  use rating <- decode.optional_field("rating", 0, tuna_lenient_int())
+  use tags <- decode.optional_field("tags", [], tuna_lenient_tags())
+  use created_on <- decode.optional_field("created_on", "", tuna_lenient_string())
+  use created_at <- decode.optional_field("created_at", "", tuna_lenient_string())
   use fishbone_created_at <- decode.optional_field(
     "fishbone_created_at",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
-  use spotify_id <- decode.optional_field("spotify_id", "", decode.string)
-  use youtube_id <- decode.optional_field("youtube_id", "", decode.string)
-  use soundcloud_id <- decode.optional_field("soundcloud_id", "", decode.string)
+  use spotify_id <- decode.optional_field("spotify_id", "", tuna_lenient_string())
+  use youtube_id <- decode.optional_field("youtube_id", "", tuna_lenient_string())
+  use soundcloud_id <- decode.optional_field(
+    "soundcloud_id",
+    "",
+    tuna_lenient_string(),
+  )
   use bandcamp_track_id <- decode.optional_field(
     "bandcamp_track_id",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use itunes_track_id <- decode.optional_field(
     "itunes_track_id",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use itunes_persistent_track_id <- decode.optional_field(
     "itunes_persistent_track_id",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use fishbone_source_platform <- decode.optional_field(
     "fishbone_source_platform",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use fishbone_source_id <- decode.optional_field(
     "fishbone_source_id",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
   use external_source_url <- decode.optional_field(
     "external_source_url",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
-  use source_url <- decode.optional_field("source_url", "", decode.string)
-  use spotify_url <- decode.optional_field("spotify_url", "", decode.string)
-  use youtube_url <- decode.optional_field("youtube_url", "", decode.string)
+  use source_url <- decode.optional_field("source_url", "", tuna_lenient_string())
+  use spotify_url <- decode.optional_field("spotify_url", "", tuna_lenient_string())
+  use youtube_url <- decode.optional_field("youtube_url", "", tuna_lenient_string())
   use soundcloud_url <- decode.optional_field(
     "soundcloud_url",
     "",
-    decode.string,
+    tuna_lenient_string(),
   )
-  use bandcamp_url <- decode.optional_field("bandcamp_url", "", decode.string)
-  use file_url <- decode.optional_field("file_url", "", decode.string)
-  use itunes_url <- decode.optional_field("itunes_url", "", decode.string)
-  use fishbone_url <- decode.optional_field("fishbone_url", "", decode.string)
+  use bandcamp_url <- decode.optional_field("bandcamp_url", "", tuna_lenient_string())
+  use file_url <- decode.optional_field("file_url", "", tuna_lenient_string())
+  use itunes_url <- decode.optional_field("itunes_url", "", tuna_lenient_string())
+  use fishbone_url <- decode.optional_field("fishbone_url", "", tuna_lenient_string())
   decode.then(
-    decode.optionally_at(["source", "created_at"], "", decode.string),
+    decode.optionally_at(["source", "created_at"], "", tuna_lenient_string()),
     fn(source_created_at) {
       decode.success(TunaGelRow(
         normalized_title: normalized_title,
@@ -376,8 +394,8 @@ fn gel_cover_path(row: TunaGelRow) -> String {
 }
 
 fn tuna_tag_label_decoder() -> decode.Decoder(#(String, String)) {
-  use label <- decode.optional_field("label", "", decode.string)
-  use emoji <- decode.optional_field("emoji", "", decode.string)
+  use label <- decode.optional_field("label", "", tuna_lenient_string())
+  use emoji <- decode.optional_field("emoji", "", tuna_lenient_string())
   decode.success(#(label, emoji))
 }
 
