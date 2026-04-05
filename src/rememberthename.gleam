@@ -141,7 +141,7 @@ fn track_view_to_row(view: visual_output.TrackView) -> FetchTrackRow {
 /// + Liked songs · user · batch 850 · +50 tracks · total 850 tracks · 1 lists · cache hits=2 fetches=1
 ///
 /// Done. items=120 lists=4 unresolved=0 files=80
-/// JSON written: output/cli_result_tuna_depth_full.json
+/// JSON written: output/tuna_full.json
 /// Export duration: 12ms
 /// Validation: PASS
 /// Resolve duration: 45000ms

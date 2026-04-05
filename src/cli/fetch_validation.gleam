@@ -1,20 +1,21 @@
-import adapters/api_keys
 import adapters/cache
 import adapters/core
-import cli/resolve_adapter
 import cli/terminal
+import fetch_ops
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/string
 import output/visual_output
+import source_root
 import source_specs
 
 /// Resolve snapshots at depth-1, depth-2, and full depth for post-fetch validation.
 pub type SourceRun {
   SourceRun(
-    spec: source_specs.SourceSpec,
+    key: String,
+    name: String,
+    assert_spec: source_specs.SourceAssertSpec,
     depth_1: core.ResolveResult,
     depth_2: core.ResolveResult,
     depth_all: core.ResolveResult,
@@ -28,7 +29,8 @@ pub fn merge_imported_dates(
   acc: dict.Dict(String, Int),
 ) -> dict.Dict(String, Int) {
   list.fold(source_tracks, acc, fn(acc_dates, track) {
-    let visual_output.TrackView(_, _, service, source_id, _, _, _, _, _, _) = track
+    let visual_output.TrackView(_, _, service, source_id, _, _, _, _, _, _) =
+      track
     let key = service <> ":" <> source_id
     case dict.get(source_imported_dates, key) {
       Ok(imported_date) -> dict.insert(acc_dates, key, imported_date)
@@ -52,11 +54,11 @@ pub fn validation_plan_label(depth: core.DepthMode) -> String {
 
 /// Assert thresholds and cache mode for the validation step.
 pub fn validation_params_detail(
-  source: source_specs.SourceSpec,
+  key: String,
+  assert_spec: source_specs.SourceAssertSpec,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
 ) -> String {
-  let source_specs.SourceSpec(key, _, _, _, assert_spec) = source
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
@@ -65,7 +67,7 @@ pub fn validation_params_detail(
     anchor_fragments,
     required_full_fragments,
   ) = assert_spec
-  let cache_txt = resolve_adapter.cache_mode_text(cache_mode)
+  let cache_txt = cache_mode_text(cache_mode)
   case depth == core.All {
     True ->
       "cache="
@@ -111,13 +113,15 @@ pub fn validation_params_detail(
 
 /// When `always_validate`, runs validation and reports PASS/FAIL via `on_update`.
 pub fn print_runtime_validation(
-  source: source_specs.SourceSpec,
+  key: String,
+  name: String,
+  assert_spec: source_specs.SourceAssertSpec,
+  root: source_root.SourceRoot,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
   always_validate: Bool,
   on_update: fn(String) -> Nil,
-  creds: api_keys.ApiKeys,
 ) {
   case always_validate {
     False -> Nil
@@ -126,15 +130,17 @@ pub fn print_runtime_validation(
         core.All -> {
           let run =
             validation_run_for_depth(
-              source,
+              key,
+              name,
+              assert_spec,
+              root,
               depth,
               cache_mode,
               depth_result,
-              creds,
             )
           validate_source_run(run)
         }
-        _ -> validate_single_depth_result(source, depth, depth_result)
+        _ -> validate_single_depth_result(key, name, assert_spec, depth, depth_result)
       }
       on_update("")
       case validation_errors == [] {
@@ -154,11 +160,12 @@ pub fn print_runtime_validation(
 }
 
 fn validate_single_depth_result(
-  source: source_specs.SourceSpec,
+  key: String,
+  name: String,
+  assert_spec: source_specs.SourceAssertSpec,
   depth: core.DepthMode,
   depth_result: core.ResolveResult,
 ) -> List(String) {
-  let source_specs.SourceSpec(key, name, _, _, assert_spec) = source
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     _,
@@ -200,15 +207,14 @@ fn validate_single_depth_result(
 
 /// Builds a `SourceRun`: current `depth_result` plus sibling resolves (tuna reuses full result slices).
 pub fn validation_run_for_depth(
-  source: source_specs.SourceSpec,
+  key: String,
+  name: String,
+  assert_spec: source_specs.SourceAssertSpec,
+  root: source_root.SourceRoot,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
   depth_result: core.ResolveResult,
-  creds: api_keys.ApiKeys,
 ) -> SourceRun {
-  let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
-    source
-  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   let derive_tuna_shallow = fn(all_result: core.ResolveResult, wanted_depth: core.DepthMode) {
     let core.ResolveResult(all_items, _, _) = all_result
     let depth_items = case wanted_depth {
@@ -219,59 +225,55 @@ pub fn validation_run_for_depth(
     }
     core.ResolveResult(items: depth_items, lists: [], unresolved: [])
   }
-  let tuna_all_result = case key == "tuna" && depth == core.All {
-    True -> Some(depth_result)
-    False -> None
-  }
+
   let resolve_depth = fn(mode: core.DepthMode) {
-    case tuna_all_result {
-      Some(all_result) -> derive_tuna_shallow(all_result, mode)
-      None ->
-        case
-          resolve_adapter.resolve_source(
-            key,
-            entry_point,
-            mode,
-            source_limit,
-            timing_spec,
-            cache_mode,
-            fn(_line) { Nil },
-            fn(_progress) { Nil },
-            creds,
-          )
-        {
-          Ok(r) -> r
+    case key == "tuna" && depth == core.All {
+      True -> derive_tuna_shallow(depth_result, mode)
+      False -> {
+        let shallow_root = source_root.with_depth(root, mode)
+        case fetch_ops.fetch(shallow_root, cache_mode, fn(_) { Nil }) {
+          Ok(r) ->
+            core.ResolveResult(items: r.items, lists: r.lists, unresolved: r.unresolved)
           Error(_) ->
             core.ResolveResult(items: [], lists: [], unresolved: [])
         }
+      }
     }
   }
 
   case depth {
     core.Depth1 ->
       SourceRun(
-        source,
+        key,
+        name,
+        assert_spec,
         depth_result,
         resolve_depth(core.Depth2),
         resolve_depth(core.All),
       )
     core.Depth2 ->
       SourceRun(
-        source,
+        key,
+        name,
+        assert_spec,
         resolve_depth(core.Depth1),
         depth_result,
         resolve_depth(core.All),
       )
     core.All ->
       SourceRun(
-        source,
+        key,
+        name,
+        assert_spec,
         resolve_depth(core.Depth1),
         resolve_depth(core.Depth2),
         depth_result,
       )
     _ ->
       SourceRun(
-        source,
+        key,
+        name,
+        assert_spec,
         resolve_depth(core.Depth1),
         resolve_depth(core.Depth2),
         resolve_depth(core.All),
@@ -281,8 +283,7 @@ pub fn validation_run_for_depth(
 
 /// Asserts counts, monotonicity, list/unresolved stability, anchors, limits; returns human-readable errors.
 pub fn validate_source_run(run: SourceRun) -> List(String) {
-  let SourceRun(spec, depth_1, depth_2, depth_all) = run
-  let source_specs.SourceSpec(key, name, _, _, assert_spec) = spec
+  let SourceRun(key, name, assert_spec, depth_1, depth_2, depth_all) = run
   let source_specs.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
@@ -307,7 +308,8 @@ pub fn validate_source_run(run: SourceRun) -> List(String) {
   let first_ids = first_item_ids(depth_1, first_items_to_preserve)
   let first_items_ok = case first_items_to_preserve == 0 {
     True -> True
-    False -> first_ids != [] && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
+    False ->
+      first_ids != [] && list.all(first_ids, fn(id) { has_item_id(depth_all, id) })
   }
   let anchors_shallow_ok =
     list.all(anchor_fragments, fn(fragment) {
@@ -424,4 +426,13 @@ fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool 
     let core.UnifiedItem(_, title, _, _, _, _, _, _) = item
     string.contains(string.lowercase(title), wanted_lc)
   })
+}
+
+fn cache_mode_text(value: cache.CacheMode) -> String {
+  case value {
+    cache.CacheUpsert -> "upsert"
+    cache.CacheIgnore -> "ignore"
+    cache.CacheOverride -> "override"
+    cache.CacheReadOnly -> "readonly"
+  }
 }

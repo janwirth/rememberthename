@@ -1,11 +1,9 @@
 import adapters/cache
 import adapters/core
 import cli/fetch_orchestration
-import gleam/dict.{type Dict}
 import gleam/io
 import gleam/list
 import output/visual_output
-import source_specs
 
 /// Parses optional flags after `fetch <source>`, then runs the fetch.
 pub fn fetch_source_simple(selector: String, args: List(String)) {
@@ -175,23 +173,3 @@ pub fn fetch_all_sources(
   fetch_orchestration.fetch_all_sources(cache_mode, always_validate, on_update)
 }
 
-pub fn run_fetch(
-  source: source_specs.SourceSpec,
-  source_index: Int,
-  depth: core.DepthMode,
-  depth_label: String,
-  cache_mode: cache.CacheMode,
-  always_validate: Bool,
-  on_update: fn(String) -> Nil,
-) -> #(List(visual_output.TrackView), Dict(String, Int)) {
-  fetch_orchestration.run_fetch(
-    source,
-    source_index,
-    depth,
-    depth_label,
-    cache_mode,
-    always_validate,
-    True,
-    on_update,
-  )
-}

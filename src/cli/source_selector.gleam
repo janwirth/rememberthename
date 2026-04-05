@@ -1,100 +1,10 @@
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
+import source_root
 import source_specs
-
-/// 1-based linear search: returns the spec at position `wanted` or error.
-pub fn source_at(
-  sources: List(source_specs.SourceSpec),
-  wanted: Int,
-  current: Int,
-) -> Result(source_specs.SourceSpec, Nil) {
-  case sources {
-    [] -> Error(Nil)
-    [source, ..rest] ->
-      case current == wanted {
-        True -> Ok(source)
-        False -> source_at(rest, wanted, current + 1)
-      }
-  }
-}
-
-/// Resolves `wanted` as numeric index, bare provider key, or `key-rank` alias.
-pub fn source_by_selector(
-  sources: List(source_specs.SourceSpec),
-  wanted: String,
-) -> Result(#(Int, source_specs.SourceSpec), Nil) {
-  let maybe_index = case int.parse(wanted) {
-    Ok(index) -> Some(index)
-    Error(_) -> None
-  }
-  case maybe_index {
-    Some(index) ->
-      case source_at(sources, index, 1) {
-        Ok(source) -> Ok(#(index, source))
-        Error(_) -> Error(Nil)
-      }
-    None ->
-      case source_by_key_with_index(sources, wanted, 1) {
-        Ok(indexed) -> Ok(indexed)
-        Error(_) ->
-          case parse_provider_alias(wanted) {
-            Ok(#(provider_key, rank)) ->
-              source_by_provider_rank(sources, provider_key, rank, 1, 0)
-            Error(_) -> Error(Nil)
-          }
-      }
-  }
-}
-
-/// First list entry whose `key` equals `wanted`, with its 1-based index.
-fn source_by_key_with_index(
-  sources: List(source_specs.SourceSpec),
-  wanted: String,
-  current: Int,
-) -> Result(#(Int, source_specs.SourceSpec), Nil) {
-  case sources {
-    [] -> Error(Nil)
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(key, _, _, _, _) = source
-      case key == wanted {
-        True -> Ok(#(current, source))
-        False -> source_by_key_with_index(rest, wanted, current + 1)
-      }
-    }
-  }
-}
-
-/// Picks the `wanted_rank`-th source among those sharing `wanted_key` (in list order).
-fn source_by_provider_rank(
-  sources: List(source_specs.SourceSpec),
-  wanted_key: String,
-  wanted_rank: Int,
-  current: Int,
-  matched_rank: Int,
-) -> Result(#(Int, source_specs.SourceSpec), Nil) {
-  case sources {
-    [] -> Error(Nil)
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(key, _, _, _, _) = source
-      case key == wanted_key && matched_rank + 1 == wanted_rank {
-        True -> Ok(#(current, source))
-        False ->
-          source_by_provider_rank(
-            rest,
-            wanted_key,
-            wanted_rank,
-            current + 1,
-            case key == wanted_key {
-              True -> matched_rank + 1
-              False -> matched_rank
-            },
-          )
-      }
-    }
-  }
-}
 
 /// Parses strings like `spotify-2` into provider key and 1-based duplicate rank.
 fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
@@ -145,5 +55,85 @@ pub fn provider_rank_for_index(
           )
       }
     }
+  }
+}
+
+/// Resolves `wanted` selector against an ordered registry list, returning `#(index, key, root, assert_spec)`.
+///
+/// Supports numeric index, bare key, and `key-rank` alias (`spotify-2`).
+pub fn triple_by_selector(
+  triples: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
+  wanted: String,
+) -> Result(
+  #(Int, String, source_root.SourceRoot, source_specs.SourceAssertSpec),
+  Nil,
+) {
+  let keys = list.map(triples, fn(t) { t.0 })
+  let maybe_index = case int.parse(wanted) {
+    Ok(i) -> Some(i)
+    Error(_) -> None
+  }
+  let resolve_index = fn(index) {
+    case list.drop(triples, index - 1) {
+      [#(key, root, assert_spec), ..] -> Ok(#(index, key, root, assert_spec))
+      [] -> Error(Nil)
+    }
+  }
+  case maybe_index {
+    Some(index) -> resolve_index(index)
+    None ->
+      case key_index_in_list(keys, wanted, 1) {
+        Ok(index) -> resolve_index(index)
+        Error(_) ->
+          case parse_provider_alias(wanted) {
+            Ok(#(provider_key, rank)) ->
+              key_rank_index(keys, provider_key, rank, 1, 0)
+              |> result.map(resolve_index)
+              |> result.flatten
+            Error(_) -> Error(Nil)
+          }
+      }
+  }
+}
+
+fn key_index_in_list(
+  keys: List(String),
+  wanted: String,
+  current: Int,
+) -> Result(Int, Nil) {
+  case keys {
+    [] -> Error(Nil)
+    [key, ..rest] ->
+      case key == wanted {
+        True -> Ok(current)
+        False -> key_index_in_list(rest, wanted, current + 1)
+      }
+  }
+}
+
+fn key_rank_index(
+  keys: List(String),
+  wanted_key: String,
+  wanted_rank: Int,
+  current: Int,
+  matched_rank: Int,
+) -> Result(Int, Nil) {
+  case keys {
+    [] -> Error(Nil)
+    [key, ..rest] ->
+      case key == wanted_key && matched_rank + 1 == wanted_rank {
+        True -> Ok(current)
+        False ->
+          key_rank_index(
+            rest,
+            wanted_key,
+            wanted_rank,
+            current + 1,
+            case key == wanted_key {
+              True -> matched_rank + 1
+              False -> matched_rank
+            },
+          )
+      }
   }
 }

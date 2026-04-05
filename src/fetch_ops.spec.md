@@ -99,8 +99,8 @@ Principles: **one PR per phase** where possible; **`gleam test` + `gleam build` 
 
 - [x] Implement `fetch_and_save_json(root, cache_mode)` = `fetch` + encode + `simplifile.write` using **paths derived only from `SourceRoot`** (document the naming rule in code comment).
 - [x] Switch **one** caller (e.g. single-source CLI path) to the new filenames; update any test that asserts paths **in the same PR**.
-- [ ] Repeat for remaining callers until no legacy `cli_result_*` writers remain.
-- [ ] **Tests:** file exists + minimal JSON parse smoke per naming convention (or extend an existing golden test).
+- [x] Repeat for remaining callers until no legacy `cli_result_*` writers remain.
+- [x] **Tests:** file exists + minimal JSON parse smoke per naming convention (or extend an existing golden test).
 
 ### Phase 5 — Orchestration stays out of `fetch_ops`
 
@@ -115,8 +115,8 @@ Principles: **one PR per phase** where possible; **`gleam test` + `gleam build` 
 
 ### Phase 7 — JSON shape for `validate_all` (dev-only consumer)
 
-- [ ] Extend **CLI result JSON** encoding so files include **lists/albums referencing tracks** as `validate_all` needs; **`validate_all` reads those files only** (not `fetch` return values).
-- [ ] **Tests:** `validate_all` (or focused module) on a **fixture JSON** file — no network; fetch tests do not need to invoke validation.
+- [x] Extend **CLI result JSON** encoding so files include **lists/albums referencing tracks** as `validate_all` needs; **`validate_all` reads those files only** (not `fetch` return values).
+- [x] **Tests:** `validate_all` (or focused module) on a **fixture JSON** file — no network; fetch tests do not need to invoke validation.
 
 ### Phase 8 — CSV purge (slice by slice)
 
@@ -127,8 +127,12 @@ Principles: **one PR per phase** where possible; **`gleam test` + `gleam build` 
 
 ### Phase 9 — Remove legacy `SourceSpec` path (optional cleanup)
 
-- [ ] Migrate all callers to `registry()` triples + `SourceRoot` only; delete or privatise `SourceSpec` / `all()` if unused.
-- [ ] **Tests:** grep for `SourceSpec` in `src/` should be empty or test-only fixtures.
+- [x] Migrate all callers to `registry()` triples + `SourceRoot` only; delete or privatise `SourceSpec` / `all()` if unused.
+  - `fetch_orchestration`: uses `ordered_registry_list` + `triple_by_selector`; no `SourceSpec` on the fetch path.
+  - `fetch_validation`: no `SourceSpec`; uses key/name/assert_spec/root directly.
+  - `source_selector`: dead SourceSpec-based selector functions removed; `triple_by_selector` is the live API.
+  - Remaining `SourceSpec` users are non-fetch-path: `cli_export_interactive`, `validate_all`, `rememberthename.list_sources`, `source_root` bridge functions (`from_legacy_spec`, `registry`).
+- [ ] **Tests:** grep for `SourceSpec` in `src/` should be empty or test-only fixtures (non-fetch-path users remain).
 
 ### Phase 10 — Test helper `with_root` (after API stable)
 

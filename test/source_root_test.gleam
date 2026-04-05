@@ -126,3 +126,23 @@ pub fn triple_returns_error_for_unknown_key_test() {
   source_root.triple("nonexistent", full_keys())
   |> should.be_error
 }
+
+// Phase 4: artifact path naming convention — derived solely from SourceRoot variant.
+pub fn artifact_json_path_tuna_test() {
+  source_root.artifact_json_path(source_root.TunaRoot)
+  |> should.equal("output/tuna_full.json")
+}
+
+pub fn artifact_json_path_bandcamp_test() {
+  let spec = source_specs.bandcamp()
+  let assert Ok(root) = source_root.from_legacy_spec(spec, core.All, empty_keys())
+  source_root.artifact_json_path(root)
+  |> should.equal("output/bandcamp_full.json")
+}
+
+pub fn artifact_json_path_spotify_test() {
+  let assert Ok(root) =
+    source_root.from_legacy_spec(source_specs.spotify(), core.All, fake_spotify_keys())
+  source_root.artifact_json_path(root)
+  |> should.equal("output/spotify_full.json")
+}

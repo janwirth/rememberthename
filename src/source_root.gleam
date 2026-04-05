@@ -21,6 +21,29 @@ pub type SourceRoot {
   TunaRoot
 }
 
+/// Human-readable display name for the source (used in CLI progress output).
+pub fn display_name(root: SourceRoot) -> String {
+  case root {
+    BandcampRoot(_, _, _) -> "Bandcamp"
+    SoundcloudRoot(_, _) -> "Soundcloud"
+    SpotifyRoot(_, _) -> "Spotify"
+    YoutubeRoot(_, _) -> "Youtube"
+    TunaRoot -> "Tuna"
+  }
+}
+
+/// Return a copy of the root with a different `depth`, for cross-depth validation runs.
+pub fn with_depth(root: SourceRoot, depth: core.DepthMode) -> SourceRoot {
+  case root {
+    BandcampRoot(url, _, timing) -> BandcampRoot(url, depth, timing)
+    SoundcloudRoot(ep, _) -> SoundcloudRoot(ep, depth)
+    SpotifyRoot(creds, _) -> SpotifyRoot(creds, depth)
+    YoutubeRoot(url, key) -> YoutubeRoot(url, key)
+    // YouTube ignores depth (single flat playlist); Tuna has no depth field.
+    TunaRoot -> TunaRoot
+  }
+}
+
 /// Stable label identifying the fetch source for JSON output (mirrors `track_view.adapter_id_for_source`).
 pub fn adapter_id(root: SourceRoot) -> String {
   case root {
@@ -48,6 +71,23 @@ pub fn source_key(root: SourceRoot) -> String {
     YoutubeRoot(_, _) -> "youtube"
     TunaRoot -> "tuna"
   }
+}
+
+/// Ordered list of `#(key, SourceRoot, SourceAssertSpec)` triples in `source_specs.all()` order.
+///
+/// Sources for which credentials are absent are silently dropped (e.g. Spotify without token).
+/// Use this instead of `source_specs.all()` when the caller only needs fetch-ready triples.
+pub fn ordered_registry_list(
+  keys: api_keys.ApiKeys,
+) -> List(#(String, SourceRoot, source_specs.SourceAssertSpec)) {
+  source_specs.all()
+  |> list.filter_map(fn(spec) {
+    let source_specs.SourceSpec(key, _, _, _, assert_spec) = spec
+    case from_legacy_spec(spec, core.All, keys) {
+      Ok(root) -> Ok(#(key, root, assert_spec))
+      Error(_) -> Error(Nil)
+    }
+  })
 }
 
 /// Registry of all configured sources as `#(SourceRoot, SourceAssertSpec)` triples.

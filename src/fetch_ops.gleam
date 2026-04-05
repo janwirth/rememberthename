@@ -155,7 +155,7 @@ pub fn fetch_and_save_json(
   cache_mode: cache.CacheMode,
 ) -> Result(String, String) {
   use fetch_result <- result.try(fetch(root, cache_mode, fn(_) { Nil }))
-  let FetchResult(items, _lists, _unresolved, tuna_metadata) = fetch_result
+  let FetchResult(items, lists, _unresolved, tuna_metadata) = fetch_result
   let adapter_id = source_root.adapter_id(root)
   let is_tuna = case root {
     source_root.TunaRoot -> True
@@ -175,7 +175,7 @@ pub fn fetch_and_save_json(
     )
   }
   let content =
-    export_json.tracks_json_with_imported_dates(tracks, imported_dates, !is_tuna)
+    export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists)
   let path = source_root.artifact_json_path(root)
   case simplifile.write(content, to: path) {
     Ok(_) -> Ok(path)

@@ -7,6 +7,45 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import output/visual_output
 
+/// JSON object encoding a single `UnifiedCollection` for on-disk artifacts.
+pub fn collection_json(col: core.UnifiedCollection) -> json.Json {
+  let core.UnifiedCollection(id, title, track_ids, list_ids, service, source_type, source_id) =
+    col
+  json.object([
+    #("id", json.string(id)),
+    #("title", json.string(title)),
+    #("track_ids", json.array(track_ids, of: json.string)),
+    #("list_ids", json.array(list_ids, of: json.string)),
+    #("service", json.string(service)),
+    #("source_type", json.string(source_type)),
+    #("source_id", json.string(source_id)),
+  ])
+}
+
+/// Serializes both tracks and collections to a rich JSON object.
+///
+/// Shape: `{"tracks": [...], "collections": [...]}`.
+/// Used by `fetch_and_save_json`; read by `validate_all` and other dev tools.
+pub fn fetch_result_json(
+  tracks: List(visual_output.TrackView),
+  imported_dates: dict.Dict(String, Int),
+  normalize_tags: Bool,
+  collections: List(core.UnifiedCollection),
+) -> String {
+  json.object([
+    #(
+      "tracks",
+      tracks
+        |> tracks_with_order(list.length(tracks))
+        |> json.array(of: fn(tw) {
+          track_json_with_order(tw, imported_dates, normalize_tags)
+        }),
+    ),
+    #("collections", json.array(collections, of: collection_json)),
+  ])
+  |> json.to_string
+}
+
 /// Path under `output/` for CLI-written JSON and probe files.
 pub fn artifact_path(file_name: String) -> String {
   "output/" <> file_name

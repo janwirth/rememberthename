@@ -2,8 +2,10 @@
 ////
 //// This module owns the glue between the source registry and `fetch_ops.fetch`.
 //// `fetch_ops` itself exports only `fetch` / `fetch_and_save_json` plus types.
+////
+//// `SourceSpec` is not imported here — selection and dispatch go through
+//// `source_root.ordered_registry_list` + `source_selector.triple_by_selector`.
 
-import adapters/api_keys
 import adapters/cache
 import adapters/core
 import cli/api_credentials
@@ -13,7 +15,6 @@ import cli/resolve_adapter
 import cli/runtime
 import cli/source_selector as source_pick
 import cli/terminal
-import cli/track_view
 import fetch_ops
 import gleam/dict
 import gleam/int
@@ -31,19 +32,23 @@ pub fn fetch_with_cache_mode(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
+  let keys = api_credentials.load_full_api_keys()
+  let ordered = source_root.ordered_registry_list(keys)
   case selector == "all" {
     True -> {
-      fetch_all_sources(cache_mode, always_validate, on_update)
+      fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
       Ok(Nil)
     }
     False ->
-      case source_pick.source_by_selector(source_specs.all(), selector) {
+      case source_pick.triple_by_selector(ordered, selector) {
         Error(_) -> Error("Invalid source selector: " <> selector)
-        Ok(#(source_index, source)) -> {
+        Ok(#(source_index, key, root, assert_spec)) -> {
           let _ =
             run_fetch(
-              source,
+              key,
               source_index,
+              root,
+              assert_spec,
               core.All,
               "full",
               cache_mode,
@@ -63,17 +68,22 @@ pub fn fetch_all_sources(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) {
+  let keys = api_credentials.load_full_api_keys()
+  let ordered = source_root.ordered_registry_list(keys)
+  fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
+}
+
+fn fetch_all_sources_with_ordered(
+  ordered: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
+  cache_mode: cache.CacheMode,
+  always_validate: Bool,
+  on_update: fn(String) -> Nil,
+) {
   on_update(
     terminal.color("Fetching all sources...", terminal.ansi_bright_cyan()),
   )
   let #(all_tracks, all_imported_dates) =
-    fetch_all_sources_loop(
-      source_specs.all(),
-      1,
-      cache_mode,
-      always_validate,
-      on_update,
-    )
+    fetch_all_sources_loop(ordered, 1, cache_mode, always_validate, on_update)
   let canonical_start_ms = runtime.now_ms()
   let canonical_content =
     export_json.tracks_json_with_imported_dates(
@@ -102,19 +112,21 @@ pub fn fetch_all_sources(
 }
 
 fn fetch_all_sources_loop(
-  sources: List(source_specs.SourceSpec),
+  ordered: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
   index: Int,
   cache_mode: cache.CacheMode,
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
-  case sources {
+  case ordered {
     [] -> #([], dict.new())
-    [source, ..rest] -> {
+    [#(key, root, assert_spec), ..rest] -> {
       let #(tracks, imported_dates) =
         run_fetch(
-          source,
+          key,
           index,
+          root,
+          assert_spec,
           core.All,
           "full",
           cache_mode,
@@ -174,14 +186,19 @@ pub fn fetch_source_tracks_with_depth(
 ) -> Result(List(visual_output.TrackView), String) {
   case selector == "all" {
     True -> Error("use fetch_all for all sources")
-    False ->
-      case source_pick.source_by_selector(source_specs.all(), selector) {
+    False -> {
+      let keys = api_credentials.load_full_api_keys()
+      let ordered = source_root.ordered_registry_list(keys)
+      case source_pick.triple_by_selector(ordered, selector) {
         Error(_) -> Error("Invalid source selector: " <> selector)
-        Ok(#(source_index, source)) -> {
+        Ok(#(source_index, key, base_root, assert_spec)) -> {
+          let root = source_root.with_depth(base_root, depth)
           let #(tracks, _) =
             run_fetch(
-              source,
+              key,
               source_index,
+              root,
+              assert_spec,
               depth,
               depth_label,
               cache_mode,
@@ -192,13 +209,19 @@ pub fn fetch_source_tracks_with_depth(
           Ok(tracks)
         }
       }
+    }
   }
 }
 
 /// Resolve, export per-source JSON (optional), validation, timings.
+///
+/// `root` already encodes depth — callers use `source_root.with_depth` to override.
+/// `depth` is passed separately for the validation strategy decision.
 pub fn run_fetch(
-  source: source_specs.SourceSpec,
+  key: String,
   source_index: Int,
+  root: source_root.SourceRoot,
+  assert_spec: source_specs.SourceAssertSpec,
   depth: core.DepthMode,
   depth_label: String,
   cache_mode: cache.CacheMode,
@@ -207,7 +230,7 @@ pub fn run_fetch(
   on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   let run_start_ms = runtime.now_ms()
-  let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+  let name = source_root.display_name(root)
   on_update(
     terminal.color(
       "Fetching source " <> int.to_string(source_index) <> ": " <> name,
@@ -233,17 +256,6 @@ pub fn run_fetch(
   on_update("")
 
   let resolve_start_ms = runtime.now_ms()
-  let keys = api_credentials.load_full_api_keys()
-  let root = case source_root.from_legacy_spec(source, depth, keys) {
-    Ok(r) -> r
-    Error(err) -> {
-      on_update(
-        terminal.color("Credential error: ", terminal.ansi_red())
-        <> api_keys.format_resolve_adapter_error(err),
-      )
-      source_root.TunaRoot
-    }
-  }
   let fetch_result = case fetch_ops.fetch(root, cache_mode, on_update) {
     Ok(r) -> r
     Error(err) -> {
@@ -258,7 +270,7 @@ pub fn run_fetch(
   }
   let resolve_elapsed_ms = runtime.now_ms() - resolve_start_ms
 
-  let adapter_id = track_view.adapter_id_for_source(key, entry_point)
+  let adapter_id = source_root.adapter_id(root)
   let fetch_ops.FetchResult(items, lists, unresolved, ..) = fetch_result
   let #(tracks, imported_dates) =
     fetch_ops.fetch_result_to_tracks(fetch_result, adapter_id)
@@ -283,20 +295,13 @@ pub fn run_fetch(
   )
   case write_json_artifact {
     True -> {
+      let is_tuna = case root {
+        source_root.TunaRoot -> True
+        _ -> False
+      }
       let content =
-        export_json.tracks_json_with_imported_dates(
-          tracks,
-          imported_dates,
-          key != "tuna",
-        )
-      let json_path =
-        export_json.artifact_path(
-          "cli_result_"
-          <> key
-          <> "_depth_"
-          <> track_view.sanitize_depth_label(depth_label)
-          <> ".json",
-        )
+        export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists)
+      let json_path = source_root.artifact_json_path(root)
       let export_start_ms = runtime.now_ms()
       let _ = simplifile.write(content, to: json_path)
       let export_elapsed_ms = runtime.now_ms() - export_start_ms
@@ -319,7 +324,12 @@ pub fn run_fetch(
       )
       on_update(
         terminal.color("Validation params: ", terminal.ansi_yellow())
-        <> fetch_validation.validation_params_detail(source, depth, cache_mode),
+        <> fetch_validation.validation_params_detail(
+          key,
+          assert_spec,
+          depth,
+          cache_mode,
+        ),
       )
     }
     False -> Nil
@@ -328,13 +338,15 @@ pub fn run_fetch(
   let resolve_result =
     core.ResolveResult(items: items, lists: lists, unresolved: unresolved)
   fetch_validation.print_runtime_validation(
-    source,
+    key,
+    name,
+    assert_spec,
+    root,
     depth,
     cache_mode,
     resolve_result,
     always_validate,
     on_update,
-    keys,
   )
   let validation_elapsed_ms = runtime.now_ms() - validation_start_ms
   let total_elapsed_ms = runtime.now_ms() - run_start_ms
