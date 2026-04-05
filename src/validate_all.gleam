@@ -13,9 +13,6 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
-import output/csv_writer
-import output/visual_output
-import simplifile
 import source_specs
 
 pub fn main() {
@@ -123,7 +120,6 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
       depth_2,
       depth_all,
     )
-  write_csv(key, depth_all)
   io.println(case pass {
     True -> "Result: PASS"
     False -> "Result: FAIL"
@@ -303,38 +299,6 @@ fn validate_results(
   && anchors_full_ok
   && required_full_ok
   && source_limit_ok
-}
-
-fn write_csv(key: String, result: core.ResolveResult) {
-  let tracks =
-    result_items(result)
-    |> list.map(fn(item) {
-      let core.UnifiedItem(
-        _,
-        title,
-        artist,
-        service,
-        _,
-        source_id,
-        external_source_url,
-        added_at,
-      ) = item
-      visual_output.TrackView(
-        title,
-        artist,
-        service,
-        source_id,
-        external_source_url,
-        added_at,
-        "",
-        "",
-        "",
-        "",
-      )
-    })
-  let path = "validate_all_" <> key <> "_full.csv"
-  let _ = simplifile.write(csv_writer.tracks_csv(tracks), to: path)
-  io.println("CSV: " <> path)
 }
 
 fn counts(result: core.ResolveResult) -> #(Int, Int, Int) {

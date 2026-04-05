@@ -15,15 +15,12 @@ import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import output/csv_writer
-import output/visual_output
 import shore
 import shore/key
 import shore/layout
 import shore/style
 import shore/ui
 import shellout
-import simplifile
 import source_specs
 
 pub fn main() {
@@ -125,7 +122,6 @@ type Step {
 }
 
 type Action {
-  ExportCsv
   FetchOnly
 }
 
@@ -186,7 +182,7 @@ fn init(exit_subject: process.Subject(Nil)) -> Model {
     step: SelectSourcesStep,
     cursor: 0,
     selected_keys: [],
-    action: ExportCsv,
+    action: FetchOnly,
     cache_choice: UseLive,
     status_lines: ["Select one or more sources, then press Enter."],
     exit_subject: exit_subject,
@@ -297,17 +293,7 @@ fn run_selected(model: Model) -> Msg {
         <> int.to_string(list.length(lists))
         <> " unresolved="
         <> int.to_string(list.length(unresolved))
-      let lines = list.append(lines, [details])
-      case model.action {
-        ExportCsv -> {
-          let tracks = list.map(items, to_track_view)
-          let csv = csv_writer.tracks_csv(tracks)
-          let per_source_path = "output/interactive_" <> key <> "_full.csv"
-          let _ = simplifile.write(csv, to: per_source_path)
-          list.append(lines, ["  csv: " <> per_source_path])
-        }
-        FetchOnly -> lines
-      }
+      list.append(lines, [details])
     })
 
   let summary_lines =
@@ -320,45 +306,7 @@ fn run_selected(model: Model) -> Msg {
     ]
     |> list.append(run_lines)
 
-  let final_lines = case model.action {
-    ExportCsv -> {
-      let all_items = collect_all_items(specs, cache_mode)
-      let tracks = list.map(all_items, to_track_view)
-      let csv = csv_writer.tracks_csv(tracks)
-      let combined_path = "output/interactive_selected_latest.csv"
-      let _ = simplifile.write(csv, to: combined_path)
-      list.append(summary_lines, [
-        "",
-        "Combined CSV: " <> combined_path,
-        "Total items: " <> int.to_string(list.length(all_items)),
-      ])
-    }
-    FetchOnly -> summary_lines
-  }
-
-  RunFinished(final_lines)
-}
-
-fn collect_all_items(
-  specs: List(source_specs.SourceSpec),
-  cache_mode: cache.CacheMode,
-) -> List(core.UnifiedItem) {
-  list.fold(specs, [], fn(acc, spec) {
-    let source_specs.SourceSpec(key, _, entry_point, timing_spec, assert_spec) =
-      spec
-    let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
-    let core.ResolveResult(items, _, _) =
-      resolve_source(
-        key,
-        entry_point,
-        core.All,
-        source_limit,
-        timing_spec,
-        cache_mode,
-        fn(_line) { Nil },
-      )
-    list.append(acc, items)
-  })
+  RunFinished(summary_lines)
 }
 
 fn selected_specs(selected_keys: List(String)) -> List(source_specs.SourceSpec) {
@@ -446,8 +394,6 @@ fn option_count(step: Step) -> Int {
 
 fn action_options() -> List(#(Action, CacheChoice, String)) {
   [
-    #(ExportCsv, UseLive, "Export CSV (without cache)"),
-    #(ExportCsv, UseCache, "Export CSV (use cache)"),
     #(FetchOnly, UseLive, "Fetch only (without cache)"),
     #(FetchOnly, UseCache, "Fetch only (use cache)"),
   ]
@@ -456,7 +402,7 @@ fn action_options() -> List(#(Action, CacheChoice, String)) {
 fn action_for_cursor(index: Int) -> #(Action, CacheChoice) {
   case action_at(action_options(), index) {
     Ok(#(action, cache_choice, _)) -> #(action, cache_choice)
-    Error(_) -> #(ExportCsv, UseLive)
+    Error(_) -> #(FetchOnly, UseLive)
   }
 }
 
@@ -504,7 +450,6 @@ fn cache_mode_from_choice(choice: CacheChoice) -> cache.CacheMode {
 
 fn action_text(action: Action) -> String {
   case action {
-    ExportCsv -> "Export CSV"
     FetchOnly -> "Fetch only"
   }
 }
@@ -747,27 +692,3 @@ fn resolve_source(
   }
 }
 
-fn to_track_view(item: core.UnifiedItem) -> visual_output.TrackView {
-  let core.UnifiedItem(
-    _,
-    title,
-    artist,
-    service,
-    _,
-    source_id,
-    external_source_url,
-    added_at,
-  ) = item
-  visual_output.TrackView(
-    title,
-    artist,
-    service,
-    source_id,
-    external_source_url,
-    added_at,
-    "",
-    "",
-    "",
-    "",
-  )
-}

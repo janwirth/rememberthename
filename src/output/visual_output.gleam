@@ -129,7 +129,7 @@
 /// - output renderer still MUST emit terminal view in Unicode tree format defined above
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option}
 import gleam/string
 import gleam/time/timestamp
 import output/tree_view
@@ -218,37 +218,6 @@ fn all_tracks_long_nodes(tracks: List(TrackView)) -> List(tree_view.Node) {
 fn track_label(track: TrackView) -> String {
   let TrackView(title, artist, _, _, _, _, _, _, _, _) = track
   title <> " - " <> artist <> missing_artist_suffix(artist)
-}
-
-pub fn track_csv_row(track: TrackView) -> List(String) {
-  let TrackView(
-    title,
-    artist,
-    service,
-    source_id,
-    external_source_url,
-    _added_at,
-    adapter_id,
-    download,
-    cover,
-    tags,
-  ) =
-    track
-  let url_cell = case external_source_url {
-    Some(url) -> url
-    None -> ""
-  }
-  [
-    title,
-    artist,
-    service,
-    source_id,
-    url_cell,
-    adapter_id,
-    download,
-    cover,
-    tags,
-  ]
 }
 
 fn full_track_label(track: TrackView) -> String {

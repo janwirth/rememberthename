@@ -1,6 +1,6 @@
 import adapters/cache
 import adapters/core
-import fetch_ops
+import cli/fetch_orchestration
 import gleam/dict.{type Dict}
 import gleam/io
 import gleam/list
@@ -26,7 +26,7 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
           )
         False -> {
           let on_update = fn(line) { io.println(line) }
-          case fetch_ops.fetch_with_cache_mode(selector, cache_mode, on_update) {
+          case fetch_orchestration.fetch_with_cache_mode(selector, cache_mode, on_update) {
             Error(msg) -> io.println(msg)
             Ok(Nil) -> Nil
           }
@@ -53,7 +53,7 @@ fn fetch_source_shallow_with_cache_mode(
   cache_mode: cache.CacheMode,
   on_print: fn(String) -> Nil,
 ) {
-  case fetch_ops.fetch_source_tracks_with_depth(
+  case fetch_orchestration.fetch_source_tracks_with_depth(
     selector,
     core.Depth1,
     "shallow",
@@ -170,14 +170,14 @@ pub fn fetch_with_cache_mode(
   cache_mode: cache.CacheMode,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  fetch_ops.fetch_with_cache_mode(selector, cache_mode, on_update)
+  fetch_orchestration.fetch_with_cache_mode(selector, cache_mode, on_update)
 }
 
 pub fn fetch_all_sources(
   cache_mode: cache.CacheMode,
   on_update: fn(String) -> Nil,
 ) {
-  fetch_ops.fetch_all_sources(cache_mode, on_update)
+  fetch_orchestration.fetch_all_sources(cache_mode, on_update)
 }
 
 pub fn run_fetch(
@@ -189,7 +189,7 @@ pub fn run_fetch(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), Dict(String, Int)) {
-  fetch_ops.run_fetch(
+  fetch_orchestration.run_fetch(
     source,
     source_index,
     depth,

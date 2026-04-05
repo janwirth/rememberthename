@@ -1,8 +1,8 @@
 //// Library API: list configured sources and run fetches without argv parsing.
 
 import adapters/cache
+import cli/fetch_orchestration
 import cli/source_selector as source_pick
-import fetch_ops
 import gleam/list
 import gleam/option.{type Option}
 import gleam/time/timestamp
@@ -158,7 +158,7 @@ pub fn fetch_source(
       case selector == "tuna" {
         True -> fetch_tuna(cache, write_to_json_file, on_update)
         False ->
-          case fetch_ops.fetch_source_tracks(
+          case fetch_orchestration.fetch_source_tracks(
             selector,
             fetch_cache_as_mode(cache),
             write_to_json_file,
@@ -177,7 +177,7 @@ fn fetch_tuna(
   write_to_json_file: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(List(FetchTrackRow), String) {
-  case fetch_ops.fetch_source_tracks(
+  case fetch_orchestration.fetch_source_tracks(
     "tuna",
     fetch_cache_as_mode(cache),
     write_to_json_file,

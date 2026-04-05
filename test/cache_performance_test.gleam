@@ -5,13 +5,9 @@ import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
-import cli
 import cli/api_credentials
 import cli/runtime
 import cli/spotify_credentials
-import gleam/list
-import gleam/string
-import simplifile
 import sources
 import test_env
 
@@ -90,23 +86,6 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
   }
 }
 
-pub fn export_all_csv_with_cache_under_one_second_test() {
-  case test_env.run_live_perf_tests() {
-    False -> Nil
-    True -> {
-      let _ = cli.run(["export", "all", "csv", "use-cache"])
-      let warm_length = csv_line_count("output/all_items_latest.csv")
-      let start = runtime.now_ms()
-      let _ = cli.run(["export", "all", "csv", "use-cache"])
-      let elapsed_ms = runtime.now_ms() - start
-      let cached_length = csv_line_count("output/all_items_latest.csv")
-      assert warm_length > 1
-      assert cached_length == warm_length
-      assert elapsed_ms <= 1000
-    }
-  }
-}
-
 fn assert_source_under_one_second(resolve_all: fn() -> core.ResolveResult) {
   let _ = resolve_all()
   let start = runtime.now_ms()
@@ -117,9 +96,3 @@ fn assert_source_under_one_second(resolve_all: fn() -> core.ResolveResult) {
   assert elapsed_ms <= 1000
 }
 
-fn csv_line_count(path: String) -> Int {
-  case simplifile.read(from: path) {
-    Ok(content) -> list.length(string.split(content, "\n"))
-    Error(_) -> 0
-  }
-}
