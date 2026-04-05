@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /Users/janwirth/all-tuna-versions/tuna-gleam-monorepo/rememberthename/test/*.gleam)",
+      "Bash(gleam test:*)",
+      "Bash(gleam build:*)"
+    ]
+  }
+}

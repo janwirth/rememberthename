@@ -19,3 +19,19 @@ pub fn load_api_keys() -> api_keys.ApiKeys {
   }
   api_keys.ApiKeys(spotify: None, google_cloud: google_cloud)
 }
+
+/// Loads all credentials: Google Cloud key + Spotify OAuth session from disk.
+pub fn load_full_api_keys() -> api_keys.ApiKeys {
+  let root = config_paths.spotify_config_root()
+  let env_file = config_paths.join_under(root, ".env")
+  let session_file =
+    config_paths.join_under(root, ".spotify_oauth_session.json")
+  let redirect = "https://127.0.0.1:8080/spotify-oauth-success"
+  let base = load_api_keys()
+  spotify_credentials.with_spotify_from_disk(
+    base,
+    session_file,
+    env_file,
+    redirect,
+  )
+}
