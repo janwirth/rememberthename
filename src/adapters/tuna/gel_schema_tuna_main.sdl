@@ -1,0 +1,347 @@
+module Fishbone {
+    global entry_points_to_sync := (select
+        Fishbone::RemoteServiceEntryPoint
+    filter
+        .should_sync
+    );
+    global tracks_to_download := (select
+        Fishbone::TrackFromRemoteService
+    filter
+        .should_download
+    );
+    global tracks_to_find_on_web := (select
+        Fishbone::TrackFromRemoteService
+    filter
+        .needs_cross_fetch
+    );
+    scalar type EntryPointLoadFrequency extending enum<Once, Frequently>;
+    scalar type EntryPointLoader extending enum<YtDlpPlaylist, FishboneBandcampProfile, FishboneSpotifyProfile>;
+    scalar type EntryPointType extending enum<YoutubePlaylist, YoutubeTrack, SoundcloudLikes, SoundcloudTrack, BandcampProfile, BandcampAlbum, BandcampTrack>;
+    type B2File {
+        required property extension: std::str;
+        required property md5: std::str {
+            constraint std::exclusive;
+        };
+    };
+    type LocalTrackMirror {
+        constraint std::exclusive on ((.device_id, .audio));
+        required property audio: tuple<md5: std::str, ext: std::str>;
+        property cover: tuple<md5: std::str, ext: std::str>;
+        required property device_id: std::uuid;
+    };
+    type RemoteServiceEntryPoint extending default::Dated {
+        link found_in_entry_point := (.<playlists[is Fishbone::RemoteServiceEntryPoint]);
+        link invalid_tracks := (select
+            .tracks_with_sub_tracks
+        filter
+            (NOT (EXISTS (.b2_file_audio)) AND NOT (.should_download))
+        );
+        multi link playlists: Fishbone::RemoteServiceEntryPoint;
+        multi link tracks: Fishbone::TrackFromRemoteService;
+        link tracks_loaded := (select
+            .tracks_with_sub_tracks
+        filter
+            EXISTS (.b2_file_audio)
+        );
+        link tracks_pending_download := (select
+            .tracks_with_sub_tracks
+        filter
+            .should_download
+        );
+        link tracks_with_sub_tracks := (DISTINCT ({.tracks, .playlists.tracks}));
+        property ends_with_likes := (((.url LIKE '%/likes') OR (.url LIKE '%/likes/')));
+        property entry_point_type := ((if .is_soundcloud_likes then 'SoundcloudLikes' else (if .is_soundcloud_track then 'SoundcloudTrack' else (if .is_youtube_playlist then 'YoutubePlaylist' else (if .is_youtube_track then 'YoutubeTrack' else (if .is_bandcamp_profile then 'BandcampProfile' else (if .is_bandcamp_album then 'BandcampAlbum' else (if .is_bandcamp_track then 'BandcampTrack' else {}))))))));
+        property error: std::str;
+        property has_bandcamp_album_param := ((.url ILIKE '%/album/%'));
+        property has_bandcamp_subdomain := ((.url LIKE '%.bandcamp.com/%'));
+        property has_bandcamp_track_param := ((.url ILIKE '%/track/%'));
+        property has_soundcloud_track_slash_count := ((.url ILIKE '%//%/%/%'));
+        property has_youtube_playist_param := ((.url ILIKE '%list=%'));
+        property is_bandcamp := ((.url LIKE 'https://bandcamp.com/%'));
+        property is_bandcamp_album := ((.has_bandcamp_subdomain AND .has_bandcamp_album_param));
+        property is_bandcamp_profile := (((.is_bandcamp AND NOT (.is_bandcamp_album)) AND NOT (.is_bandcamp_track)));
+        property is_bandcamp_track := ((.has_bandcamp_subdomain AND .has_bandcamp_track_param));
+        property is_empty := ((NOT (EXISTS (.tracks)) AND NOT (EXISTS (.playlists))));
+        property is_invalid := (NOT (EXISTS (.entry_point_type)));
+        property is_older_than_10_minutes := (((.updated_at + <std::duration>'24h') < std::datetime_of_statement()));
+        property is_outdated := (((.load_frequency = Fishbone::EntryPointLoadFrequency.Frequently) AND .is_older_than_10_minutes));
+        property is_soundcloud := ((.url LIKE 'https://soundcloud.com/%'));
+        property is_soundcloud_likes := (((.is_soundcloud AND .ends_with_likes) AND NOT (.is_soundcloud_you)));
+        property is_soundcloud_playlist := ((.url LIKE '%/sets/%'));
+        property is_soundcloud_track := ((((.is_soundcloud AND .has_soundcloud_track_slash_count) AND NOT (.is_soundcloud_likes)) AND NOT (.is_soundcloud_playlist)));
+        property is_soundcloud_you := ((.url LIKE 'https://soundcloud.com/you%'));
+        property is_spotify_profile := ((.url LIKE 'fishbone://spotify/%'));
+        property is_youtube := ((.url LIKE 'https://www.youtube.com/%'));
+        property is_youtube_playlist := ((.is_youtube AND .has_youtube_playist_param));
+        property is_youtube_track := (((.url LIKE 'https://www.youtube.com/watch?v=%') AND NOT (.is_youtube_playlist)));
+        property load_frequency := ((if .is_youtube_playlist then Fishbone::EntryPointLoadFrequency.Frequently else (if .is_youtube_track then Fishbone::EntryPointLoadFrequency.Once else (if .is_soundcloud_likes then Fishbone::EntryPointLoadFrequency.Frequently else (if .is_soundcloud_track then Fishbone::EntryPointLoadFrequency.Once else (if .is_bandcamp_profile then Fishbone::EntryPointLoadFrequency.Frequently else (if .is_bandcamp_album then Fishbone::EntryPointLoadFrequency.Once else (if .is_bandcamp_track then Fishbone::EntryPointLoadFrequency.Once else {}))))))));
+        property loader := ((if .is_youtube_playlist then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_youtube_track then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_soundcloud_likes then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_soundcloud_track then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_bandcamp_profile then Fishbone::EntryPointLoader.FishboneBandcampProfile else (if .is_bandcamp_album then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_bandcamp_track then Fishbone::EntryPointLoader.YtDlpPlaylist else (if .is_spotify_profile then Fishbone::EntryPointLoader.FishboneSpotifyProfile else {})))))))));
+        property name: std::str;
+        property should_sync := ((EXISTS (.entry_point_type) AND (.is_outdated OR .is_empty)));
+        property spotify_access_token: std::str;
+        property spotify_access_token_expires_at: std::datetime;
+        property spotify_id: std::str {
+            constraint std::exclusive;
+        };
+        property spotify_refresh_token: std::str;
+        property track_count := (std::count(.tracks_with_sub_tracks));
+        required property url: std::str {
+            constraint std::exclusive;
+        };
+    };
+    type TrackFromRemoteService extending default::Dated {
+        constraint std::exclusive on ((.source_platform, .id_on_source_platform));
+        link b2_file_audio: Fishbone::B2File;
+        link b2_file_cover: Fishbone::B2File;
+        link entry_point: Fishbone::RemoteServiceEntryPoint;
+        link fishbone_local_track_mirror: Fishbone::LocalTrackMirror;
+        link tuna_tracks := (select
+            default::Track
+        filter
+            (.fishbone_source = Fishbone::TrackFromRemoteService)
+        );
+        property cross_fetch_results: std::json;
+        property error: std::str;
+        required property id_on_source_platform: std::str;
+        property meta: std::json;
+        property needs_cross_fetch := ((NOT (EXISTS (.cross_fetch_results)) AND NOT (.supports_download)));
+        required property salvaged_from_accidental_downloads: std::bool {
+            default := false;
+        };
+        property should_download := (((((((.supports_download AND NOT (EXISTS (.error))) AND NOT ((.url ILIKE '%/sets/%'))) AND (NOT (EXISTS (.b2_file_cover)) AND NOT (.salvaged_from_accidental_downloads))) AND (NOT (EXISTS (.meta)) AND NOT (.salvaged_from_accidental_downloads))) AND NOT (EXISTS (.fishbone_local_track_mirror))) AND NOT (EXISTS (.b2_file_audio))));
+        required property source_platform: std::str;
+        required property supports_download := (std::any((.source_platform ILIKE {'youtube%', 'soundcloud%', 'bandcamp%'})));
+        required property title: std::str;
+        required property url: std::str {
+            constraint std::exclusive;
+        };
+    };
+    type UserUploadedTrack extending default::Dated {
+        link tuna_tracks := (select
+            default::Track
+        filter
+            (.fishbone_source = Fishbone::UserUploadedTrack)
+        );
+    };
+};
+module YtDlp {
+    type Playlist extending default::Dated {
+        multi link job_fetch_tracks: YtDlp::Track;
+        required property input_url: std::str {
+            constraint std::exclusive;
+        };
+        property job_fetch_meta: std::json;
+    };
+    type Track extending default::Dated {
+        link master_track_manual_link: default::Track;
+        link track_auto_linked_legacy := (select
+            std::assert_single(default::Track filter
+                ((.soundcloud_source.downloader_track.id = YtDlp::Track.id) ?? (.youtube_source.downloader_track.id = YtDlp::Track.id))
+            )
+        );
+        property bpm: std::int16;
+        property bpm_analysis_failed: std::bool;
+        required property id_on_source_platform: std::str {
+            constraint std::exclusive;
+        };
+        property job_download_mp3_and_cover: tuple<mp3_audio_path: std::str, jpg_cover_path: std::str, meta: std::json>;
+        required property raw_meta: std::json;
+    };
+};
+module default {
+    type Album extending default::PlaylistLike {
+        required property title: std::str;
+    };
+    type Artist {
+        constraint std::exclusive on (.name);
+        multi link made_tracks := (.<artists[is default::Track]);
+        required property name: std::str;
+    };
+    type BandcampSource {
+        constraint std::exclusive on (.bandcamp_track_id);
+        required property artwork_url: std::str;
+        required property bandcamp_release_id: std::int64;
+        property bandcamp_sale_item_id: std::int64;
+        required property bandcamp_track_id: std::int64;
+    };
+    type CustomView extending default::Dated {
+        required property cfg: std::json;
+        required property name: std::str;
+    };
+    abstract type Dated {
+        required property created_on: std::datetime {
+            default := (std::datetime_of_statement());
+        };
+        required property updated_at: std::datetime {
+            default := (std::datetime_of_statement());
+            rewrite
+                insert 
+                using (std::datetime_of_statement());
+            rewrite
+                update 
+                using (std::datetime_of_statement());
+        };
+    };
+    type ExternalPlaylist extending default::PlaylistLike {
+        property key {
+            using ((.playlist_source_type, .playlist_source_id));
+            constraint std::exclusive;
+        };
+        required property name: std::str;
+        required property playlist_source_id: std::str;
+        required property playlist_source_type: std::str;
+    };
+    type FileSource {
+        constraint std::exclusive on (.path);
+        required property path: std::str;
+    };
+    type ItunesSource extending default::FileSource {
+        constraint std::exclusive on (.itunes_persistent_track_id);
+        required property itunes_persistent_track_id: std::str;
+        required property itunes_track_id: std::str;
+    };
+    type ItunesSource2 {
+        constraint std::exclusive on (.itunes_persistent_track_id);
+        constraint std::exclusive on (.path);
+        required property itunes_persistent_track_id: std::str;
+        required property itunes_track_id: std::str;
+        required property path: std::str;
+    };
+    type Play extending default::Dated {
+        required link track: default::Track;
+    };
+    type Playlist extending default::PlaylistLike {
+        required property name: std::str;
+    };
+    abstract type PlaylistLike {
+        multi link tracks: default::Track {
+            on source delete allow;
+            property position: std::float32;
+        };
+    };
+    type SmartPlaylist {
+        multi link exclude_tags: default::Tag;
+        multi link include_tags: default::Tag;
+        required property name: std::str;
+    };
+    type SoundcloudSource {
+        constraint std::exclusive on (.soundcloud_id);
+        link downloader_track := (select
+            std::assert_single(YtDlp::Track filter
+                (.id_on_source_platform = <std::str>default::SoundcloudSource.soundcloud_id)
+            )
+        );
+        property artwork_url: std::str;
+        required property soundcloud_id: std::int32;
+        required property title: std::str;
+        required property user_name: std::str;
+    };
+    type SpotifySource {
+        constraint std::exclusive on (.spotify_id);
+        property artwork_url: std::str;
+        required property spotify_id: std::str;
+    };
+    type Tag {
+        constraint std::exclusive on (.label);
+        multi link on_tracks := (.<tags[is default::Track]);
+        property emoji: std::str;
+        required property label: std::str;
+    };
+    type Track extending default::Dated {
+        constraint std::exclusive on (.soulseek_download);
+        constraint std::exclusive on (.youtube_source);
+        constraint std::exclusive on (.yt_dlp_source);
+        constraint std::exclusive on (.spotify_source);
+        constraint std::exclusive on (.itunes_source);
+        constraint std::exclusive on (.bandcamp_source);
+        constraint std::exclusive on (.soundcloud_source);
+        constraint std::exclusive on (.dropped_source);
+        constraint std::exclusive on (.spotify_download);
+        index on (.fishbone_source);
+        multi link artists: default::Artist;
+        link bandcamp_source: default::BandcampSource {
+            on source delete delete target;
+        };
+        link dropped_source: default::FileSource {
+            on source delete delete target;
+            on target delete allow;
+        };
+        multi link fishbone_local_track_mirror: Fishbone::LocalTrackMirror {
+            on source delete delete target;
+            on target delete allow;
+        };
+        link fishbone_source: Fishbone::TrackFromRemoteService {
+            on source delete allow;
+            on target delete allow;
+        };
+        multi link good_followup: default::Track;
+        multi link good_precedent := (.<good_followup[is default::Track]);
+        link itunes_source: default::ItunesSource {
+            on source delete delete target;
+            on target delete allow;
+        };
+        link merged_into: default::Track;
+        multi link plays := (.<track[is default::Play]);
+        link soulseek_download: default::FileSource {
+            on source delete delete target;
+            on target delete allow;
+        };
+        link soundcloud_source: default::SoundcloudSource {
+            on source delete delete target;
+        };
+        multi link sources: (((((default::SoundcloudSource | default::YoutubeSource) | default::SpotifySource) | default::ItunesSource2) | default::FileSource) | default::BandcampSource);
+        link spotify_download: default::FileSource {
+            on source delete delete target;
+            on target delete allow;
+        };
+        link spotify_source: default::SpotifySource {
+            on source delete delete target;
+        };
+        multi link tags: default::Tag {
+            on target delete allow;
+            property date_added: std::datetime;
+        };
+        link youtube_source: default::YoutubeSource {
+            on source delete delete target;
+        };
+        link yt_dlp_source: YtDlp::Track;
+        property artist_label := ((.artists.name if EXISTS (.artists) else .youtube_source.channel_name));
+        property bpm: std::int16;
+        property bpm_analysis_failed: std::bool;
+        required property date_added: std::datetime {
+            default := (std::datetime_current());
+        };
+        property integrity_checked_path_audio: std::str;
+        property integrity_checked_path_cover: std::str;
+        property last_tag_addition_on := (std::max(.tags@date_added));
+        single property most_recent_play := (((select
+            .plays order by
+                .created_on DESC
+        limit
+            1
+        )).created_on);
+        required property rating: std::int16 {
+            default := 5;
+        };
+        required property title: std::str;
+        required property title_any_ascii_fixed: std::str;
+    };
+    type Vote {
+        required link better_track: default::Track;
+        required link cant_tell: default::Track;
+        required link worse_track: default::Track;
+    };
+    type YoutubeSource {
+        constraint std::exclusive on (.youtube_id);
+        link downloader_track := (select
+            std::assert_single(YtDlp::Track filter
+                (.id_on_source_platform = default::YoutubeSource.youtube_id)
+            )
+        );
+        property artwork_url: std::str;
+        required property channel_name: std::str;
+        property position_in_playlist: std::int16;
+        required property title: std::str;
+        required property youtube_id: std::str;
+    };
+};
