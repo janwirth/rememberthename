@@ -28,11 +28,12 @@ import source_specs
 pub fn fetch_with_cache_mode(
   selector: String,
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
   case selector == "all" {
     True -> {
-      fetch_all_sources(cache_mode, on_update)
+      fetch_all_sources(cache_mode, always_validate, on_update)
       Ok(Nil)
     }
     False ->
@@ -46,7 +47,7 @@ pub fn fetch_with_cache_mode(
               core.All,
               "full",
               cache_mode,
-              True,
+              always_validate,
               True,
               on_update,
             )
@@ -59,13 +60,20 @@ pub fn fetch_with_cache_mode(
 /// Merge every configured source into `output/all_items_latest.json`.
 pub fn fetch_all_sources(
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) {
   on_update(
     terminal.color("Fetching all sources...", terminal.ansi_bright_cyan()),
   )
   let #(all_tracks, all_imported_dates) =
-    fetch_all_sources_loop(source_specs.all(), 1, cache_mode, on_update)
+    fetch_all_sources_loop(
+      source_specs.all(),
+      1,
+      cache_mode,
+      always_validate,
+      on_update,
+    )
   let canonical_start_ms = runtime.now_ms()
   let canonical_content =
     export_json.tracks_json_with_imported_dates(
@@ -97,6 +105,7 @@ fn fetch_all_sources_loop(
   sources: List(source_specs.SourceSpec),
   index: Int,
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
   case sources {
@@ -109,13 +118,19 @@ fn fetch_all_sources_loop(
           core.All,
           "full",
           cache_mode,
-          True,
+          always_validate,
           True,
           on_update,
         )
       on_update("")
       let #(rest_tracks, rest_imported_dates) =
-        fetch_all_sources_loop(rest, index + 1, cache_mode, on_update)
+        fetch_all_sources_loop(
+          rest,
+          index + 1,
+          cache_mode,
+          always_validate,
+          on_update,
+        )
       #(
         list.append(tracks, rest_tracks),
         fetch_validation.merge_imported_dates(
@@ -133,6 +148,7 @@ pub fn fetch_source_tracks(
   selector: String,
   cache_mode: cache.CacheMode,
   write_json_artifact: Bool,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(List(visual_output.TrackView), String) {
   fetch_source_tracks_with_depth(
@@ -141,6 +157,7 @@ pub fn fetch_source_tracks(
     "full",
     cache_mode,
     write_json_artifact,
+    always_validate,
     on_update,
   )
 }
@@ -152,6 +169,7 @@ pub fn fetch_source_tracks_with_depth(
   depth_label: String,
   cache_mode: cache.CacheMode,
   write_json_artifact: Bool,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(List(visual_output.TrackView), String) {
   case selector == "all" {
@@ -167,7 +185,7 @@ pub fn fetch_source_tracks_with_depth(
               depth,
               depth_label,
               cache_mode,
-              True,
+              always_validate,
               write_json_artifact,
               on_update,
             )
@@ -200,6 +218,17 @@ pub fn run_fetch(
   on_update(
     terminal.color("Cache: ", terminal.ansi_yellow())
     <> resolve_adapter.cache_mode_text(cache_mode),
+  )
+  let will_validate = fetch_validation.validation_will_run(always_validate)
+  on_update(
+    terminal.color("Validation: ", terminal.ansi_yellow())
+    <> case will_validate {
+      True ->
+        "will run — "
+        <> fetch_validation.validation_plan_label(depth)
+        <> " (enabled)"
+      False -> "skipped — enable with --validate"
+    },
   )
   on_update("")
 
@@ -236,8 +265,14 @@ pub fn run_fetch(
   let files_count = export_json.count_tracks_with_file(tracks)
   on_update("")
   on_update(
-    terminal.color("Done.", terminal.ansi_green())
-    <> " items="
+    terminal.color("Fetch completed.", terminal.ansi_green())
+    <> " "
+    <> int.to_string(resolve_elapsed_ms)
+    <> "ms",
+  )
+  on_update(
+    terminal.color("Result: ", terminal.ansi_green())
+    <> "items="
     <> int.to_string(list.length(items))
     <> " lists="
     <> int.to_string(list.length(lists))
@@ -272,6 +307,19 @@ pub fn run_fetch(
         terminal.color("Export duration: ", terminal.ansi_yellow())
         <> int.to_string(export_elapsed_ms)
         <> "ms",
+      )
+    }
+    False -> Nil
+  }
+  case will_validate {
+    True -> {
+      on_update("")
+      on_update(
+        terminal.color("Validation starting.", terminal.ansi_bright_cyan()),
+      )
+      on_update(
+        terminal.color("Validation params: ", terminal.ansi_yellow())
+        <> fetch_validation.validation_params_detail(source, depth, cache_mode),
       )
     }
     False -> Nil

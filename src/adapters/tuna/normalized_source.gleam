@@ -45,12 +45,15 @@ pub fn resolve_with_metadata(
   on_debug: fn(String) -> Nil,
 ) -> ResolveWithMetadataResult {
   let #(payload, #(cache_hits, cache_fetches)) =
-    cached_tracks_source_ids_json(cache_mode)
+    cached_tracks_source_ids_json(cache_mode, on_debug)
   on_debug(
     "[tuna] cache hits="
       <> int.to_string(cache_hits)
       <> " fetches="
       <> int.to_string(cache_fetches),
+  )
+  on_debug(
+    "[tuna] postprocessing: JSON decode → unified items → depth limit",
   )
   let rows = decode_rows(payload)
   let #(all_items, all_metadata) = rows_to_items_with_metadata(rows)
@@ -69,13 +72,40 @@ pub fn resolve_with_metadata(
 
 fn cached_tracks_source_ids_json(
   cache_mode: cache.CacheMode,
+  on_debug: fn(String) -> Nil,
 ) -> #(String, #(Int, Int)) {
-  cache.read_or_fetch(
-    "tuna_tracks_source_ids_enriched_json",
-    "tuna_main_default_track_sources_enriched",
-    cache_mode,
-    tracks_source_ids_query.fetch_tracks_source_ids_json,
-  )
+  let #(payload, roll) =
+    cache.read_or_fetch(
+      "tuna_tracks_source_ids_enriched_json",
+      "tuna_main_default_track_sources_enriched",
+      cache_mode,
+      fn() {
+        on_debug(
+          "[tuna] database: starting gel query (gel -I tuna -b main query …)",
+        )
+        let raw = tracks_source_ids_query.fetch_tracks_source_ids_json()
+        on_debug(
+          "[tuna] database: gel response received (payload_chars="
+            <> int.to_string(string.length(raw))
+            <> ")",
+        )
+        raw
+      },
+    )
+  let #(hits, fetches) = roll
+  case fetches == 0 && hits > 0 {
+    True ->
+      on_debug("[tuna] database: payload from adapter cache (gel not run)")
+    False -> Nil
+  }
+  case fetches == 0 && hits == 0 {
+    True ->
+      on_debug(
+        "[tuna] database: no gel run (empty payload; read-only miss or cache miss)",
+      )
+    False -> Nil
+  }
+  #(payload, roll)
 }
 
 fn decode_rows(payload: String) -> List(dynamic.Dynamic) {

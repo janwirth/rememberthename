@@ -7,12 +7,12 @@ import gleam/list
 import output/visual_output
 import source_specs
 
-/// Parses optional cache flags after `fetch <source>`, then runs the fetch.
+/// Parses optional flags after `fetch <source>`, then runs the fetch.
 pub fn fetch_source_simple(selector: String, args: List(String)) {
   case parse_fetch_args(args) {
     Error(message) -> io.println(message)
     Ok(fetch_args) -> {
-      let FetchArgs(use_cache, shallow) = fetch_args
+      let FetchArgs(use_cache, shallow, validate) = fetch_args
       let cache_mode = case use_cache {
         True -> cache.CacheReadOnly
         False -> cache.CacheOverride
@@ -22,11 +22,17 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
           fetch_source_shallow_with_cache_mode(
             selector,
             cache_mode,
+            validate,
             fn(line) { io.println(line) },
           )
         False -> {
           let on_update = fn(line) { io.println(line) }
-          case fetch_orchestration.fetch_with_cache_mode(selector, cache_mode, on_update) {
+          case fetch_orchestration.fetch_with_cache_mode(
+            selector,
+            cache_mode,
+            validate,
+            on_update,
+          ) {
             Error(msg) -> io.println(msg)
             Ok(Nil) -> Nil
           }
@@ -39,10 +45,11 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
 pub fn fetch_source_shallow_simple(args: List(String)) {
   case parse_shallow_args(args) {
     Error(message) -> io.println(message)
-    Ok(selector) ->
+    Ok(#(selector, validate)) ->
       fetch_source_shallow_with_cache_mode(
         selector,
         cache.CacheOverride,
+        validate,
         fn(line) { io.println(line) },
       )
   }
@@ -51,6 +58,7 @@ pub fn fetch_source_shallow_simple(args: List(String)) {
 fn fetch_source_shallow_with_cache_mode(
   selector: String,
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_print: fn(String) -> Nil,
 ) {
   case fetch_orchestration.fetch_source_tracks_with_depth(
@@ -58,8 +66,9 @@ fn fetch_source_shallow_with_cache_mode(
     core.Depth1,
     "shallow",
     cache_mode,
-    False,
-    fn(_) { Nil },
+    True,
+    always_validate,
+    on_print,
   ) {
     Error(msg) -> on_print(msg)
     Ok(tracks) -> print_track_lines(tracks, on_print)
@@ -101,83 +110,69 @@ fn track_line(track: visual_output.TrackView) -> String {
 }
 
 type FetchArgs {
-  FetchArgs(use_cache: Bool, shallow: Bool)
+  FetchArgs(use_cache: Bool, shallow: Bool, validate: Bool)
 }
 
 fn parse_fetch_args(args: List(String)) -> Result(FetchArgs, String) {
-  case args {
-    [] -> Ok(FetchArgs(False, False))
-    [arg1] ->
-      parse_fetch_args_one(arg1)
-    [arg1, arg2] -> parse_fetch_args_two(arg1, arg2)
-    _ -> Error(fetch_arg_error_text())
-  }
-}
-
-fn parse_fetch_cache_pref(value: String) -> Result(Bool, Nil) {
-  case value {
-    "use-cache" -> Ok(True)
-    "override-cache" -> Ok(False)
-    _ -> Error(Nil)
-  }
-}
-
-fn parse_fetch_args_one(arg1: String) -> Result(FetchArgs, String) {
-  case parse_fetch_cache_pref(arg1) {
-    Ok(use_cache) -> Ok(FetchArgs(use_cache, False))
-    Error(_) ->
-      case is_shallow_flag(arg1) {
-        True -> Ok(FetchArgs(False, True))
-        False -> Error(fetch_arg_error_text())
+  let validate = list.any(args, fn(a) { a == "--validate" })
+  let shallow =
+    list.any(args, fn(a) { a == "shallow" || a == "--shallow" })
+  let wants_use = list.any(args, fn(a) { a == "use-cache" })
+  let wants_override = list.any(args, fn(a) { a == "override-cache" })
+  case wants_use && wants_override {
+    True -> Error("Use only one of use-cache or override-cache.")
+    False -> {
+      let use_cache = wants_use
+      let unknown =
+        list.filter(args, fn(a) {
+          a != "use-cache"
+          && a != "override-cache"
+          && a != "shallow"
+          && a != "--shallow"
+          && a != "--validate"
+        })
+      case unknown {
+        [] -> Ok(FetchArgs(use_cache, shallow, validate))
+        _ -> Error(fetch_arg_error_text())
       }
+    }
   }
 }
 
-fn parse_fetch_args_two(arg1: String, arg2: String) -> Result(FetchArgs, String) {
-  case parse_fetch_cache_pref(arg1), parse_fetch_cache_pref(arg2) {
-    Ok(use_cache), Error(_) ->
-      case is_shallow_flag(arg2) {
-        True -> Ok(FetchArgs(use_cache, True))
-        False -> Error(fetch_arg_error_text())
-      }
-    Error(_), Ok(use_cache) ->
-      case is_shallow_flag(arg1) {
-        True -> Ok(FetchArgs(use_cache, True))
-        False -> Error(fetch_arg_error_text())
-      }
-    _, _ -> Error(fetch_arg_error_text())
+fn parse_shallow_args(args: List(String)) -> Result(#(String, Bool), String) {
+  let validate = list.any(args, fn(a) { a == "--validate" })
+  let rest = list.filter(args, fn(a) { a != "--validate" })
+  case rest {
+    [] -> Ok(#("1", validate))
+    [selector] -> Ok(#(selector, validate))
+    _ -> Error("Too many args. Use: cli shallow [--validate] [source]")
   }
-}
-
-fn parse_shallow_args(args: List(String)) -> Result(String, String) {
-  case args {
-    [] -> Ok("1")
-    [selector] -> Ok(selector)
-    _ -> Error("Too many args. Use: cli shallow [source]")
-  }
-}
-
-fn is_shallow_flag(value: String) -> Bool {
-  value == "shallow" || value == "--shallow"
 }
 
 fn fetch_arg_error_text() -> String {
-  "Invalid fetch args. Use: cli fetch <source> [override-cache|use-cache] [--shallow]"
+  "Invalid fetch args. Use: cli fetch <source> [override-cache|use-cache] [--shallow] [--validate]"
 }
 
 pub fn fetch_with_cache_mode(
   selector: String,
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  fetch_orchestration.fetch_with_cache_mode(selector, cache_mode, on_update)
+  fetch_orchestration.fetch_with_cache_mode(
+    selector,
+    cache_mode,
+    always_validate,
+    on_update,
+  )
 }
 
 pub fn fetch_all_sources(
   cache_mode: cache.CacheMode,
+  always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) {
-  fetch_orchestration.fetch_all_sources(cache_mode, on_update)
+  fetch_orchestration.fetch_all_sources(cache_mode, always_validate, on_update)
 }
 
 pub fn run_fetch(

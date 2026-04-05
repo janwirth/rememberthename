@@ -162,6 +162,7 @@ pub fn fetch_source(
             selector,
             fetch_cache_as_mode(cache),
             write_to_json_file,
+            True,
             on_update,
           ) {
             Error(e) -> Error(e)
@@ -181,6 +182,7 @@ fn fetch_tuna(
     "tuna",
     fetch_cache_as_mode(cache),
     write_to_json_file,
+    True,
     on_update,
   ) {
     Error(e) -> Error(e)

@@ -37,7 +37,79 @@ pub fn merge_imported_dates(
   })
 }
 
-/// When `always_validate` or full depth, runs `validate_source_run` and reports PASS/FAIL via `on_update`.
+/// True when post-fetch validation runs (CLI: `--validate`; API: `always_validate`).
+pub fn validation_will_run(always_validate: Bool) -> Bool {
+  always_validate
+}
+
+/// Short label for the validation strategy (shown before fetch starts).
+pub fn validation_plan_label(depth: core.DepthMode) -> String {
+  case depth == core.All {
+    True -> "cross-depth SourceRun"
+    False -> "single-depth snapshot"
+  }
+}
+
+/// Assert thresholds and cache mode for the validation step.
+pub fn validation_params_detail(
+  source: source_specs.SourceSpec,
+  depth: core.DepthMode,
+  cache_mode: cache.CacheMode,
+) -> String {
+  let source_specs.SourceSpec(key, _, _, _, assert_spec) = source
+  let source_specs.SourceAssertSpec(
+    min_depth_1_items,
+    min_full_items,
+    source_limit,
+    first_items_to_preserve,
+    anchor_fragments,
+    required_full_fragments,
+  ) = assert_spec
+  let cache_txt = resolve_adapter.cache_mode_text(cache_mode)
+  case depth == core.All {
+    True ->
+      "cache="
+      <> cache_txt
+      <> " source="
+      <> key
+      <> " min_depth_1_items="
+      <> int.to_string(min_depth_1_items)
+      <> " min_full_items="
+      <> int.to_string(min_full_items)
+      <> " source_limit="
+      <> int.to_string(source_limit)
+      <> " first_items_to_preserve="
+      <> int.to_string(first_items_to_preserve)
+      <> " anchor_fragment_count="
+      <> int.to_string(list.length(anchor_fragments))
+      <> " required_full_fragment_count="
+      <> int.to_string(list.length(required_full_fragments))
+    False -> {
+      let min_d1_note = case depth {
+        core.Depth1 ->
+          "min_depth_1_items="
+          <> int.to_string(min_depth_1_items)
+          <> " (enforced)"
+        _ ->
+          "min_depth_1_items="
+          <> int.to_string(min_depth_1_items)
+          <> " (not enforced: not a depth-1 fetch)"
+      }
+      "cache="
+      <> cache_txt
+      <> " source="
+      <> key
+      <> " "
+      <> min_d1_note
+      <> " source_limit="
+      <> int.to_string(source_limit)
+      <> " anchor_fragment_count="
+      <> int.to_string(list.length(anchor_fragments))
+    }
+  }
+}
+
+/// When `always_validate`, runs validation and reports PASS/FAIL via `on_update`.
 pub fn print_runtime_validation(
   source: source_specs.SourceSpec,
   depth: core.DepthMode,
@@ -47,7 +119,7 @@ pub fn print_runtime_validation(
   on_update: fn(String) -> Nil,
   creds: api_keys.ApiKeys,
 ) {
-  case always_validate || depth == core.All {
+  case always_validate {
     False -> Nil
     True -> {
       let validation_errors = case depth {
