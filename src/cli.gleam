@@ -7,7 +7,7 @@ import gleam/io
 import gleam/list
 import gleam/option.{type Option}
 import output/visual_output.{type TrackView}
-import rememberthename
+import source_specs
 import adapters/cache.{type CacheMode}
 import cli/export_json
 import cli/tuna_perf
@@ -34,13 +34,10 @@ pub fn run(args: List(String)) {
 
 fn easy_start() {
   io.println(terminal.color("Sources:", terminal.ansi_bright_cyan()))
-  list.each(rememberthename.list_sources(), fn(row) {
+  list.each(source_specs.all(), fn(row) {
+    let #(title, root, assert_spec) = row
     io.println(
-      row.key
-      <> "-"
-      <> int.to_string(row.rank_for_key)
-      <> " | "
-      <> row.entry_point,
+      title
     )
   })
   io.println("")
