@@ -13,6 +13,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
+import source_root
 import source_specs
 
 pub fn main() {
@@ -32,15 +33,15 @@ pub fn main() {
 }
 
 fn validate_sources(
-  specs: List(source_specs.SourceSpec),
+  rows: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
   index: Int,
   total: Int,
   failed: Int,
 ) -> #(Int, Int) {
-  case specs {
+  case rows {
     [] -> #(total, failed)
-    [spec, ..rest] -> {
-      let pass = validate_source(spec, index)
+    [row, ..rest] -> {
+      let pass = validate_source(row, index)
       validate_sources(rest, index + 1, total + 1, case pass {
         True -> failed
         False -> failed + 1
@@ -49,14 +50,19 @@ fn validate_sources(
   }
 }
 
-fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
-  let source_specs.SourceSpec(key, name, entry_point, timing_spec, assert_spec) =
-    spec
+fn validate_source(
+  row: #(String, source_root.CatalogRoot, source_root.SourceAssertSpec),
+  index: Int,
+) -> Bool {
+  let #(title, catalog, assert_spec) = row
+  let key = source_root.catalog_key(catalog)
+  let entry_point = source_root.catalog_entry_point(catalog)
+  let timing_spec = source_root.catalog_timing(catalog)
   let cache_mode = cache.CacheUpsert
-  let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
+  let source_root.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("")
   io.println(
-    "== [" <> int.to_string(index) <> "] " <> name <> " (" <> key <> ") ==",
+    "== [" <> int.to_string(index) <> "] " <> title <> " (" <> key <> ") ==",
   )
   io.println("entry: " <> entry_point)
   io.println("cache: " <> cache_mode_text(cache_mode))
@@ -113,7 +119,7 @@ fn validate_source(spec: source_specs.SourceSpec, index: Int) -> Bool {
   let pass =
     validate_results(
       key,
-      name,
+      title,
       source_limit,
       assert_spec,
       depth_1,
@@ -132,12 +138,12 @@ fn resolve_source(
   entry_point: String,
   depth: core.DepthMode,
   source_limit: Int,
-  timing_spec: source_specs.SourceTimingSpec,
+  timing_spec: source_root.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
   creds: api_keys.ApiKeys,
 ) -> core.ResolveResult {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+  let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
   let queue_policy =
     core.QueuePolicy(
@@ -230,12 +236,12 @@ fn validate_results(
   key: String,
   name: String,
   source_limit: Int,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   d1: core.ResolveResult,
   d2: core.ResolveResult,
   all: core.ResolveResult,
 ) -> Bool {
-  let source_specs.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
     _source_limit,

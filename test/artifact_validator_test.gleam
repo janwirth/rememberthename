@@ -4,7 +4,7 @@ import gleam/list
 import gleam/string
 import gleeunit
 import gleeunit/should
-import source_specs
+import source_root
 
 pub fn main() {
   gleeunit.main()
@@ -35,7 +35,7 @@ pub fn validate_artifact_passes_when_all_checks_ok_test() {
   let assert Ok(summary) = artifact_validator.read_artifact(fixture_path)
   // 5 tracks, 1 collection; fixture includes "Spore Spreader" anchor + required fragments.
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 5,
       source_limit: 10,
@@ -50,7 +50,7 @@ pub fn validate_artifact_passes_when_all_checks_ok_test() {
 pub fn validate_artifact_fails_min_full_items_test() {
   let assert Ok(summary) = artifact_validator.parse_artifact(minimal_json)
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 100,
       source_limit: 4000,
@@ -67,7 +67,7 @@ pub fn validate_artifact_fails_min_full_items_test() {
 pub fn validate_artifact_fails_source_limit_test() {
   let assert Ok(summary) = artifact_validator.parse_artifact(minimal_json)
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 0,
       source_limit: 0,
@@ -84,7 +84,7 @@ pub fn validate_artifact_fails_source_limit_test() {
 pub fn validate_artifact_fails_missing_anchor_test() {
   let assert Ok(summary) = artifact_validator.parse_artifact(minimal_json)
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 0,
       source_limit: 4000,
@@ -101,7 +101,7 @@ pub fn validate_artifact_fails_missing_anchor_test() {
 pub fn validate_artifact_fails_missing_required_fragment_test() {
   let assert Ok(summary) = artifact_validator.parse_artifact(minimal_json)
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 0,
       source_limit: 4000,
@@ -118,7 +118,7 @@ pub fn validate_artifact_fails_missing_required_fragment_test() {
 pub fn validate_artifact_required_fragment_is_case_insensitive_test() {
   let assert Ok(summary) = artifact_validator.parse_artifact(minimal_json)
   let spec =
-    source_specs.SourceAssertSpec(
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 0,
       source_limit: 4000,

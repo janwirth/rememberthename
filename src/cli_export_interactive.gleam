@@ -21,6 +21,7 @@ import shore/layout
 import shore/style
 import shore/ui
 import shellout
+import source_root
 import source_specs
 
 pub fn main() {
@@ -256,21 +257,18 @@ fn activate(model: Model) -> #(Model, List(fn() -> Msg)) {
 }
 
 fn run_selected(model: Model) -> Msg {
-  let specs = selected_specs(model.selected_keys)
+  let specs = selected_rows(model.selected_keys)
   let cache_mode = cache_mode_from_choice(model.cache_choice)
   let action_label = action_text(model.action)
   let cache_label = cache_choice_text(model.cache_choice)
 
   let run_lines =
-    list.fold(specs, [], fn(lines, spec) {
-      let source_specs.SourceSpec(
-        key,
-        name,
-        entry_point,
-        timing_spec,
-        assert_spec,
-      ) = spec
-      let source_specs.SourceAssertSpec(_, _, source_limit, _, _, _) =
+    list.fold(specs, [], fn(lines, row) {
+      let #(title, catalog, assert_spec) = row
+      let key = source_root.catalog_key(catalog)
+      let entry_point = source_root.catalog_entry_point(catalog)
+      let timing_spec = source_root.catalog_timing(catalog)
+      let source_root.SourceAssertSpec(_, _, source_limit, _, _, _) =
         assert_spec
       let result =
         resolve_source(
@@ -284,7 +282,7 @@ fn run_selected(model: Model) -> Msg {
         )
       let core.ResolveResult(items, lists, unresolved) = result
       let details =
-        name
+        title
         <> " ("
         <> key
         <> "): items="
@@ -309,10 +307,12 @@ fn run_selected(model: Model) -> Msg {
   RunFinished(summary_lines)
 }
 
-fn selected_specs(selected_keys: List(String)) -> List(source_specs.SourceSpec) {
-  list.filter(source_specs.all(), fn(spec) {
-    let source_specs.SourceSpec(key, _, _, _, _) = spec
-    list.contains(selected_keys, key)
+fn selected_rows(
+  selected_keys: List(String),
+) -> List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)) {
+  list.filter(source_specs.all(), fn(row) {
+    let #(_, catalog, _) = row
+    list.contains(selected_keys, source_root.catalog_key(catalog))
   })
 }
 
@@ -329,13 +329,13 @@ fn go_back(model: Model) -> Model {
 fn toggle_current_source(model: Model) -> Model {
   case model.step {
     SelectSourcesStep -> {
-      let specs = source_specs.all()
+      let rows = source_specs.all()
       case model.cursor {
         0 -> {
           let all_keys =
-            list.map(specs, fn(spec) {
-              let source_specs.SourceSpec(key, _, _, _, _) = spec
-              key
+            list.map(rows, fn(row) {
+              let #(_, catalog, _) = row
+              source_root.catalog_key(catalog)
             })
           case list.length(model.selected_keys) == list.length(all_keys) {
             True -> Model(..model, selected_keys: [])
@@ -343,9 +343,10 @@ fn toggle_current_source(model: Model) -> Model {
           }
         }
         _ ->
-          case source_at(specs, model.cursor - 1) {
-            Ok(spec) -> {
-              let source_specs.SourceSpec(key, _, _, _, _) = spec
+          case source_at(rows, model.cursor - 1) {
+            Ok(row) -> {
+              let #(_, catalog, _) = row
+              let key = source_root.catalog_key(catalog)
               let next_selected = toggle_key(model.selected_keys, key)
               Model(..model, selected_keys: next_selected)
             }
@@ -421,9 +422,9 @@ fn action_at(
 }
 
 fn source_at(
-  entries: List(source_specs.SourceSpec),
+  entries: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
   index: Int,
-) -> Result(source_specs.SourceSpec, Nil) {
+) -> Result(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec), Nil) {
   case entries {
     [] -> Error(Nil)
     [entry, ..rest] ->
@@ -518,15 +519,16 @@ fn step_items(model: Model) -> List(shore.Node(Msg)) {
 }
 
 fn source_step_nodes(model: Model) -> List(shore.Node(Msg)) {
-  let specs = source_specs.all()
-  let all_selected = list.length(model.selected_keys) == list.length(specs)
+  let rows = source_specs.all()
+  let all_selected = list.length(model.selected_keys) == list.length(rows)
   let all_node =
     source_item_node("All sources", all_selected, model.cursor == 0)
   let source_nodes =
-    list.index_map(specs, fn(spec, index) {
-      let source_specs.SourceSpec(key, name, _, _, _) = spec
+    list.index_map(rows, fn(row, index) {
+      let #(title, catalog, _) = row
+      let key = source_root.catalog_key(catalog)
       source_item_node(
-        name <> " (" <> key <> ")",
+        title <> " (" <> key <> ")",
         list.contains(model.selected_keys, key),
         model.cursor == index + 1,
       )
@@ -562,10 +564,11 @@ fn item_node(text: String, focused: Bool) -> shore.Node(Msg) {
 
 fn right_panel_nodes(model: Model) -> List(shore.Node(Msg)) {
   let selected_names =
-    list.filter_map(source_specs.all(), fn(spec) {
-      let source_specs.SourceSpec(key, name, _, _, _) = spec
+    list.filter_map(source_specs.all(), fn(row) {
+      let #(title, catalog, _) = row
+      let key = source_root.catalog_key(catalog)
       case list.contains(model.selected_keys, key) {
-        True -> Ok("  - " <> name <> " (" <> key <> ")")
+        True -> Ok("  - " <> title <> " (" <> key <> ")")
         False -> Error(Nil)
       }
     })
@@ -598,12 +601,12 @@ fn resolve_source(
   entry_point: String,
   depth: core.DepthMode,
   source_limit: Int,
-  timing_spec: source_specs.SourceTimingSpec,
+  timing_spec: source_root.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
 ) -> core.ResolveResult {
   let creds = api_credentials.load_api_keys()
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+  let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
   let queue_policy =
     core.QueuePolicy(

@@ -11,7 +11,7 @@
 
 Fetch params only — no assertions, no `source_limit` (those stay on `SourceAssertSpec` / verification).
 
-- Shared: `SourceTimingSpec` (Bandcamp), `DepthMode` (`adapters/core`), `SpotifyCredentials` passed by caller.
+- Shared: `SourceTimingSpec` (in `source_root`, Bandcamp `SourceRoot`), `DepthMode` (`adapters/core`), `SpotifyCredentials` passed by caller.
 - **Spotify:** likes/library from **authenticated session** — no `user_or_collection_url` on the root.
 - **YouTube:** `playlist_url` + `google_cloud_api_key`; orchestration may **ping the API** to verify the key.
 - **Tuna:** legacy local EdgeDB mirror; sentinel `entry_point` only if `track_view.adapter_id_for_source` still needs a string.
@@ -79,20 +79,19 @@ Principles: **one PR per phase** where possible; **`gleam test` + `gleam build` 
 ### Phase 1 — `SourceRoot` type only
 
 - [x] Add a small module (e.g. `source_root.gleam`) with `SourceRoot` exactly as in this spec (`SpotifyCredentials` imported from existing adapter/cli types).
-- [x] Add `from_legacy_spec(SourceSpec) -> SourceRoot` (or live on `source_specs`) that maps today’s `all()` rows — **no call-site switches yet**.
+- [x] Add `from_catalog(CatalogRoot) -> SourceRoot` (on `source_root`) that maps today’s `all()` rows — **no call-site switches yet**.
 - [x] **Tests:** one test per variant (or table-driven) asserting the mapping matches known `entry_point` / URLs / timing fields from `source_specs`.
 
 ### Phase 2 — Triple registry alongside list
 
-- [x] Add `registry() -> Dict(String, #(SourceRoot, SourceAssertSpec))` (and optionally `triple(key) -> Result(...)`) built from current `SourceSpec` list.
-- [x] Keep `all()` + `SourceSpec` until callers are migrated.
-- [x] **Tests:** dict keys equal set of `all()` keys; spot-check one triple’s `SourceAssertSpec` matches the legacy spec.
+- [x] Add `registry(rows, keys) -> Dict(String, #(SourceRoot, SourceAssertSpec))` (and `triple(key, rows, keys)`) built from `source_specs.all()` rows `#(title, CatalogRoot, SourceAssertSpec)`; types live in `source_root`.
+- [x] **Tests:** dict keys equal set of `all()` keys; spot-check one triple’s `SourceAssertSpec` matches the catalog row.
 
 ### Phase 3 — Core `fetch(root, …)` behind existing behavior
 
 - [x] For each `SourceRoot` variant, add or rename an adapter function whose **args mirror the constructor fields** (+ minimal shared args: `cache_mode`, `on_update`, etc.); `fetch` dispatches with a single `case root`.
 - [x] Extract resolve pipeline from `run_fetch` into `fetch(root, cache_mode, on_update) -> Result(...)` returning **`List(core.UnifiedItem)`** (plus whatever metadata you already thread for imported dates / adapter id — introduce a named `FetchResult` record in this phase if it clarifies diffs).
-- [x] Implement `run_fetch` as: legacy `SourceSpec` → `SourceRoot` → `fetch` → **same JSON write behavior as today**; **strip any validation/assert hooks from the fetch path** so they run only via **`validate_all` on JSON** (may be a follow-up sub-step in the same PR if currently coupled).
+- [x] Implement `run_fetch` as: catalog row → `SourceRoot` → `fetch` → **same JSON write behavior as today**; **strip any validation/assert hooks from the fetch path** so they run only via **`validate_all` on JSON** (may be a follow-up sub-step in the same PR if currently coupled).
 - [x] **Tests:** add **one direct `fetch` test** on the smallest adapter (e.g. `TunaRoot`) to pin the new API. **`validate_all`** remains a **separate** dev entrypoint reading JSON — adjust only if it still assumed in-fetch validation.
 
 ### Phase 4 — `fetch_and_save_json` + new artifact names
@@ -125,14 +124,14 @@ Principles: **one PR per phase** where possible; **`gleam test` + `gleam build` 
 - [x] **8c** — Delete `output/csv_writer.gleam`, CSV-only tests, and `track_csv_row` / CSV sections in `visual_output` if nothing else uses them.
 - [x] **8d** — `manifest.toml`: drop CSV-only deps if any. (no CSV-only deps found)
 
-### Phase 9 — Remove legacy `SourceSpec` path (optional cleanup)
+### Phase 9 — Catalog rows as `#(title, root, assert)` (no `SourceSpec`)
 
-- [x] Migrate all callers to `registry()` triples + `SourceRoot` only; delete or privatise `SourceSpec` / `all()` if unused.
-  - `fetch_orchestration`: uses `ordered_registry_list` + `triple_by_selector`; no `SourceSpec` on the fetch path.
-  - `fetch_validation`: no `SourceSpec`; uses key/name/assert_spec/root directly.
-  - `source_selector`: dead SourceSpec-based selector functions removed; `triple_by_selector` is the live API.
-  - Remaining `SourceSpec` users are non-fetch-path: `cli_export_interactive`, `validate_all`, `rememberthename.list_sources`, `source_root` bridge functions (`from_legacy_spec`, `registry`).
-- [ ] **Tests:** grep for `SourceSpec` in `src/` should be empty or test-only fixtures (non-fetch-path users remain).
+- [x] `source_specs.all()` is `List(#(String, CatalogRoot, SourceAssertSpec))` (types from `source_root`); selector key comes from `catalog_key(CatalogRoot)`.
+  - `fetch_orchestration`: uses `ordered_registry_list` + `triple_by_selector`.
+  - `fetch_validation`: uses key/assert_spec/root directly.
+  - `source_selector`: `triple_by_selector` + `provider_rank_for_index` on catalog rows.
+  - `cli_export_interactive`, `validate_all`, `rememberthename.list_sources`, `source_root.from_catalog` / `registry` consume the same list shape.
+- [x] **Tests:** `src/` has no `source_specs.SourceSpec`; depth tests use `test/sources.SourceSpec` as a separate harness type.
 
 ### Phase 10 — Test helper `with_root` (after API stable)
 

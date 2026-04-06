@@ -3,7 +3,7 @@
 //// This module owns the glue between the source registry and `fetch_ops.fetch`.
 //// `fetch_ops` itself exports only `fetch` / `fetch_and_save_json` plus types.
 ////
-//// `SourceSpec` is not imported here — selection and dispatch go through
+//// Catalog rows from `source_specs.all()` are not imported here — selection and dispatch go through
 //// `source_root.ordered_registry_list` + `source_selector.triple_by_selector`.
 
 import adapters/cache
@@ -33,7 +33,7 @@ pub fn fetch_with_cache_mode(
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
   let keys = api_credentials.load_full_api_keys()
-  let ordered = source_root.ordered_registry_list(keys)
+  let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
   case selector == "all" {
     True -> {
       fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
@@ -69,12 +69,12 @@ pub fn fetch_all_sources(
   on_update: fn(String) -> Nil,
 ) {
   let keys = api_credentials.load_full_api_keys()
-  let ordered = source_root.ordered_registry_list(keys)
+  let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
   fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
 }
 
 fn fetch_all_sources_with_ordered(
-  ordered: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
+  ordered: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   cache_mode: cache.CacheMode,
   always_validate: Bool,
   on_update: fn(String) -> Nil,
@@ -112,7 +112,7 @@ fn fetch_all_sources_with_ordered(
 }
 
 fn fetch_all_sources_loop(
-  ordered: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
+  ordered: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   index: Int,
   cache_mode: cache.CacheMode,
   always_validate: Bool,
@@ -188,7 +188,7 @@ pub fn fetch_source_tracks_with_depth(
     True -> Error("use fetch_all for all sources")
     False -> {
       let keys = api_credentials.load_full_api_keys()
-      let ordered = source_root.ordered_registry_list(keys)
+      let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
       case source_pick.triple_by_selector(ordered, selector) {
         Error(_) -> Error("Invalid source selector: " <> selector)
         Ok(#(source_index, key, base_root, assert_spec)) -> {
@@ -221,7 +221,7 @@ pub fn run_fetch(
   key: String,
   source_index: Int,
   root: source_root.SourceRoot,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   depth: core.DepthMode,
   depth_label: String,
   cache_mode: cache.CacheMode,

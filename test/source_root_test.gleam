@@ -30,53 +30,53 @@ fn fake_youtube_keys() -> api_keys.ApiKeys {
 }
 
 pub fn bandcamp_maps_url_depth_and_timing_test() {
-  let spec = source_specs.bandcamp()
-  let source_specs.SourceSpec(_, _, entry_point, timing_spec, _) = spec
-  let result = source_root.from_legacy_spec(spec, core.All, empty_keys())
+  let #(_, catalog, _) = source_specs.bandcamp()
+  let assert source_root.BandcampCatalog(entry_point, timing_spec) = catalog
+  let result = source_root.from_catalog(catalog, core.All, empty_keys())
   result
   |> should.equal(Ok(source_root.BandcampRoot(entry_point, core.All, timing_spec)))
 }
 
 pub fn soundcloud_maps_entry_point_and_depth_test() {
-  let spec = source_specs.soundcloud()
-  let source_specs.SourceSpec(_, _, entry_point, _, _) = spec
-  let result = source_root.from_legacy_spec(spec, core.Depth1, empty_keys())
+  let #(_, catalog, _) = source_specs.soundcloud()
+  let assert source_root.SoundcloudCatalog(entry_point, _) = catalog
+  let result = source_root.from_catalog(catalog, core.Depth1, empty_keys())
   result
   |> should.equal(Ok(source_root.SoundcloudRoot(entry_point, core.Depth1)))
 }
 
 pub fn spotify_maps_credentials_and_depth_test() {
-  let spec = source_specs.spotify()
+  let #(_, catalog, _) = source_specs.spotify()
   let keys = fake_spotify_keys()
-  let result = source_root.from_legacy_spec(spec, core.All, keys)
+  let result = source_root.from_catalog(catalog, core.All, keys)
   let assert api_keys.ApiKeys(spotify: Some(creds), ..) = keys
   result
   |> should.equal(Ok(source_root.SpotifyRoot(creds, core.All)))
 }
 
 pub fn spotify_errors_without_credentials_test() {
-  let spec = source_specs.spotify()
-  source_root.from_legacy_spec(spec, core.All, empty_keys())
+  let #(_, catalog, _) = source_specs.spotify()
+  source_root.from_catalog(catalog, core.All, empty_keys())
   |> should.equal(Error(api_keys.MissingApiKey("spotify")))
 }
 
 pub fn youtube_maps_playlist_url_and_api_key_test() {
-  let spec = source_specs.youtube()
-  let source_specs.SourceSpec(_, _, entry_point, _, _) = spec
-  let result = source_root.from_legacy_spec(spec, core.All, fake_youtube_keys())
+  let #(_, catalog, _) = source_specs.youtube()
+  let assert source_root.YoutubeCatalog(entry_point, _) = catalog
+  let result = source_root.from_catalog(catalog, core.All, fake_youtube_keys())
   result
   |> should.equal(Ok(source_root.YoutubeRoot(entry_point, "yt-key")))
 }
 
 pub fn youtube_errors_without_api_key_test() {
-  let spec = source_specs.youtube()
-  source_root.from_legacy_spec(spec, core.All, empty_keys())
+  let #(_, catalog, _) = source_specs.youtube()
+  source_root.from_catalog(catalog, core.All, empty_keys())
   |> should.equal(Error(api_keys.MissingApiKey("youtube_data_api")))
 }
 
 pub fn tuna_maps_to_tuna_root_test() {
-  let spec = source_specs.tuna()
-  source_root.from_legacy_spec(spec, core.All, empty_keys())
+  let #(_, catalog, _) = source_specs.tuna()
+  source_root.from_catalog(catalog, core.All, empty_keys())
   |> should.equal(Ok(source_root.TunaRoot))
 }
 
@@ -94,15 +94,15 @@ fn full_keys() -> api_keys.ApiKeys {
 }
 
 pub fn registry_has_all_source_keys_test() {
-  let reg = source_root.registry(full_keys())
+  let reg = source_root.registry(source_specs.all(), full_keys())
   let reg_keys =
     dict.keys(reg)
     |> set.from_list
   let expected =
     source_specs.all()
-    |> list.map(fn(s) {
-      let source_specs.SourceSpec(key, _, _, _, _) = s
-      key
+    |> list.map(fn(row) {
+      let #(_, catalog, _) = row
+      source_root.catalog_key(catalog)
     })
     |> set.from_list
   reg_keys
@@ -110,20 +110,20 @@ pub fn registry_has_all_source_keys_test() {
 }
 
 pub fn registry_assert_spec_matches_legacy_bandcamp_test() {
-  let reg = source_root.registry(full_keys())
+  let reg = source_root.registry(source_specs.all(), full_keys())
   let assert Ok(#(_root, assert_spec)) = dict.get(reg, "bandcamp")
-  let source_specs.SourceSpec(_, _, _, _, expected_spec) = source_specs.bandcamp()
+  let #(_, _, expected_spec) = source_specs.bandcamp()
   assert_spec
   |> should.equal(expected_spec)
 }
 
 pub fn triple_returns_ok_for_known_key_test() {
-  source_root.triple("soundcloud", full_keys())
+  source_root.triple("soundcloud", source_specs.all(), full_keys())
   |> should.be_ok
 }
 
 pub fn triple_returns_error_for_unknown_key_test() {
-  source_root.triple("nonexistent", full_keys())
+  source_root.triple("nonexistent", source_specs.all(), full_keys())
   |> should.be_error
 }
 
@@ -134,15 +134,16 @@ pub fn artifact_json_path_tuna_test() {
 }
 
 pub fn artifact_json_path_bandcamp_test() {
-  let spec = source_specs.bandcamp()
-  let assert Ok(root) = source_root.from_legacy_spec(spec, core.All, empty_keys())
+  let #(_, catalog, _) = source_specs.bandcamp()
+  let assert Ok(root) = source_root.from_catalog(catalog, core.All, empty_keys())
   source_root.artifact_json_path(root)
   |> should.equal("output/bandcamp_full.json")
 }
 
 pub fn artifact_json_path_spotify_test() {
+  let #(_, catalog, _) = source_specs.spotify()
   let assert Ok(root) =
-    source_root.from_legacy_spec(source_specs.spotify(), core.All, fake_spotify_keys())
+    source_root.from_catalog(catalog, core.All, fake_spotify_keys())
   source_root.artifact_json_path(root)
   |> should.equal("output/spotify_full.json")
 }

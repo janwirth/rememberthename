@@ -1,56 +1,19 @@
-//// Canonical integration source specs used by CLI, TUI, and validation runs.
-////
-//// This module is the single source of truth for implemented source fixtures.
-//// Each `SourceSpec` defines:
-//// - a stable entry point URL
-//// - a per-source output cap (`source_limit`)
-//// - provider timing policy for `DepthAll` queue traversal
-//// - depth assertions used by tests and `validate_all`
-////
-//// Assertion semantics:
-//// - `min_depth_1_items`: lower bound for shallow resolution
-//// - `min_full_items`: lower bound for full traversal
-//// - `source_limit`: max items allowed in validated/exported full output, this is useful if you don't want to accidentally download the whole internet
-//// - `first_items_to_preserve`: early discovered ids that must survive deeper traversal
-//// - `anchor_fragments`: title fragments that should appear in shallow/deep outputs
-//// - `required_full_fragments`: title fragments that must appear in full output
+//// Canonical integration source rows: imports `source_root` types only, defines the ordered list.
 
-pub type SourceAssertSpec {
-  SourceAssertSpec(
-    min_depth_1_items: Int,
-    min_full_items: Int,
-    source_limit: Int,
-    first_items_to_preserve: Int,
-    anchor_fragments: List(String),
-    required_full_fragments: List(String),
-  )
-}
+import source_root
 
-pub type SourceTimingSpec {
-  SourceTimingSpec(max_concurrency: Int, requests_per_second: Int)
-}
-
-pub type SourceSpec {
-  SourceSpec(
-    key: String,
-    name: String,
-    entry_point: String,
-    timing_spec: SourceTimingSpec,
-    assert_spec: SourceAssertSpec,
-  )
-}
-
-pub fn all() -> List(SourceSpec) {
+pub fn all() -> List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)) {
   [bandcamp(), soundcloud(), spotify(), youtube(), tuna()]
 }
 
-pub fn bandcamp() -> SourceSpec {
-  SourceSpec(
-    key: "bandcamp",
-    name: "Bandcamp",
-    entry_point: "https://bandcamp.com/janwirth",
-    timing_spec: SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
-    assert_spec: SourceAssertSpec(
+pub fn bandcamp() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+  #(
+    "Bandcamp",
+    source_root.BandcampCatalog(
+      "https://bandcamp.com/janwirth",
+      source_root.SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
+    ),
+    source_root.SourceAssertSpec(
       min_depth_1_items: 1,
       min_full_items: 700,
       source_limit: 4000,
@@ -70,13 +33,14 @@ pub fn bandcamp() -> SourceSpec {
   )
 }
 
-pub fn soundcloud() -> SourceSpec {
-  SourceSpec(
-    key: "soundcloud",
-    name: "Soundcloud",
-    entry_point: "https://soundcloud.com/tungstenselects",
-    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec: SourceAssertSpec(
+pub fn soundcloud() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+  #(
+    "Soundcloud",
+    source_root.SoundcloudCatalog(
+      "https://soundcloud.com/tungstenselects",
+      source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+    ),
+    source_root.SourceAssertSpec(
       min_depth_1_items: 10,
       min_full_items: 1000,
       source_limit: 4000,
@@ -93,13 +57,14 @@ pub fn soundcloud() -> SourceSpec {
   )
 }
 
-pub fn spotify() -> SourceSpec {
-  SourceSpec(
-    key: "spotify",
-    name: "Spotify",
-    entry_point: "https://open.spotify.com/user/franzskuffka",
-    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec: SourceAssertSpec(
+pub fn spotify() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+  #(
+    "Spotify",
+    source_root.SpotifyCatalog(
+      "https://open.spotify.com/user/franzskuffka",
+      source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+    ),
+    source_root.SourceAssertSpec(
       min_depth_1_items: 50,
       min_full_items: 1000,
       source_limit: 4000,
@@ -111,13 +76,14 @@ pub fn spotify() -> SourceSpec {
   )
 }
 
-pub fn youtube() -> SourceSpec {
-  SourceSpec(
-    key: "youtube",
-    name: "Youtube",
-    entry_point: "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
-    timing_spec: SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
-    assert_spec: SourceAssertSpec(
+pub fn youtube() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+  #(
+    "Youtube",
+    source_root.YoutubeCatalog(
+      "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
+      source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+    ),
+    source_root.SourceAssertSpec(
       min_depth_1_items: 5,
       min_full_items: 1000,
       source_limit: 4000,
@@ -136,13 +102,14 @@ pub fn youtube() -> SourceSpec {
   )
 }
 
-pub fn tuna() -> SourceSpec {
-  SourceSpec(
-    key: "tuna",
-    name: "Tuna",
-    entry_point: "gel:tuna/main::default::Track",
-    timing_spec: SourceTimingSpec(max_concurrency: 1, requests_per_second: 1),
-    assert_spec: SourceAssertSpec(
+pub fn tuna() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+  #(
+    "Tuna",
+    source_root.TunaCatalog(
+      "gel:tuna/main::default::Track",
+      source_root.SourceTimingSpec(max_concurrency: 1, requests_per_second: 1),
+    ),
+    source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 10,
       source_limit: 100000,

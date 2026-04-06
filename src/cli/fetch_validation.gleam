@@ -8,14 +8,13 @@ import gleam/list
 import gleam/string
 import output/visual_output
 import source_root
-import source_specs
 
 /// Resolve snapshots at depth-1, depth-2, and full depth for post-fetch validation.
 pub type SourceRun {
   SourceRun(
     key: String,
     name: String,
-    assert_spec: source_specs.SourceAssertSpec,
+    assert_spec: source_root.SourceAssertSpec,
     depth_1: core.ResolveResult,
     depth_2: core.ResolveResult,
     depth_all: core.ResolveResult,
@@ -55,11 +54,11 @@ pub fn validation_plan_label(depth: core.DepthMode) -> String {
 /// Assert thresholds and cache mode for the validation step.
 pub fn validation_params_detail(
   key: String,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
 ) -> String {
-  let source_specs.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
     source_limit,
@@ -115,7 +114,7 @@ pub fn validation_params_detail(
 pub fn print_runtime_validation(
   key: String,
   name: String,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   root: source_root.SourceRoot,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
@@ -162,11 +161,11 @@ pub fn print_runtime_validation(
 fn validate_single_depth_result(
   key: String,
   name: String,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   depth: core.DepthMode,
   depth_result: core.ResolveResult,
 ) -> List(String) {
-  let source_specs.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     min_depth_1_items,
     _,
     source_limit,
@@ -209,7 +208,7 @@ fn validate_single_depth_result(
 pub fn validation_run_for_depth(
   key: String,
   name: String,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
   root: source_root.SourceRoot,
   depth: core.DepthMode,
   cache_mode: cache.CacheMode,
@@ -284,7 +283,7 @@ pub fn validation_run_for_depth(
 /// Asserts counts, monotonicity, list/unresolved stability, anchors, limits; returns human-readable errors.
 pub fn validate_source_run(run: SourceRun) -> List(String) {
   let SourceRun(key, name, assert_spec, depth_1, depth_2, depth_all) = run
-  let source_specs.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
     source_limit,

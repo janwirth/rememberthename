@@ -15,7 +15,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 import simplifile
-import source_specs
+import source_root
 
 /// Summary of a parsed artifact file — only what validators need.
 pub type ArtifactSummary {
@@ -68,9 +68,9 @@ pub fn read_artifact(path: String) -> Result(ArtifactSummary, String) {
 pub fn validate_artifact(
   key: String,
   summary: ArtifactSummary,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
 ) -> List(String) {
-  let source_specs.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     _min_depth_1_items,
     min_full_items,
     source_limit,
@@ -128,7 +128,7 @@ fn add_error(errors: List(String), condition: Bool, msg: String) -> List(String)
 pub fn validate_artifact_file(
   key: String,
   path: String,
-  assert_spec: source_specs.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
 ) -> Result(List(String), String) {
   use summary <- result.map(read_artifact(path))
   validate_artifact(key, summary, assert_spec)

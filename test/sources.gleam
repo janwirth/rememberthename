@@ -1,6 +1,7 @@
 import adapters/cache
 import depth_test_spec
-import source_specs as canonical_sources
+import source_root
+import source_specs as canonical_rows
 
 pub type SourceSpec {
   SourceSpec(
@@ -26,30 +27,36 @@ pub fn depth_assert_spec(spec: SourceSpec) -> depth_test_spec.DepthAssertSpec {
 }
 
 pub fn bandcamp() -> SourceSpec {
-  from_canonical(canonical_sources.bandcamp())
+  from_canonical(canonical_rows.bandcamp())
 }
 
 pub fn soundcloud() -> SourceSpec {
-  from_canonical(canonical_sources.soundcloud())
+  from_canonical(canonical_rows.soundcloud())
 }
 
 pub fn spotify() -> SourceSpec {
-  from_canonical(canonical_sources.spotify())
+  from_canonical(canonical_rows.spotify())
 }
 
 pub fn youtube() -> SourceSpec {
-  from_canonical(canonical_sources.youtube())
+  from_canonical(canonical_rows.youtube())
 }
 
-fn from_canonical(spec: canonical_sources.SourceSpec) -> SourceSpec {
-  let canonical_sources.SourceSpec(_, _, entry_point, _, assert_spec) = spec
-  SourceSpec(entry_point, cache.CacheUpsert, to_depth_assert_spec(assert_spec))
+fn from_canonical(
+  row: #(String, source_root.CatalogRoot, source_root.SourceAssertSpec),
+) -> SourceSpec {
+  let #(_, catalog, assert_spec) = row
+  SourceSpec(
+    source_root.catalog_entry_point(catalog),
+    cache.CacheUpsert,
+    to_depth_assert_spec(assert_spec),
+  )
 }
 
 fn to_depth_assert_spec(
-  assert_spec: canonical_sources.SourceAssertSpec,
+  assert_spec: source_root.SourceAssertSpec,
 ) -> depth_test_spec.DepthAssertSpec {
-  let canonical_sources.SourceAssertSpec(
+  let source_root.SourceAssertSpec(
     min_depth_1_items,
     min_full_items,
     _,

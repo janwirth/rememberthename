@@ -21,7 +21,6 @@ import gleam/result
 import output/visual_output
 import simplifile
 import source_root
-import source_specs
 
 /// Resolved data from a single `fetch` call.
 pub type FetchResult {
@@ -49,7 +48,7 @@ pub fn fetch(
 ) -> Result(FetchResult, String) {
   case root {
     source_root.BandcampRoot(profile_url, depth, timing) -> {
-      let source_specs.SourceTimingSpec(max_conc, rps) = timing
+      let source_root.SourceTimingSpec(max_conc, rps) = timing
       let qp =
         resolve_adapter.queue_policy_for_cache_mode(cache_mode, max_conc, rps)
       let profile = bandcamp_live_expander.bandcamp_profile(profile_url)

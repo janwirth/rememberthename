@@ -8,7 +8,7 @@ import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import cli/config_paths
 import cli/spotify_credentials
-import source_specs
+import source_root
 
 /// Short string for logging cache behavior.
 pub fn cache_mode_text(value: cache.CacheMode) -> String {
@@ -44,13 +44,13 @@ pub fn resolve_source(
   entry_point: String,
   depth: core.DepthMode,
   source_limit: Int,
-  timing_spec: source_specs.SourceTimingSpec,
+  timing_spec: source_root.SourceTimingSpec,
   cache_mode: cache.CacheMode,
   on_debug: fn(String) -> Nil,
   on_progress: fn(core.ResolveProgress) -> Nil,
   keys: api_keys.ApiKeys,
 ) -> Result(core.ResolveResult, api_keys.ResolveAdapterError) {
-  let source_specs.SourceTimingSpec(max_concurrency, requests_per_second) =
+  let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
     timing_spec
   let queue_policy = queue_policy_for_cache_mode(
     cache_mode,

@@ -4,7 +4,6 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import source_root
-import source_specs
 
 /// Parses strings like `spotify-2` into provider key and 1-based duplicate rank.
 fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
@@ -29,16 +28,16 @@ fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
 
 /// How many sources with `wanted_key` occur up to and including `wanted_index`.
 pub fn provider_rank_for_index(
-  sources: List(source_specs.SourceSpec),
+  entries: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
   wanted_key: String,
   wanted_index: Int,
   current_index: Int,
   current_rank: Int,
 ) -> Int {
-  case sources {
+  case entries {
     [] -> current_rank
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(key, _, _, _, _) = source
+    [#(_title, catalog, _), ..rest] -> {
+      let key = source_root.catalog_key(catalog)
       let next_rank = case key == wanted_key {
         True -> current_rank + 1
         False -> current_rank
@@ -62,10 +61,10 @@ pub fn provider_rank_for_index(
 ///
 /// Supports numeric index, bare key, and `key-rank` alias (`spotify-2`).
 pub fn triple_by_selector(
-  triples: List(#(String, source_root.SourceRoot, source_specs.SourceAssertSpec)),
+  triples: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   wanted: String,
 ) -> Result(
-  #(Int, String, source_root.SourceRoot, source_specs.SourceAssertSpec),
+  #(Int, String, source_root.SourceRoot, source_root.SourceAssertSpec),
   Nil,
 ) {
   let keys = list.map(triples, fn(t) { t.0 })

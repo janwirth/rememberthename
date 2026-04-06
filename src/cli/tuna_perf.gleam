@@ -6,11 +6,14 @@ import cli/runtime
 import cli/track_view
 import gleam/list
 import simplifile
+import source_root
 import source_specs
 
 /// Runs a full tuna resolve+JSON write and returns how long the file write took (ms).
 pub fn tuna_export_duration_ms(cache_mode: cache.CacheMode) -> Int {
-  let source_specs.SourceSpec(key, _, entry_point, _, _) = source_specs.tuna()
+  let #(_, tuna_catalog, _) = source_specs.tuna()
+  let key = source_root.catalog_key(tuna_catalog)
+  let entry_point = source_root.catalog_entry_point(tuna_catalog)
   let tuna_normalized_source.ResolveWithMetadataResult(result, metadata_index) =
     tuna_normalized_source.resolve_with_metadata(core.All, cache_mode, fn(_line) {
       Nil

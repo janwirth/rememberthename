@@ -7,6 +7,7 @@ import gleam/list
 import gleam/option.{type Option}
 import gleam/time/timestamp
 import output/visual_output
+import source_root
 import source_specs
 
 // ---------------------------------------------------------------------------
@@ -37,14 +38,15 @@ pub fn list_sources() -> List(SourceListing) {
 }
 
 fn list_sources_acc(
-  sources: List(source_specs.SourceSpec),
+  sources: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
   index: Int,
   acc: List(SourceListing),
 ) -> List(SourceListing) {
   case sources {
     [] -> list.reverse(acc)
-    [source, ..rest] -> {
-      let source_specs.SourceSpec(key, name, entry_point, _, _) = source
+    [#(title, catalog, _), ..rest] -> {
+      let key = source_root.catalog_key(catalog)
+      let entry_point = source_root.catalog_entry_point(catalog)
       let rank =
         source_pick.provider_rank_for_index(
           source_specs.all(),
@@ -54,7 +56,7 @@ fn list_sources_acc(
           0,
         )
       list_sources_acc(rest, index + 1, [
-        SourceListing(index, key, name, entry_point, rank),
+        SourceListing(index, key, title, entry_point, rank),
         ..acc,
       ])
     }
