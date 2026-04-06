@@ -28,7 +28,7 @@ fn parse_provider_alias(value: String) -> Result(#(String, Int), Nil) {
 
 /// How many sources with `wanted_key` occur up to and including `wanted_index`.
 pub fn provider_rank_for_index(
-  entries: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
+  entries: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   wanted_key: String,
   wanted_index: Int,
   current_index: Int,
@@ -36,8 +36,8 @@ pub fn provider_rank_for_index(
 ) -> Int {
   case entries {
     [] -> current_rank
-    [#(_title, catalog, _), ..rest] -> {
-      let key = source_root.catalog_key(catalog)
+    [#(_title, root, _), ..rest] -> {
+      let key = source_root.source_key(root)
       let next_rank = case key == wanted_key {
         True -> current_rank + 1
         False -> current_rank

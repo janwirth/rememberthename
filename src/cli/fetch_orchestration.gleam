@@ -3,12 +3,10 @@
 //// This module owns the glue between the source registry and `fetch_ops.fetch`.
 //// `fetch_ops` itself exports only `fetch` / `fetch_and_save_json` plus types.
 ////
-//// Catalog rows from `source_specs.all()` are not imported here — selection and dispatch go through
-//// `source_root.ordered_registry_list` + `source_selector.triple_by_selector`.
+//// Selection uses `source_root.ordered_selector_triples` + `source_selector.triple_by_selector`.
 
 import adapters/cache
 import adapters/core
-import cli/api_credentials
 import cli/export_json
 import cli/fetch_validation
 import cli/resolve_adapter
@@ -32,8 +30,7 @@ pub fn fetch_with_cache_mode(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  let keys = api_credentials.load_full_api_keys()
-  let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
+  let ordered = source_root.ordered_selector_triples(source_specs.all())
   case selector == "all" {
     True -> {
       fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
@@ -68,8 +65,7 @@ pub fn fetch_all_sources(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) {
-  let keys = api_credentials.load_full_api_keys()
-  let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
+  let ordered = source_root.ordered_selector_triples(source_specs.all())
   fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
 }
 
@@ -187,8 +183,7 @@ pub fn fetch_source_tracks_with_depth(
   case selector == "all" {
     True -> Error("use fetch_all for all sources")
     False -> {
-      let keys = api_credentials.load_full_api_keys()
-      let ordered = source_root.ordered_registry_list(source_specs.all(), keys)
+      let ordered = source_root.ordered_selector_triples(source_specs.all())
       case source_pick.triple_by_selector(ordered, selector) {
         Error(_) -> Error("Invalid source selector: " <> selector)
         Ok(#(source_index, key, base_root, assert_spec)) -> {

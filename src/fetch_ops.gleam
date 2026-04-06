@@ -66,8 +66,10 @@ pub fn fetch(
       Ok(FetchResult(items, lists, unresolved, None))
     }
 
-    source_root.SoundcloudRoot(entry_point, depth) -> {
-      let qp = resolve_adapter.queue_policy_for_cache_mode(cache_mode, 3, 3)
+    source_root.SoundcloudRoot(entry_point, depth, timing) -> {
+      let source_root.SourceTimingSpec(max_conc, rps) = timing
+      let qp =
+        resolve_adapter.queue_policy_for_cache_mode(cache_mode, max_conc, rps)
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
       let result =
         soundcloud_live_expander.resolve_profile_with_debug_limited_timed(

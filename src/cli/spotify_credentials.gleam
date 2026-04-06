@@ -5,7 +5,6 @@ import adapters/spotify/oauth_flow
 import dot_env as dot
 import dot_env/env
 import gleam/list
-import gleam/option.{Some}
 import gleam/string
 import simplifile
 

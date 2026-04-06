@@ -6,8 +6,9 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
-import cli/api_credentials
 import cli/spotify_credentials
+import gleam/option.{None, Some}
+import gleam/string
 import gleam/list
 import sources
 import test_env
@@ -99,7 +100,13 @@ fn resolve_youtube_all() -> core.ResolveResult {
       profile,
       core.All,
       cache.CacheUpsert,
-      api_credentials.load_api_keys(),
+      api_keys.ApiKeys(
+        spotify: None,
+        google_cloud: Some(
+          spotify_credentials.read_env_value(".env", "GOOGLE_CLOUD_API_KEY")
+          |> string.trim,
+        ),
+      ),
     )
   result
 }

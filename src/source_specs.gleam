@@ -1,8 +1,12 @@
 //// Canonical integration source rows: imports `source_root` types only, defines the ordered list.
 
-import source_root
 import adapters/core
 import cli/config_paths
+import cli/spotify_credentials
+import gleam/list
+import gleam/string
+import simplifile
+import source_root
 
 
 pub fn all() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
@@ -62,6 +66,24 @@ pub fn soundcloud() -> #(String, source_root.SourceRoot, source_root.SourceAsser
   )
 }
 
+fn google_cloud_api_key_from_env() -> Result(String, Nil) {
+  list.find_map(config_paths.env_search_roots(), fn(root) {
+    let env_file = config_paths.join_under(root, ".env")
+    case simplifile.is_file(env_file) {
+      Ok(True) -> {
+        let raw =
+          spotify_credentials.read_env_value(env_file, "GOOGLE_CLOUD_API_KEY")
+          |> string.trim
+        case raw == "" {
+          True -> Error(Nil)
+          False -> Ok(raw)
+        }
+      }
+      _ -> Error(Nil)
+    }
+  })
+}
+
 pub fn spotify() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   let assert Ok(credentials) = config_paths.get_spotify_credentials_from_env()
   #(
@@ -83,11 +105,12 @@ pub fn spotify() -> #(String, source_root.SourceRoot, source_root.SourceAssertSp
 }
 
 pub fn youtube() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
+  let assert Ok(api_key) = google_cloud_api_key_from_env()
   #(
     "Youtube",
     source_root.YoutubeRoot(
       "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
-      core.All,
+      api_key,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 5,

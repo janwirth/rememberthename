@@ -4,7 +4,6 @@
 import adapters/api_keys
 import cli/spotify_credentials
 import gleam/list
-import gleam/option.{None}
 import simplifile
 
 /// Ordered roots to try for `.env` when cwd may be the package, a parent monorepo, or a sibling app.
@@ -58,15 +57,4 @@ pub fn get_spotify_credentials_from_env() -> Result(
       redirect,
     )
   Ok(keys_with_spotify)
-}
-
-pub fn get_google_cloud_api_key_from_env() -> Result(
-  String,
-  api_keys.ResolveAdapterError,
-) {
-  let google_cloud = api_keys.get_google_cloud_api_key_from_env()
-  case google_cloud {
-    Ok(key) -> Ok(key)
-    Error(e) -> Error(e)
-  }
 }

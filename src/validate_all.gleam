@@ -1,14 +1,6 @@
-import adapters/api_keys
-import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
-import adapters/soundcloud/live_expander as soundcloud_live_expander
-import adapters/spotify/live_expander as spotify_live_expander
-import adapters/tuna/normalized_source as tuna_normalized_source
-import adapters/youtube/live_expander as youtube_live_expander
-import cli/api_credentials
-import cli/config_paths
-import cli/spotify_credentials
+import cli/source_resolve
 import gleam/int
 import gleam/io
 import gleam/list
@@ -33,7 +25,7 @@ pub fn main() {
 }
 
 fn validate_sources(
-  rows: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
+  rows: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   index: Int,
   total: Int,
   failed: Int,
@@ -51,13 +43,12 @@ fn validate_sources(
 }
 
 fn validate_source(
-  row: #(String, source_root.CatalogRoot, source_root.SourceAssertSpec),
+  row: #(String, source_root.SourceRoot, source_root.SourceAssertSpec),
   index: Int,
 ) -> Bool {
-  let #(title, catalog, assert_spec) = row
-  let key = source_root.catalog_key(catalog)
-  let entry_point = source_root.catalog_entry_point(catalog)
-  let timing_spec = source_root.catalog_timing(catalog)
+  let #(title, root, assert_spec) = row
+  let key = source_root.source_key(root)
+  let entry_point = source_root.listing_entry_point(root)
   let cache_mode = cache.CacheUpsert
   let source_root.SourceAssertSpec(_, _, source_limit, _, _, _) = assert_spec
   io.println("")
@@ -67,53 +58,39 @@ fn validate_source(
   io.println("entry: " <> entry_point)
   io.println("cache: " <> cache_mode_text(cache_mode))
 
-  let creds = api_credentials.load_api_keys()
-
   // Warm-up full traversal before measured runs, matching migration test strategy.
   let _ =
-    resolve_source(
-      key,
-      entry_point,
+    source_resolve.resolve_limited(
+      root,
       core.All,
       source_limit,
-      timing_spec,
       cache_mode,
       fn(line) { io.println("[warmup] " <> line) },
-      creds,
     )
 
   let depth_1 =
-    resolve_source(
-      key,
-      entry_point,
+    source_resolve.resolve_limited(
+      root,
       core.Depth1,
       source_limit,
-      timing_spec,
       cache_mode,
       fn(_line) { Nil },
-      creds,
     )
   let depth_2 =
-    resolve_source(
-      key,
-      entry_point,
+    source_resolve.resolve_limited(
+      root,
       core.Depth2,
       source_limit,
-      timing_spec,
       cache_mode,
       fn(_line) { Nil },
-      creds,
     )
   let depth_all =
-    resolve_source(
-      key,
-      entry_point,
+    source_resolve.resolve_limited(
+      root,
       core.All,
       source_limit,
-      timing_spec,
       cache_mode,
       fn(line) { io.println("[full] " <> line) },
-      creds,
     )
 
   let pass =
@@ -131,105 +108,6 @@ fn validate_source(
     False -> "Result: FAIL"
   })
   pass
-}
-
-fn resolve_source(
-  key: String,
-  entry_point: String,
-  depth: core.DepthMode,
-  source_limit: Int,
-  timing_spec: source_root.SourceTimingSpec,
-  cache_mode: cache.CacheMode,
-  on_debug: fn(String) -> Nil,
-  creds: api_keys.ApiKeys,
-) -> core.ResolveResult {
-  let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
-    timing_spec
-  let queue_policy =
-    core.QueuePolicy(
-      max_concurrency: max_concurrency,
-      requests_per_second: requests_per_second,
-    )
-  case key {
-    "bandcamp" -> {
-      let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
-    }
-    "soundcloud" -> {
-      let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
-    }
-    "spotify" -> {
-      let root = config_paths.spotify_config_root()
-      let session_file =
-        config_paths.join_under(root, ".spotify_oauth_session.json")
-      let env_file = config_paths.join_under(root, ".env")
-      let redirect = spotify_credentials.spotify_redirect_uri(env_file)
-      let keys =
-        spotify_credentials.with_spotify_from_disk(
-          creds,
-          session_file,
-          env_file,
-          redirect,
-        )
-      case api_keys.require_spotify_credentials(keys) {
-        Error(_) ->
-          core.ResolveResult(items: [], lists: [], unresolved: [])
-        Ok(spotify_creds) -> {
-          let config = spotify_live_expander.spotify_config(spotify_creds)
-          let profile = spotify_live_expander.spotify_user(entry_point)
-          spotify_live_expander.resolve_profile_with_debug_limited_timed(
-            profile,
-            depth,
-            config,
-            cache_mode,
-            source_limit,
-            queue_policy,
-            on_debug,
-            fn(_) { Nil },
-          )
-        }
-      }
-    }
-    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
-    _ -> {
-      let profile = youtube_live_expander.youtube_playlist(entry_point)
-      case
-        youtube_live_expander.resolve_profile_with_debug_limited_timed(
-          profile,
-          depth,
-          cache_mode,
-          creds,
-          source_limit,
-          queue_policy,
-          on_debug,
-          fn(_) { Nil },
-        )
-      {
-        Ok(result) -> result
-        Error(err) -> {
-          io.println(api_keys.format_resolve_adapter_error(err))
-          core.ResolveResult(items: [], lists: [], unresolved: [])
-        }
-      }
-    }
-  }
 }
 
 fn validate_results(

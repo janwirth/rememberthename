@@ -43,11 +43,11 @@ pub fn youtube() -> SourceSpec {
 }
 
 fn from_canonical(
-  row: #(String, source_root.CatalogRoot, source_root.SourceAssertSpec),
+  row: #(String, source_root.SourceRoot, source_root.SourceAssertSpec),
 ) -> SourceSpec {
-  let #(_, catalog, assert_spec) = row
+  let #(_, root, assert_spec) = row
   SourceSpec(
-    source_root.catalog_entry_point(catalog),
+    source_root.listing_entry_point(root),
     cache.CacheUpsert,
     to_depth_assert_spec(assert_spec),
   )

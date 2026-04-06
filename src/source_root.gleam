@@ -1,15 +1,13 @@
 //// Fetch parameters for each source adapter — no assertions in the fetch path.
 ////
 //// `SourceRoot` is the single argument that determines *what* to fetch at resolve time.
-//// `CatalogRoot` + `SourceAssertSpec` describe configured integration rows; `source_specs`
-//// supplies the concrete list.
+//// `source_specs` supplies `#(title, SourceRoot, SourceAssertSpec)` rows.
 
 import adapters/api_keys
 import adapters/core
-import gleam/dict
 import gleam/list
 
-/// Per-source HTTP queue policy (Bandcamp carries it on `SourceRoot`; catalog rows use it for validation / resolve helpers).
+/// Per-source HTTP queue policy (Bandcamp and Soundcloud carry it on `SourceRoot`).
 pub type SourceTimingSpec {
   SourceTimingSpec(max_concurrency: Int, requests_per_second: Int)
 }
@@ -26,8 +24,6 @@ pub type SourceAssertSpec {
   )
 }
 
-/// Static row identity: URLs and timing. Hydrate to `SourceRoot` with `from_catalog` + API keys.
-
 pub type SourceRoot {
   BandcampRoot(
     profile_url: String,
@@ -40,6 +36,26 @@ pub type SourceRoot {
   TunaRoot
 }
 
+/// Entry point string for listings / validate output (mirrors former `catalog_entry_point`).
+pub fn listing_entry_point(root: SourceRoot) -> String {
+  case root {
+    BandcampRoot(url, _, _) -> url
+    SoundcloudRoot(ep, _, _) -> ep
+    SpotifyRoot(_, _) -> "https://open.spotify.com/user/liked"
+    YoutubeRoot(url, _) -> url
+    TunaRoot -> "gel:tuna/main::default::Track"
+  }
+}
+
+/// `#(selector_key, root, assert)` for orchestration (`triple_by_selector` expects this shape).
+pub fn ordered_selector_triples(
+  rows: List(#(String, SourceRoot, SourceAssertSpec)),
+) -> List(#(String, SourceRoot, SourceAssertSpec)) {
+  list.map(rows, fn(row) {
+    let #(_title, root, assert_spec) = row
+    #(source_key(root), root, assert_spec)
+  })
+}
 
 /// Human-readable display name for the source (used in CLI progress output).
 pub fn display_name(root: SourceRoot) -> String {

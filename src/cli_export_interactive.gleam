@@ -1,13 +1,6 @@
-import adapters/api_keys
-import adapters/bandcamp/live_expander as bandcamp_live_expander
 import adapters/cache
 import adapters/core
-import adapters/soundcloud/live_expander as soundcloud_live_expander
-import adapters/spotify/live_expander as spotify_live_expander
-import adapters/tuna/normalized_source as tuna_normalized_source
-import adapters/youtube/live_expander as youtube_live_expander
-import cli/api_credentials
-import cli/config_paths
+import cli/source_resolve
 import gleam/erlang/process
 import gleam/int
 import gleam/io
@@ -263,19 +256,15 @@ fn run_selected(model: Model) -> Msg {
 
   let run_lines =
     list.fold(specs, [], fn(lines, row) {
-      let #(title, catalog, assert_spec) = row
-      let key = source_root.catalog_key(catalog)
-      let entry_point = source_root.catalog_entry_point(catalog)
-      let timing_spec = source_root.catalog_timing(catalog)
+      let #(title, root, assert_spec) = row
+      let key = source_root.source_key(root)
       let source_root.SourceAssertSpec(_, _, source_limit, _, _, _) =
         assert_spec
       let result =
-        resolve_source(
-          key,
-          entry_point,
+        source_resolve.resolve_limited(
+          root,
           core.All,
           source_limit,
-          timing_spec,
           cache_mode,
           fn(_line) { Nil },
         )
@@ -308,10 +297,10 @@ fn run_selected(model: Model) -> Msg {
 
 fn selected_rows(
   selected_keys: List(String),
-) -> List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)) {
+) -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
   list.filter(source_specs.all(), fn(row) {
-    let #(_, catalog, _) = row
-    list.contains(selected_keys, source_root.catalog_key(catalog))
+    let #(_, root, _) = row
+    list.contains(selected_keys, source_root.source_key(root))
   })
 }
 
@@ -333,8 +322,8 @@ fn toggle_current_source(model: Model) -> Model {
         0 -> {
           let all_keys =
             list.map(rows, fn(row) {
-              let #(_, catalog, _) = row
-              source_root.catalog_key(catalog)
+              let #(_, root, _) = row
+              source_root.source_key(root)
             })
           case list.length(model.selected_keys) == list.length(all_keys) {
             True -> Model(..model, selected_keys: [])
@@ -344,8 +333,8 @@ fn toggle_current_source(model: Model) -> Model {
         _ ->
           case source_at(rows, model.cursor - 1) {
             Ok(row) -> {
-              let #(_, catalog, _) = row
-              let key = source_root.catalog_key(catalog)
+              let #(_, root, _) = row
+              let key = source_root.source_key(root)
               let next_selected = toggle_key(model.selected_keys, key)
               Model(..model, selected_keys: next_selected)
             }
@@ -421,9 +410,9 @@ fn action_at(
 }
 
 fn source_at(
-  entries: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
+  entries: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   index: Int,
-) -> Result(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec), Nil) {
+) -> Result(#(String, source_root.SourceRoot, source_root.SourceAssertSpec), Nil) {
   case entries {
     [] -> Error(Nil)
     [entry, ..rest] ->
@@ -524,8 +513,8 @@ fn source_step_nodes(model: Model) -> List(shore.Node(Msg)) {
     source_item_node("All sources", all_selected, model.cursor == 0)
   let source_nodes =
     list.index_map(rows, fn(row, index) {
-      let #(title, catalog, _) = row
-      let key = source_root.catalog_key(catalog)
+      let #(title, root, _) = row
+      let key = source_root.source_key(root)
       source_item_node(
         title <> " (" <> key <> ")",
         list.contains(model.selected_keys, key),
@@ -564,8 +553,8 @@ fn item_node(text: String, focused: Bool) -> shore.Node(Msg) {
 fn right_panel_nodes(model: Model) -> List(shore.Node(Msg)) {
   let selected_names =
     list.filter_map(source_specs.all(), fn(row) {
-      let #(title, catalog, _) = row
-      let key = source_root.catalog_key(catalog)
+      let #(title, root, _) = row
+      let key = source_root.source_key(root)
       case list.contains(model.selected_keys, key) {
         True -> Ok("  - " <> title <> " (" <> key <> ")")
         False -> Error(Nil)
@@ -594,91 +583,3 @@ fn right_panel_nodes(model: Model) -> List(shore.Node(Msg)) {
   ])
   |> list.append(list.map(model.status_lines, ui.text))
 }
-
-fn resolve_source(
-  key: String,
-  entry_point: String,
-  depth: core.DepthMode,
-  source_limit: Int,
-  timing_spec: source_root.SourceTimingSpec,
-  cache_mode: cache.CacheMode,
-  on_debug: fn(String) -> Nil,
-) -> core.ResolveResult {
-  let creds = api_credentials.load_api_keys()
-  let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
-    timing_spec
-  let queue_policy =
-    core.QueuePolicy(
-      max_concurrency: max_concurrency,
-      requests_per_second: requests_per_second,
-    )
-  case key {
-    "bandcamp" -> {
-      let profile = bandcamp_live_expander.bandcamp_profile(entry_point)
-      bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
-    }
-    "soundcloud" -> {
-      let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
-        profile,
-        depth,
-        cache_mode,
-        source_limit,
-        queue_policy,
-        on_debug,
-        fn(_) { Nil },
-      )
-    }
-    "spotify" -> {
-      case config_paths.get_spotify_credentials_from_env() {
-        Error(_) ->
-          core.ResolveResult(items: [], lists: [], unresolved: [])
-        Ok(spotify_creds) -> {
-          let config = spotify_live_expander.spotify_config(spotify_creds)
-          let profile = spotify_live_expander.spotify_user(entry_point)
-          spotify_live_expander.resolve_profile_with_debug_limited_timed(
-            profile,
-            depth,
-            config,
-            cache_mode,
-            source_limit,
-            queue_policy,
-            on_debug,
-            fn(_) { Nil },
-          )
-        }
-      }
-    }
-    "tuna" -> tuna_normalized_source.resolve(depth, cache_mode, on_debug)
-    _ -> {
-      let profile = youtube_live_expander.youtube_playlist(entry_point)
-      case
-        youtube_live_expander.resolve_profile_with_debug_limited_timed(
-          profile,
-          depth,
-          cache_mode,
-          creds,
-          source_limit,
-          queue_policy,
-          on_debug,
-          fn(_) { Nil },
-        )
-      {
-        Ok(result) -> result
-        Error(err) -> {
-          io.println(api_keys.format_resolve_adapter_error(err))
-          core.ResolveResult(items: [], lists: [], unresolved: [])
-        }
-      }
-    }
-  }
-}
-

@@ -38,15 +38,15 @@ pub fn list_sources() -> List(SourceListing) {
 }
 
 fn list_sources_acc(
-  sources: List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)),
+  sources: List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)),
   index: Int,
   acc: List(SourceListing),
 ) -> List(SourceListing) {
   case sources {
     [] -> list.reverse(acc)
-    [#(title, catalog, _), ..rest] -> {
-      let key = source_root.catalog_key(catalog)
-      let entry_point = source_root.catalog_entry_point(catalog)
+    [#(title, root, _), ..rest] -> {
+      let key = source_root.source_key(root)
+      let entry_point = source_root.listing_entry_point(root)
       let rank =
         source_pick.provider_rank_for_index(
           source_specs.all(),

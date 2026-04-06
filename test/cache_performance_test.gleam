@@ -5,8 +5,9 @@ import adapters/core
 import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/youtube/live_expander as youtube_live_expander
-import cli/api_credentials
 import cli/runtime
+import gleam/option.{None, Some}
+import gleam/string
 import cli/spotify_credentials
 import sources
 import test_env
@@ -78,7 +79,16 @@ pub fn warm_cache_full_depth_under_one_second_per_source_test() {
             profile,
             core.All,
             cache.CacheUpsert,
-            api_credentials.load_api_keys(),
+            api_keys.ApiKeys(
+              spotify: None,
+              google_cloud: Some(
+                spotify_credentials.read_env_value(
+                  ".env",
+                  "GOOGLE_CLOUD_API_KEY",
+                )
+                |> string.trim,
+              ),
+            ),
           )
         result
       })
