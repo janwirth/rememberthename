@@ -8,7 +8,6 @@ import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
 import cli/api_credentials
 import cli/config_paths
-import cli/spotify_credentials
 import gleam/erlang/process
 import gleam/int
 import gleam/io
@@ -639,19 +638,7 @@ fn resolve_source(
       )
     }
     "spotify" -> {
-      let root = config_paths.spotify_config_root()
-      let session_file =
-        config_paths.join_under(root, ".spotify_oauth_session.json")
-      let env_file = config_paths.join_under(root, ".env")
-      let redirect = spotify_credentials.spotify_redirect_uri(env_file)
-      let keys =
-        spotify_credentials.with_spotify_from_disk(
-          creds,
-          session_file,
-          env_file,
-          redirect,
-        )
-      case api_keys.require_spotify_credentials(keys) {
+      case config_paths.get_spotify_credentials_from_env() {
         Error(_) ->
           core.ResolveResult(items: [], lists: [], unresolved: [])
         Ok(spotify_creds) -> {

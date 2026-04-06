@@ -1,16 +1,20 @@
 //// Canonical integration source rows: imports `source_root` types only, defines the ordered list.
 
 import source_root
+import adapters/core
+import cli/config_paths
 
-pub fn all() -> List(#(String, source_root.CatalogRoot, source_root.SourceAssertSpec)) {
+
+pub fn all() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
   [bandcamp(), soundcloud(), spotify(), youtube(), tuna()]
 }
 
-pub fn bandcamp() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Bandcamp",
-    source_root.BandcampCatalog(
+    source_root.BandcampRoot(
       "https://bandcamp.com/janwirth",
+      core.All,
       source_root.SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
     ),
     source_root.SourceAssertSpec(
@@ -33,11 +37,12 @@ pub fn bandcamp() -> #(String, source_root.CatalogRoot, source_root.SourceAssert
   )
 }
 
-pub fn soundcloud() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+pub fn soundcloud() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Soundcloud",
-    source_root.SoundcloudCatalog(
+    source_root.SoundcloudRoot(
       "https://soundcloud.com/tungstenselects",
+      core.All,
       source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
     ),
     source_root.SourceAssertSpec(
@@ -57,12 +62,13 @@ pub fn soundcloud() -> #(String, source_root.CatalogRoot, source_root.SourceAsse
   )
 }
 
-pub fn spotify() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+pub fn spotify() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
+  let assert Ok(credentials) = config_paths.get_spotify_credentials_from_env()
   #(
     "Spotify",
-    source_root.SpotifyCatalog(
-      "https://open.spotify.com/user/franzskuffka",
-      source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+    source_root.SpotifyRoot(
+      credentials: credentials,
+      depth: core.All
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 50,
@@ -76,12 +82,12 @@ pub fn spotify() -> #(String, source_root.CatalogRoot, source_root.SourceAssertS
   )
 }
 
-pub fn youtube() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+pub fn youtube() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Youtube",
-    source_root.YoutubeCatalog(
+    source_root.YoutubeRoot(
       "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
-      source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+      core.All,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 5,
@@ -102,13 +108,10 @@ pub fn youtube() -> #(String, source_root.CatalogRoot, source_root.SourceAssertS
   )
 }
 
-pub fn tuna() -> #(String, source_root.CatalogRoot, source_root.SourceAssertSpec) {
+pub fn tuna() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Tuna",
-    source_root.TunaCatalog(
-      "gel:tuna/main::default::Track",
-      source_root.SourceTimingSpec(max_concurrency: 1, requests_per_second: 1),
-    ),
+    source_root.TunaRoot,
     source_root.SourceAssertSpec(
       min_depth_1_items: 0,
       min_full_items: 10,

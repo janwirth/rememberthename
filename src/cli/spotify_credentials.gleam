@@ -2,13 +2,24 @@
 
 import adapters/api_keys
 import adapters/spotify/oauth_flow
-import cli/config_paths
 import dot_env as dot
 import dot_env/env
 import gleam/list
 import gleam/option.{Some}
 import gleam/string
 import simplifile
+
+// Same values as `config_paths`; local to avoid an import cycle with that module.
+fn env_search_roots() -> List(String) {
+  ["", "../rememberthename", "rememberthename", "../../rememberthename"]
+}
+
+fn join_under(root: String, file: String) -> String {
+  case root {
+    "" -> file
+    _ -> root <> "/" <> file
+  }
+}
 
 pub fn read_env_value(file_path: String, key: String) -> String {
   let _ =
@@ -44,8 +55,8 @@ pub fn spotify_redirect_uri(env_file: String) -> String {
 
 /// First `env_search_roots` entry whose `.env` exists and sets non-empty `SPOTIFY_CLIENT_ID`.
 pub fn first_spotify_oauth_env_bundle() -> Result(#(String, String), Nil) {
-  list.find_map(config_paths.env_search_roots(), fn(root) {
-    let env_file = config_paths.join_under(root, ".env")
+  list.find_map(env_search_roots(), fn(root) {
+    let env_file = join_under(root, ".env")
     case simplifile.is_file(env_file) {
       Ok(True) -> {
         let id = read_env_value(env_file, "SPOTIFY_CLIENT_ID") |> string.trim
@@ -61,21 +72,17 @@ pub fn first_spotify_oauth_env_bundle() -> Result(#(String, String), Nil) {
 
 /// Merges disk-backed Spotify credentials into `keys`, preserving `google_cloud`.
 pub fn with_spotify_from_disk(
-  keys: api_keys.ApiKeys,
   session_file: String,
   env_file: String,
   redirect_uri: String,
-) -> api_keys.ApiKeys {
-  let api_keys.ApiKeys(_, google_cloud) = keys
-  let spotify =
-    Some(api_keys.SpotifyCredentials(
-      access_token: read_access_token_file(session_file),
-      refresh_token: read_refresh_token_file(session_file),
-      client_id: read_env_value(env_file, "SPOTIFY_CLIENT_ID"),
-      client_secret: read_env_value(env_file, "SPOTIFY_CLIENT_SECRET"),
-      redirect_uri: redirect_uri,
-    ))
-  api_keys.ApiKeys(spotify: spotify, google_cloud: google_cloud)
+) -> api_keys.SpotifyCredentials {
+  api_keys.SpotifyCredentials(
+    access_token: read_access_token_file(session_file),
+    refresh_token: read_refresh_token_file(session_file),
+    client_id: read_env_value(env_file, "SPOTIFY_CLIENT_ID"),
+    client_secret: read_env_value(env_file, "SPOTIFY_CLIENT_SECRET"),
+    redirect_uri: redirect_uri,
+  )
 }
 
 fn extract_access_token(body: String) -> String {
