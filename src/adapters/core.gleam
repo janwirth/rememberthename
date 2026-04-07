@@ -81,6 +81,8 @@ pub type UnifiedItem {
     source_id: String,
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
+    /// Optional local file path for exports (primarily Tuna-backed items).
+    file_path: Option(String),
     /// When the source has no date, use [`timestamp.unix_epoch`]. Otherwise a parsed instant (RFC 3339 at boundaries).
     added_at: timestamp.Timestamp,
   )
@@ -152,6 +154,7 @@ pub fn track_item_with_added_at(
         source_type: "item",
         source_id: source_id,
         external_source_url: external_source_url,
+        file_path: None,
         added_at: added,
       ))
     }
@@ -1014,7 +1017,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

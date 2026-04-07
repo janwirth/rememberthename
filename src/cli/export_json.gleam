@@ -161,6 +161,7 @@ fn track_json_with_order(
     #("imported_date", nullable_int_json(imported_date)),
     #("adapter_id", json.string(adapter_id)),
     #("file", nullable_file_json(download)),
+    #("file_path", nullable_file_json(download)),
     #("cover", nullable_file_json(cover)),
     #("tags", json.array(tuna_tags.export_tags_with_mode(tags, normalize_tags), of: json.string)),
   ])

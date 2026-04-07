@@ -165,6 +165,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
+    file_path: None,
     added_at: timestamp.unix_epoch,
   )
 }
@@ -195,7 +196,7 @@ fn list_ids(lists: List(core.UnifiedCollection)) -> List(String) {
 
 fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = item
     id == wanted
   })
 }

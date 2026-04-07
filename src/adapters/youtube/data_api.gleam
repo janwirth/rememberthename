@@ -173,16 +173,28 @@ fn snippet_fields(item: PlaylistItem) -> #(String, String, Option(String)) {
             v -> v
           }
       }
-      let artist = case sn.channel_title {
-        None -> "unknown"
-        Some(x) ->
-          case string.trim(x) {
-            "" -> "unknown"
-            v -> v
-          }
-      }
+      let artist =
+        first_non_empty([
+          sn.video_owner_channel_title,
+          sn.channel_title,
+        ])
       #(title, artist, sn.published_at)
     }
+  }
+}
+
+fn first_non_empty(candidates: List(Option(String))) -> String {
+  case candidates {
+    [] -> "unknown"
+    [candidate, ..rest] ->
+      case candidate {
+        None -> first_non_empty(rest)
+        Some(value) ->
+          case string.trim(value) {
+            "" -> first_non_empty(rest)
+            cleaned -> cleaned
+          }
+      }
   }
 }
 

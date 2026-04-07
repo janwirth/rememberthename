@@ -86,6 +86,7 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       source_type: "item",
       source_id: source_id,
       external_source_url: None,
+      file_path: None,
       added_at: timestamp.unix_epoch,
     )
   })
@@ -93,7 +94,7 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
 
 fn item_ids(items: List(core.UnifiedItem)) -> List(String) {
   list.map(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = item
     id
   })
 }

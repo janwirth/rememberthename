@@ -332,7 +332,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],

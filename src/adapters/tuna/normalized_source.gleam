@@ -682,6 +682,33 @@ fn push_item_with_metadata(
         )
       {
         Ok(item) -> {
+          let item_with_file_path = case string.trim(file_path) {
+            "" -> item
+            cleaned -> {
+              let core.UnifiedItem(
+                id,
+                title,
+                artist,
+                service,
+                source_type,
+                source_id,
+                external_source_url,
+                _,
+                added_at,
+              ) = item
+              core.UnifiedItem(
+                id: id,
+                title: title,
+                artist: artist,
+                service: service,
+                source_type: source_type,
+                source_id: source_id,
+                external_source_url: external_source_url,
+                file_path: Some(cleaned),
+                added_at: added_at,
+              )
+            }
+          }
           let key = metadata_key(service, normalized)
           let metadata =
             dict.insert(
@@ -689,7 +716,7 @@ fn push_item_with_metadata(
               key,
               ExportMetadata(file_path, cover_path, tags, imported_date),
             )
-          #([item, ..items], metadata)
+          #([item_with_file_path, ..items], metadata)
         }
         Error(_) -> acc
       }
