@@ -14,8 +14,15 @@ Bandcamp **profile** roots only (`https://bandcamp.com/<slug>`): fan **collectio
 
 ## Acceptance criteria
 
+**Collection (purchased)**
+
 - **Digi Spa EP** — present as a **collection** entry (purchased album in list output).
-- **Nord dab** — present as an **extracted track** (`tracks` / unified item, typically from an expanded album).
+- **Nord dab** — present as an **extracted track** (`tracks` / unified item, typically from an expanded purchased album).
+
+**Wishlist (likes)**
+
+- **The Frightnrs - Nothing More To Say** — liked **album** row must expand; constituent tracks appear as **`UnifiedItem`**s (list / `collections` row not required for wishlist-only albums).
+- **All My Tears** — present as an **extracted track** from that liked album.
 
 Album expansion must not be limited to a fixed small number of albums per API page when the fan has more album rows (no arbitrary per-page cap that drops the rest).
 
