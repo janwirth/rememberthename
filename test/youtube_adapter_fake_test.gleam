@@ -16,6 +16,7 @@ pub fn depth_1_stops_after_profile_test() {
 
   assert list.length(items) >= 5
   assert contains_item_id(items, "yt-d1-01")
+  assert items_have_https_covers(items)
   assert list_ids(lists) == ["youtube:collection:PLdemo"]
   assert unresolved == []
 }
@@ -108,6 +109,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
+    cover_url: "https://i.ytimg.com/vi/" <> id <> "/hqdefault.jpg",
     file_path: None,
     added_at: timestamp.unix_epoch,
   )
@@ -139,8 +141,15 @@ fn list_ids(lists: List(core.UnifiedCollection)) -> List(String) {
 
 fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _) = item
     id == wanted
+  })
+}
+
+fn items_have_https_covers(items: List(core.UnifiedItem)) -> Bool {
+  list.all(items, fn(item) {
+    let core.UnifiedItem(_, _, _, _, _, _, _, cover, _, _) = item
+    string.starts_with(cover, "https://")
   })
 }
 

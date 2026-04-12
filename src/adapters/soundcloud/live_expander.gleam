@@ -327,22 +327,32 @@ fn parse_tracks(
   #(
     list.index_map(lines, fn(line, idx) {
       let cols = string.split(line, "\t")
-      let #(raw_source_id, title, artist, perm_url, added_at) = case cols {
+      let #(raw_source_id, title, artist, perm_url, cover_url, added_at) = case cols {
+        [id, title, artist, u, cover, added] -> #(
+          id,
+          title,
+          artist,
+          string.trim(u),
+          string.trim(cover),
+          option_unwrap(normalize_soundcloud_added_at(added), ""),
+        )
         [id, title, artist, u, added] -> #(
           id,
           title,
           artist,
           string.trim(u),
+          "",
           option_unwrap(normalize_soundcloud_added_at(added), ""),
         )
-        [id, title, artist, u] -> #(id, title, artist, string.trim(u), "")
-        [id, title, artist] -> #(id, title, artist, "", "")
-        [id, title] -> #(id, title, "unknown", "", "")
-        [id] -> #(id, "untitled", "unknown", "", "")
+        [id, title, artist, u] -> #(id, title, artist, string.trim(u), "", "")
+        [id, title, artist] -> #(id, title, artist, "", "", "")
+        [id, title] -> #(id, title, "unknown", "", "", "")
+        [id] -> #(id, "untitled", "unknown", "", "", "")
         _ -> #(
           kind <> ":" <> int.to_string(idx + 1),
           "untitled",
           "unknown",
+          "",
           "",
           "",
         )
@@ -353,6 +363,7 @@ fn parse_tracks(
         title,
         artist,
         perm_url,
+        cover_url,
         added_at,
       )
     })
@@ -510,7 +521,7 @@ fn soundcloud_track_permalink_url(
 fn track_tuple_from_dynamic(
   data: dynamic.Dynamic,
   path_prefix: List(String),
-) -> Option(#(String, String, String, String, String)) {
+) -> Option(#(String, String, String, String, String, String)) {
   let id_path = list.append(path_prefix, ["id"])
   let title_path = list.append(path_prefix, ["title"])
   let artist_path = list.append(path_prefix, ["user", "username"])
@@ -520,14 +531,22 @@ fn track_tuple_from_dynamic(
       let title = decode_path_or(data, title_path, "untitled", decode.string)
       let artist = decode_path_or(data, artist_path, "unknown", decode.string)
       let perm_url = soundcloud_track_permalink_url(data, path_prefix)
-      Some(#(id, title, artist, perm_url, ""))
+      let artwork =
+        decode_path_or(
+          data,
+          list.append(path_prefix, ["artwork_url"]),
+          "",
+          decode.string,
+        )
+        |> string.trim
+      Some(#(id, title, artist, perm_url, artwork, ""))
     }
   }
 }
 
 fn track_tuple_from_entry(
   entry: dynamic.Dynamic,
-) -> Option(#(String, String, String, String, String)) {
+) -> Option(#(String, String, String, String, String, String)) {
   let added_at =
     decode_path_or(entry, ["created_at"], "", decode.string)
     |> normalize_soundcloud_added_at
@@ -555,11 +574,11 @@ fn track_tuple_from_entry(
 }
 
 fn with_added_at(
-  track: #(String, String, String, String, String),
+  track: #(String, String, String, String, String, String),
   added_at: String,
-) -> #(String, String, String, String, String) {
-  let #(id, title, artist, perm_url, _) = track
-  #(id, title, artist, perm_url, added_at)
+) -> #(String, String, String, String, String, String) {
+  let #(id, title, artist, perm_url, cover, _) = track
+  #(id, title, artist, perm_url, cover, added_at)
 }
 
 fn collect_track_ids(
@@ -591,7 +610,7 @@ fn collect_track_rows(
     [entry, ..rest] ->
       case track_tuple_from_entry(entry) {
         Some(track) -> {
-          let #(id, title, artist, perm_url, added_at) = track
+          let #(id, title, artist, perm_url, cover, added_at) = track
           collect_track_rows(rest, [
             id
             <> "\t"
@@ -600,6 +619,8 @@ fn collect_track_rows(
             <> artist
             <> "\t"
             <> perm_url
+            <> "\t"
+            <> cover
             <> "\t"
             <> added_at,
             ..acc

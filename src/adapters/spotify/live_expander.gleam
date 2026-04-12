@@ -332,7 +332,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -449,6 +449,8 @@ fn saved_library_items_to_tsv(items: List(SavedLibTrack)) -> String {
     <> "\t"
     <> url
     <> "\t"
+    <> ""
+    <> "\t"
     <> added
   })
   |> string.join("\n")
@@ -459,31 +461,25 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
   |> list.filter_map(fn(chunk) {
     let cols = string.split(chunk, "\t")
     let track_id = case cols {
-      [id, _, _, _, _] -> id
-      [id, _, _, _] -> id
-      [id, _, _] -> id
+      [id, ..] -> id
       _ -> ""
     }
     let title = case cols {
-      [_, t, _, _, _] -> t
-      [_, t, _, _] -> t
-      [_, t, _] -> t
+      [_, t, ..] -> t
       _ -> ""
     }
     let artist_name = case cols {
-      [_, _, a, _, _] -> a
-      [_, _, a, _] -> a
-      [_, _, a] -> a
+      [_, _, a, ..] -> a
       _ -> "unknown"
     }
     let track_url = case cols {
-      [_, _, _, u, _] -> u
-      [_, _, _, u] -> u
+      [_, _, _, u, ..] -> u
       _ -> ""
     }
-    let added_at_raw = case cols {
-      [_, _, _, _, raw] -> normalize_spotify_added_at(raw)
-      _ -> None
+    let #(cover_url, added_at_raw) = case cols {
+      [_, _, _, _, cover, raw, ..] -> #(cover, normalize_spotify_added_at(raw))
+      [_, _, _, _, raw] -> #("", normalize_spotify_added_at(raw))
+      _ -> #("", None)
     }
     let added_at_str = case added_at_raw {
       Some(s) -> s
@@ -498,6 +494,7 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
           normalize(title),
           normalize(default_if_empty(artist_name, "unknown")),
           string.trim(track_url),
+          string.trim(cover_url),
           added_at_str,
         )
     }

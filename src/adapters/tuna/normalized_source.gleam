@@ -653,6 +653,16 @@ fn fishbone_service_for_platform(platform: String) -> String {
   }
 }
 
+fn tuna_row_cover_url(cover_path: String) -> String {
+  let c = string.trim(cover_path)
+  case c != ""
+    && { string.starts_with(c, "https://") || string.starts_with(c, "http://") }
+  {
+    True -> c
+    False -> ""
+  }
+}
+
 fn push_item_with_metadata(
   acc: #(List(core.UnifiedItem), dict.Dict(String, ExportMetadata)),
   row: TunaGelRow,
@@ -678,6 +688,7 @@ fn push_item_with_metadata(
           choose_title(preferred_title, normalized),
           choose_artist(artist),
           gel_external_url(row, service),
+          tuna_row_cover_url(cover_path),
           added_at,
         )
       {
@@ -693,6 +704,7 @@ fn push_item_with_metadata(
                 source_type,
                 source_id,
                 external_source_url,
+                cover_url,
                 _,
                 added_at,
               ) = item
@@ -704,6 +716,7 @@ fn push_item_with_metadata(
                 source_type: source_type,
                 source_id: source_id,
                 external_source_url: external_source_url,
+                cover_url: cover_url,
                 file_path: Some(cleaned),
                 added_at: added_at,
               )

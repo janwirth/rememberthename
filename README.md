@@ -2,6 +2,10 @@
 
 Short intro: `rememberthename` is a Gleam module for resolving music sources (Bandcamp, SoundCloud, Spotify, YouTube, Tuna) and optionally writing per-source JSON artifacts.
 
+## Fetch item cap
+
+The main `fetch` path (`fetch_ops`) passes a **hard cap of 200,000 unified items** (`fetch_max_items` in `src/fetch_ops.gleam`). When that count is reached, the resolver stops merging further tracks and returns unresolved work (including an internal marker for the limit). Pagination (e.g. 50 items per API page) is not the same thing: adapters keep following pages until this cap or depth rules apply. Use `core.All` for depth where the source supports it if you want full hop traversal; shallow `Depth1` / `Depth2` / … modes limit how deep the graph is expanded regardless of this cap.
+
 ## Installation
 
 ```toml

@@ -8,6 +8,7 @@ import gleam/result
 import gleam/string
 import gleetube
 import gleetube/client.{type Client}
+import gleetube/model/common
 import gleetube/error.{
   type GleeTubeError, ApiError, AuthError, DecodeError, HttpError,
   MissingParamsError,
@@ -114,15 +115,52 @@ fn playlist_item_to_unified_item(
             Some(raw) ->
               option_unwrap(normalize_youtube_published_at(raw), "")
           }
+          let thumb = case item.snippet {
+            None -> ""
+            Some(sn) -> best_thumbnail_url(sn.thumbnails)
+          }
           core.track_item_with_added_at(
             "youtube",
             vid,
             title,
             artist,
             "",
+            thumb,
             added_at,
           )
         }
+      }
+  }
+}
+
+fn best_thumbnail_url(thumbs: Option(common.Thumbnails)) -> String {
+  case thumbs {
+    None -> ""
+    Some(t) -> {
+      let pick = fn(o: Option(common.Thumbnail)) -> String {
+        case o {
+          Some(img) -> string.trim(img.url)
+          None -> ""
+        }
+      }
+      first_non_empty_thumb([
+        pick(t.maxres),
+        pick(t.standard),
+        pick(t.high),
+        pick(t.medium),
+        pick(t.default),
+      ])
+    }
+  }
+}
+
+fn first_non_empty_thumb(candidates: List(String)) -> String {
+  case candidates {
+    [] -> ""
+    [s, ..rest] ->
+      case string.trim(s) {
+        "" -> first_non_empty_thumb(rest)
+        v -> v
       }
   }
 }

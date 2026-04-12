@@ -35,7 +35,7 @@ fn seed_wishlist_items_json() -> String {
 }
 
 fn album_html_digi_spa() -> String {
-  "<html><body>\"album_title\":\"Digi Spa EP\",\"trackinfo\":[{\"title\":\"Nord dab\",\"track_id\":5001,\"artist\":\"Digi\",\"title_link\":\"https://digi.bandcamp.com/track/nord\",\"added\":\"\"}],</body></html>"
+  "<html><head><meta property=\"og:image\" content=\"https://f4.bcbits.com/img/a0000000000_16.jpg\" /></head><body>\"album_title\":\"Digi Spa EP\",\"trackinfo\":[{\"title\":\"Nord dab\",\"track_id\":5001,\"artist\":\"Digi\",\"title_link\":\"https://digi.bandcamp.com/track/nord\",\"added\":\"\"}],</body></html>"
 }
 
 fn album_html_frightnrs() -> String {
@@ -78,7 +78,7 @@ fn seed_bandcamp_resolution_cache() -> Nil {
 
 fn item_titles(items: List(core.UnifiedItem)) -> List(String) {
   list.map(items, fn(i) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _) = i
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _) = i
     title
   })
 }
@@ -119,12 +119,14 @@ pub fn bandcamp_purchased_album_collection_and_wishlist_tracks_resolve_test() {
   title |> should.equal("Digi Spa EP")
   let nord =
     list.find(items, fn(i) {
-      let core.UnifiedItem(_, t, _, _, _, _, _, _, _) = i
+      let core.UnifiedItem(_, t, _, _, _, _, _, _, _, _) = i
       string.contains(t, "Nord dab")
     })
   let assert Ok(nord_item) = nord
-  let core.UnifiedItem(nord_id, _, _, _, _, _, _, _, _) = nord_item
+  let core.UnifiedItem(nord_id, _, _, _, _, _, _, cover, _, _) = nord_item
   list.contains(track_ids, nord_id) |> should.equal(True)
+  string.starts_with(cover, "https://f4.bcbits.com/")
+  |> should.equal(True)
 
   list.any(lists, fn(c) {
     let core.UnifiedCollection(_, title, _, _, _, _, _) = c

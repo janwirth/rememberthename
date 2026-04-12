@@ -307,7 +307,7 @@ fn expand_album_fetched(
     True -> {
       let track_ids =
         list.map(tracks, fn(t) {
-          let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = t
+          let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _) = t
           id
         })
       let list_source_id = "bandcamp:collection:" <> album_id
@@ -422,6 +422,7 @@ fn parse_item_parts_with_album_nodes(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               page_url,
+              fan_item_cover(part),
               added_at,
             )
           let nodes_acc = case item_type == "album" && item_url != "" {
@@ -499,6 +500,7 @@ fn parse_track_id_parts(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               title_link,
+              tracklist_track_cover(part),
               added_at,
             )
           parse_track_id_parts(rest, case maybe_item {
@@ -512,13 +514,14 @@ fn parse_track_id_parts(
 }
 
 fn parse_album_tracks(html: String, album_id: String) -> List(core.UnifiedItem) {
+  let album_cover = album_thumb_from_html(html)
   let decoded = string.replace(html, "&quot;", "\"")
   let trackinfo_split = string.split(decoded, "\"trackinfo\":")
   case trackinfo_split {
     [_, tail, ..] ->
       tail
       |> first_segment("],")
-      |> parse_album_track_parts(album_id)
+      |> parse_album_track_parts(album_id, album_cover)
     _ -> []
   }
 }
@@ -526,11 +529,13 @@ fn parse_album_tracks(html: String, album_id: String) -> List(core.UnifiedItem) 
 fn parse_album_track_parts(
   segment: String,
   album_id: String,
+  album_cover: String,
 ) -> List(core.UnifiedItem) {
   let parts = string.split(segment, "\"title\":\"")
   case parts {
     [] -> []
-    [_, ..rest] -> parse_album_track_titles(rest, album_id, 0, [])
+    [_, ..rest] ->
+      parse_album_track_titles(rest, album_id, 0, [], album_cover)
   }
 }
 
@@ -539,6 +544,7 @@ fn parse_album_track_titles(
   album_id: String,
   index: Int,
   acc: List(core.UnifiedItem),
+  album_cover: String,
 ) -> List(core.UnifiedItem) {
   case parts {
     [] -> list.reverse(acc)
@@ -552,6 +558,11 @@ fn parse_album_track_titles(
           "unknown",
         ))
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
+      let track_thumb = tracklist_track_cover(part)
+      let cover = case string.trim(track_thumb) != "" {
+        True -> track_thumb
+        False -> album_cover
+      }
       let added_at =
         option_unwrap(
           parse_bandcamp_added_at(
@@ -560,7 +571,8 @@ fn parse_album_track_titles(
           "",
         )
       case title == "" {
-        True -> parse_album_track_titles(rest, album_id, index + 1, acc)
+        True ->
+          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover)
         False -> {
           let raw_source_id = case track_id {
             "" -> album_id <> ":" <> int.to_string(index)
@@ -573,12 +585,13 @@ fn parse_album_track_titles(
               title,
               artist,
               title_link,
+              cover,
               added_at,
             )
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc
-          })
+          }, album_cover)
         }
       }
     }
@@ -621,6 +634,7 @@ fn parse_item_parts(
               decode(title),
               decode(default_if_empty(artist, "unknown")),
               item_url,
+              fan_item_cover(part),
               added_at,
             )
           parse_item_parts(rest, case maybe_item {
@@ -637,6 +651,31 @@ fn default_if_empty(value: String, fallback: String) -> String {
   case value {
     "" -> fallback
     _ -> value
+  }
+}
+
+fn fan_item_cover(part: String) -> String {
+  let a = decode(extract_between(part, "\"art_url\":\"", "\""))
+  case string.trim(a) != "" {
+    True -> a
+    False -> decode(extract_between(part, "\"item_art_url\":\"", "\""))
+  }
+}
+
+fn tracklist_track_cover(part: String) -> String {
+  let thumb = decode(extract_between(part, "\"thumb_url\":\"", "\""))
+  case string.trim(thumb) != "" {
+    True -> thumb
+    False -> fan_item_cover(part)
+  }
+}
+
+fn album_thumb_from_html(html: String) -> String {
+  let decoded = string.replace(html, "&quot;", "\"")
+  let og = extract_between(decoded, "property=\"og:image\" content=\"", "\"")
+  case string.trim(og) != "" {
+    True -> decode(og)
+    False -> decode(extract_between(decoded, "\"artThumbURL\":\"", "\""))
   }
 }
 

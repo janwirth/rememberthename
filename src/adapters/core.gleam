@@ -4,7 +4,8 @@
 //// - Backend-only recursive resolution for service profile roots.
 //// - Deterministic traversal order, deduplication, and cycle safety.
 //// - Canonical normalized output nodes (`UnifiedItem`, `UnifiedCollection`).
-//// - No media/artwork fetching and no search behavior.
+//// - Cover art as HTTPS URLs on each item (`cover_url`); no binary artwork download.
+//// - No search behavior.
 ////
 //// Adapter contract:
 //// - Adapters expose service-specific opaque profile types + constructors.
@@ -81,11 +82,38 @@ pub type UnifiedItem {
     source_id: String,
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
+    /// Non-empty `http(s)` image URL; see [`effective_cover_url`].
+    cover_url: String,
     /// Optional local file path for exports (primarily Tuna-backed items).
     file_path: Option(String),
     /// When the source has no date, use [`timestamp.unix_epoch`]. Otherwise a parsed instant (RFC 3339 at boundaries).
     added_at: timestamp.Timestamp,
   )
+}
+
+/// When a source does not expose artwork in our model (e.g. Spotify album images not decoded yet).
+pub const cover_url_when_source_has_no_artwork: String =
+  "https://upload.wikimedia.org/wikipedia/commons/2/26/Placeholder-no-image.svg"
+
+/// Picks a trimmed `http://` / `https://` URL, or a service-specific default (YouTube thumb, else placeholder).
+pub fn effective_cover_url(
+  explicit: String,
+  service: String,
+  source_id: String,
+) -> String {
+  let trimmed = string.trim(explicit)
+  case trimmed != ""
+    && { string.starts_with(trimmed, "https://")
+    || string.starts_with(trimmed, "http://") }
+  {
+    True -> trimmed
+    False ->
+      case service {
+        "youtube" ->
+          "https://i.ytimg.com/vi/" <> source_id <> "/hqdefault.jpg"
+        _ -> cover_url_when_source_has_no_artwork
+      }
+  }
 }
 
 pub type UnifiedCollection {
@@ -106,6 +134,7 @@ pub fn track_item(
   title: String,
   artist: String,
   explicit_external_source_url: String,
+  cover_url: String,
 ) -> Result(UnifiedItem, Nil) {
   track_item_with_added_at(
     service,
@@ -113,6 +142,7 @@ pub fn track_item(
     title,
     artist,
     explicit_external_source_url,
+    cover_url,
     "",
   )
 }
@@ -137,6 +167,7 @@ pub fn track_item_with_added_at(
   title: String,
   artist: String,
   explicit_external_source_url: String,
+  cover_url: String,
   added_at: String,
 ) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
@@ -145,6 +176,7 @@ pub fn track_item_with_added_at(
     False -> {
       let external_source_url =
         item_external_source_url(service, source_id, explicit_external_source_url)
+      let cover = effective_cover_url(cover_url, service, source_id)
       let added = added_at_timestamp_from_raw(added_at)
       Ok(UnifiedItem(
         id: service <> ":item:" <> source_id,
@@ -154,6 +186,7 @@ pub fn track_item_with_added_at(
         source_type: "item",
         source_id: source_id,
         external_source_url: external_source_url,
+        cover_url: cover,
         file_path: None,
         added_at: added,
       ))
@@ -1017,7 +1050,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 
