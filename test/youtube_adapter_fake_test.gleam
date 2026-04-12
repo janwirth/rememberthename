@@ -1,6 +1,6 @@
 import adapters/core
 import gleam/int
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/list
 import gleam/string
 import gleam/time/timestamp
@@ -109,7 +109,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
-    cover_url: "https://i.ytimg.com/vi/" <> id <> "/hqdefault.jpg",
+    cover_url: Some("https://i.ytimg.com/vi/" <> id <> "/hqdefault.jpg"),
     file_path: None,
     added_at: timestamp.unix_epoch,
   )
@@ -149,7 +149,10 @@ fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
 fn items_have_https_covers(items: List(core.UnifiedItem)) -> Bool {
   list.all(items, fn(item) {
     let core.UnifiedItem(_, _, _, _, _, _, _, cover, _, _) = item
-    string.starts_with(cover, "https://")
+    case cover {
+      Some(url) -> string.starts_with(url, "https://")
+      None -> False
+    }
   })
 }
 

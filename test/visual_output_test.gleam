@@ -20,7 +20,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
       visual_output.TrackView(
@@ -32,7 +32,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
       visual_output.TrackView(
@@ -44,7 +44,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
       visual_output.TrackView(
@@ -56,7 +56,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
     ]),
@@ -70,7 +70,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
       visual_output.TrackView(
@@ -82,7 +82,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
       visual_output.TrackView(
@@ -94,7 +94,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
         timestamp.unix_epoch,
         "",
         "",
-        "",
+        None,
         "",
       ),
     ]),
@@ -109,7 +109,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -121,7 +121,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -133,7 +133,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -145,7 +145,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -157,7 +157,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -169,7 +169,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
     visual_output.TrackView(
@@ -181,7 +181,7 @@ pub fn render_uses_unicode_tree_connectors_test() {
       timestamp.unix_epoch,
       "",
       "",
-      "",
+      None,
       "",
     ),
   ]
@@ -215,17 +215,17 @@ pub fn render_uses_unicode_tree_connectors_test() {
 pub fn render_shows_all_once_when_total_tracks_is_six_or_less_test() {
   let lists = [
     visual_output.ListView("Short", [
-      visual_output.TrackView("A", "AA", "soundcloud", "sc-a", None, timestamp.unix_epoch, "", "", "", ""),
-      visual_output.TrackView("B", "BB", "soundcloud", "sc-b", None, timestamp.unix_epoch, "", "", "", ""),
+      visual_output.TrackView("A", "AA", "soundcloud", "sc-a", None, timestamp.unix_epoch, "", "", None, ""),
+      visual_output.TrackView("B", "BB", "soundcloud", "sc-b", None, timestamp.unix_epoch, "", "", None, ""),
     ]),
     visual_output.ListView("Short 2", [
-      visual_output.TrackView("C", "CC", "bandcamp", "bc-c", None, timestamp.unix_epoch, "", "", "", ""),
+      visual_output.TrackView("C", "CC", "bandcamp", "bc-c", None, timestamp.unix_epoch, "", "", None, ""),
     ]),
   ]
   let flat_tracks = [
-    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", None, timestamp.unix_epoch, "", "", "", ""),
-    visual_output.TrackView("B", "BB", "soundcloud", "sc-b", None, timestamp.unix_epoch, "", "", "", ""),
-    visual_output.TrackView("C", "CC", "bandcamp", "bc-c", None, timestamp.unix_epoch, "", "", "", ""),
+    visual_output.TrackView("A", "AA", "soundcloud", "sc-a", None, timestamp.unix_epoch, "", "", None, ""),
+    visual_output.TrackView("B", "BB", "soundcloud", "sc-b", None, timestamp.unix_epoch, "", "", None, ""),
+    visual_output.TrackView("C", "CC", "bandcamp", "bc-c", None, timestamp.unix_epoch, "", "", None, ""),
   ]
 
   let expected =
@@ -248,11 +248,11 @@ pub fn render_shows_all_once_when_total_tracks_is_six_or_less_test() {
 pub fn render_marks_tracks_with_missing_artist_test() {
   let lists = [
     visual_output.ListView("Missing Artist List", [
-      visual_output.TrackView("Track X", "", "youtube", "yt-x", None, timestamp.unix_epoch, "", "", "", ""),
+      visual_output.TrackView("Track X", "", "youtube", "yt-x", None, timestamp.unix_epoch, "", "", None, ""),
     ]),
   ]
   let flat_tracks = [
-    visual_output.TrackView("Track X", "", "youtube", "yt-x", None, timestamp.unix_epoch, "", "", "", ""),
+    visual_output.TrackView("Track X", "", "youtube", "yt-x", None, timestamp.unix_epoch, "", "", None, ""),
   ]
 
   let expected =
