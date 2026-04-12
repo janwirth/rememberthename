@@ -25,7 +25,7 @@ pub fn tracks_json_exports_nullable_file_and_empty_tags_list_test() {
         added_march,
         "bandcamp + profile",
         "",
-        "",
+        option.None,
         "",
       ),
     ])
@@ -64,7 +64,7 @@ pub fn tracks_json_exports_file_and_split_tag_list_test() {
         timestamp.unix_epoch,
         "tuna + fishbone",
         "/tmp/track-b.mp3",
-        "/tmp/track-b.jpg",
+        option.Some("/tmp/track-b.jpg"),
         "genre:house | rating:8",
       ),
     ])
@@ -97,7 +97,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         timestamp.unix_epoch,
         "youtube + profile",
         "",
-        "",
+        option.None,
         "",
       ),
       visual_output.TrackView(
@@ -109,7 +109,7 @@ pub fn tracks_json_uses_descending_order_so_first_track_is_highest_test() {
         timestamp.unix_epoch,
         "youtube + profile",
         "",
-        "",
+        option.None,
         "",
       ),
     ])

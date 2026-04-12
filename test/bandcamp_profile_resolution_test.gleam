@@ -4,6 +4,7 @@ import adapters/core
 import gleam/list
 import gleam/string
 import gleeunit/should
+import gleam/option
 
 const profile_url = "https://bandcamp.com/rntestfan"
 
@@ -125,8 +126,16 @@ pub fn bandcamp_purchased_album_collection_and_wishlist_tracks_resolve_test() {
   let assert Ok(nord_item) = nord
   let core.UnifiedItem(nord_id, _, _, _, _, _, _, cover, _, _) = nord_item
   list.contains(track_ids, nord_id) |> should.equal(True)
-  string.starts_with(cover, "https://f4.bcbits.com/")
-  |> should.equal(True)
+  case cover {
+    option.Some(cover_url) -> {
+      string.starts_with(cover_url, "https://f4.bcbits.com/")
+      |> should.equal(True)
+    }
+    option.None -> {
+      assert False
+      // should.fail("cover_url should be Some")
+    }
+  }
 
   list.any(lists, fn(c) {
     let core.UnifiedCollection(_, title, _, _, _, _, _) = c

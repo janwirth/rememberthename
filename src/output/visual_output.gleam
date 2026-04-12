@@ -144,7 +144,7 @@ pub type TrackView {
     added_at: timestamp.Timestamp,
     adapter_id: String,
     download: String,
-    cover: String,
+    cover: Option(String),
     tags: String,
   )
 }

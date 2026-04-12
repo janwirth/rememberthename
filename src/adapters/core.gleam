@@ -83,7 +83,7 @@ pub type UnifiedItem {
     /// Page URL for yt-dlp / embeds when known.
     external_source_url: Option(String),
     /// Non-empty `http(s)` image URL; see [`effective_cover_url`].
-    cover_url: String,
+    cover_url: Option(String),
     /// Optional local file path for exports (primarily Tuna-backed items).
     file_path: Option(String),
     /// When the source has no date, use [`timestamp.unix_epoch`]. Otherwise a parsed instant (RFC 3339 at boundaries).
@@ -92,26 +92,23 @@ pub type UnifiedItem {
 }
 
 /// When a source does not expose artwork in our model (e.g. Spotify album images not decoded yet).
-pub const cover_url_when_source_has_no_artwork: String =
-  "https://upload.wikimedia.org/wikipedia/commons/2/26/Placeholder-no-image.svg"
-
 /// Picks a trimmed `http://` / `https://` URL, or a service-specific default (YouTube thumb, else placeholder).
 pub fn effective_cover_url(
   explicit: String,
   service: String,
   source_id: String,
-) -> String {
+) -> Option(String) {
   let trimmed = string.trim(explicit)
   case trimmed != ""
     && { string.starts_with(trimmed, "https://")
     || string.starts_with(trimmed, "http://") }
   {
-    True -> trimmed
+    True -> Some(trimmed)
     False ->
       case service {
         "youtube" ->
-          "https://i.ytimg.com/vi/" <> source_id <> "/hqdefault.jpg"
-        _ -> cover_url_when_source_has_no_artwork
+          Some("https://i.ytimg.com/vi/" <> source_id <> "/hqdefault.jpg")
+        _ -> None
       }
   }
 }

@@ -86,7 +86,7 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       source_type: "item",
       source_id: source_id,
       external_source_url: None,
-      cover_url: core.cover_url_when_source_has_no_artwork,
+      cover_url: option.None,
       file_path: None,
       added_at: timestamp.unix_epoch,
     )

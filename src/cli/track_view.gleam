@@ -99,7 +99,7 @@ pub fn to_tuna_track_view(
     tuna_metadata_for(metadata_index, service, source_id)
   let cover_out = case string.trim(cover) {
     "" -> item_cover_url
-    value -> value
+    value -> option.Some(value)
   }
   visual_output.TrackView(
     title,

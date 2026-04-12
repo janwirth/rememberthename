@@ -167,7 +167,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     source_type: "item",
     source_id: id,
     external_source_url: None,
-    cover_url: "https://i1.sndcdn.com/artworks-" <> id <> "-large.jpg",
+    cover_url: option.Some("https://i1.sndcdn.com/artworks-" <> id <> "-large.jpg"),
     file_path: None,
     added_at: timestamp.unix_epoch,
   )
@@ -207,7 +207,10 @@ fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
 fn items_have_https_covers(items: List(core.UnifiedItem)) -> Bool {
   list.all(items, fn(item) {
     let core.UnifiedItem(_, _, _, _, _, _, _, cover, _, _) = item
-    string.starts_with(cover, "https://")
+    case cover {
+      option.Some(cover_url) -> string.starts_with(cover_url, "https://")
+      option.None -> False
+    }
   })
 }
 

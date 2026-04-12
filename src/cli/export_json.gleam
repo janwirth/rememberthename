@@ -162,7 +162,10 @@ fn track_json_with_order(
     #("adapter_id", json.string(adapter_id)),
     #("file", nullable_file_json(download)),
     #("file_path", nullable_file_json(download)),
-    #("cover", nullable_file_json(cover)),
+    #("cover", case cover {
+      Some(value) -> json.string(value)
+      None -> json.null()
+    }),
     #("tags", json.array(tuna_tags.export_tags_with_mode(tags, normalize_tags), of: json.string)),
   ])
 }
