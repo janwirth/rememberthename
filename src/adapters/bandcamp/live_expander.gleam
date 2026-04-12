@@ -27,19 +27,20 @@
 //// Normalization:
 //// - Emitted items carry canonical
 ////   `service`, `source_type`, `source_id`.
-//// - Lists are not emitted by current Bandcamp implementation.
+//// - Purchased (`collection`) albums emit `UnifiedCollection` rows; wishlist albums expand tracks only.
 ////
 //// Test coverage:
 //// - `test/bandcamp_adapter_test.gleam`
+//// - `test/bandcamp_profile_resolution_test.gleam`
 
 import adapters/cache
 import adapters/core
+import gleam/hackney
 import gleam/http.{Post}
 import gleam/http/request
-import gleam/hackney
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some, type Option, unwrap as option_unwrap}
+import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
 import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
@@ -277,17 +278,10 @@ fn fetch_category_page(
 fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
-    ["album", album_url, album_id] -> {
-      let #(html, #(hits, fetches)) = cached_fetch(album_url, cache_mode)
-      core.ExpandResult(
-        items: parse_album_tracks(html, album_id),
-        lists: [],
-        next_nodes: [],
-        unresolved: [],
-        cache_hits: hits,
-        cache_fetches: fetches,
-      )
-    }
+    ["album", feed_kind, album_url, album_id] ->
+      expand_album_fetched(feed_kind, album_url, album_id, cache_mode)
+    ["album", album_url, album_id] ->
+      expand_album_fetched("wishlist", album_url, album_id, cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -297,6 +291,57 @@ fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
         cache_hits: 0,
         cache_fetches: 0,
       )
+  }
+}
+
+fn expand_album_fetched(
+  feed_kind: String,
+  album_url: String,
+  album_id: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
+  let #(html, #(hits, fetches)) = cached_fetch(album_url, cache_mode)
+  let tracks = parse_album_tracks(html, album_id)
+  let album_title = extract_album_title_from_html(html)
+  let lists = case feed_kind == "collection" {
+    True -> {
+      let track_ids =
+        list.map(tracks, fn(t) {
+          let core.UnifiedItem(id, _, _, _, _, _, _, _, _) = t
+          id
+        })
+      let list_source_id = "bandcamp:collection:" <> album_id
+      [
+        core.UnifiedCollection(
+          id: list_source_id,
+          title: album_title,
+          track_ids: track_ids,
+          list_ids: [],
+          service: "bandcamp",
+          source_type: "collection",
+          source_id: list_source_id,
+        ),
+      ]
+    }
+    False -> []
+  }
+  core.ExpandResult(
+    items: tracks,
+    lists: lists,
+    next_nodes: [],
+    unresolved: [],
+    cache_hits: hits,
+    cache_fetches: fetches,
+  )
+}
+
+fn extract_album_title_from_html(html: String) -> String {
+  let decoded = string.replace(html, "&quot;", "\"")
+  let t = extract_between(decoded, "\"album_title\":\"", "\"")
+  case t != "" {
+    True -> decode(t)
+    False ->
+      decode(extract_between(html, "property=\"og:title\" content=\"", "\""))
   }
 }
 
@@ -330,20 +375,20 @@ fn parse_items(json: String, _kind: String) -> List(core.UnifiedItem) {
 
 fn parse_category_payload(
   json: String,
-  _kind: String,
+  kind: String,
 ) -> #(List(core.UnifiedItem), List(core.AdapterNode)) {
   let parts = string.split(json, "\"item_id\":")
   case parts {
     [] -> #([], [])
-    [_, ..rest] -> parse_item_parts_with_album_nodes(rest, [], [], 0)
+    [_, ..rest] -> parse_item_parts_with_album_nodes(rest, kind, [], [])
   }
 }
 
 fn parse_item_parts_with_album_nodes(
   parts: List(String),
+  feed_kind: String,
   items_acc: List(core.UnifiedItem),
   nodes_acc: List(core.AdapterNode),
-  album_nodes_added: Int,
 ) -> #(List(core.UnifiedItem), List(core.AdapterNode)) {
   case parts {
     [] -> #(list.reverse(items_acc), list.reverse(nodes_acc))
@@ -357,9 +402,9 @@ fn parse_item_parts_with_album_nodes(
         True ->
           parse_item_parts_with_album_nodes(
             rest,
+            feed_kind,
             items_acc,
             nodes_acc,
-            album_nodes_added,
           )
         False -> {
           let page_url = decode(item_url)
@@ -379,23 +424,23 @@ fn parse_item_parts_with_album_nodes(
               page_url,
               added_at,
             )
-          let #(nodes_acc, album_nodes_added) = case
-            item_type == "album" && item_url != "" && album_nodes_added < 2
-          {
-            True -> #(
-              [core.ListNode("album|" <> item_url <> "|" <> id), ..nodes_acc],
-              album_nodes_added + 1,
-            )
-            False -> #(nodes_acc, album_nodes_added)
+          let nodes_acc = case item_type == "album" && item_url != "" {
+            True -> [
+              core.ListNode(
+                "album|" <> feed_kind <> "|" <> page_url <> "|" <> id,
+              ),
+              ..nodes_acc
+            ]
+            False -> nodes_acc
           }
           parse_item_parts_with_album_nodes(
             rest,
+            feed_kind,
             case maybe_item {
               Ok(item) -> [item, ..items_acc]
               Error(_) -> items_acc
             },
             nodes_acc,
-            album_nodes_added,
           )
         }
       }
@@ -630,8 +675,11 @@ fn parse_bandcamp_added_at(raw: String) -> Option(String) {
           let day = zero_pad_2(day)
           let month = bandcamp_month_to_number(month)
           let time_parts = string.split(hhmmss, ":")
-          case month != "" && zone == "GMT" && is_year(year) && is_hms(time_parts) {
-            True -> Some(year <> "-" <> month <> "-" <> day <> "T" <> hhmmss <> "Z")
+          case
+            month != "" && zone == "GMT" && is_year(year) && is_hms(time_parts)
+          {
+            True ->
+              Some(year <> "-" <> month <> "-" <> day <> "T" <> hhmmss <> "Z")
             False -> None
           }
         }
@@ -674,8 +722,7 @@ fn is_year(value: String) -> Bool {
 
 fn is_hms(parts: List(String)) -> Bool {
   case parts {
-    [h, m, s] ->
-      is_two_digits(h) && is_two_digits(m) && is_two_digits(s)
+    [h, m, s] -> is_two_digits(h) && is_two_digits(m) && is_two_digits(s)
     _ -> False
   }
 }

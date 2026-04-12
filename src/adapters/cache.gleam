@@ -125,6 +125,11 @@ fn read_cached(namespace: String, key_hash: String) -> String {
   }
 }
 
+/// Insert or replace a cache row so `CacheReadOnly` / `CacheUpsert` can hit without network (tests).
+pub fn seed_adapter_cache(namespace: String, cache_key: String, value: String) -> Nil {
+  write_cached(namespace, phash(cache_key), value)
+}
+
 fn write_cached(namespace: String, key_hash: String, value: String) -> Nil {
   use conn <- with_cache_connection(Nil)
   let _ = sqlight.query(
