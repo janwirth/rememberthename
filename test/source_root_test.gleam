@@ -2,6 +2,7 @@ import adapters/api_keys
 import adapters/core
 import cli/source_selector as source_pick
 import gleam/list
+import gleam/option
 import gleam/set
 import gleeunit/should
 import source_root
@@ -37,7 +38,7 @@ pub fn ordered_triple_bandcamp_assert_spec_test() {
 
 pub fn bandcamp_row_is_bandcamp_root_test() {
   let #(_, root, _) = source_specs.bandcamp()
-  let assert source_root.BandcampRoot(url, depth, _) = root
+  let assert source_root.BandcampRoot(url, depth, _, _) = root
   depth
   |> should.equal(core.All)
   url
@@ -78,7 +79,33 @@ pub fn artifact_json_path_spotify_test() {
         redirect_uri: "u",
       ),
       core.All,
+      option.None,
     )
   source_root.artifact_json_path(root)
   |> should.equal("output/spotify_full.json")
+}
+
+pub fn with_newer_than_bandcamp_test() {
+  let #(_, root, _) = source_specs.bandcamp()
+  let root_with_anchor = source_root.with_newer_than(root, option.Some("rid:v1:platform:spotify:track:abc"))
+  let assert source_root.BandcampRoot(_, _, _, fetch_newer_than) = root_with_anchor
+  fetch_newer_than
+  |> should.equal(option.Some("rid:v1:platform:spotify:track:abc"))
+}
+
+pub fn with_newer_than_youtube_test() {
+  let #(_, root, _) = source_specs.youtube()
+  let root_with_anchor = source_root.with_newer_than(root, option.Some("rid:v1:platform:youtube:track:xyz"))
+  let assert source_root.YoutubeRoot(_, _, fetch_newer_than) = root_with_anchor
+  fetch_newer_than
+  |> should.equal(option.Some("rid:v1:platform:youtube:track:xyz"))
+}
+
+pub fn with_newer_than_clears_when_none_test() {
+  let #(_, root, _) = source_specs.spotify()
+  let root_with_anchor = source_root.with_newer_than(root, option.Some("rid:v1:platform:spotify:track:old"))
+  let root_cleared = source_root.with_newer_than(root_with_anchor, option.None)
+  let assert source_root.SpotifyRoot(_, _, fetch_newer_than) = root_cleared
+  fetch_newer_than
+  |> should.equal(option.None)
 }

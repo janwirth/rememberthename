@@ -31,6 +31,7 @@ pub fn fetch_result_json(
   imported_dates: dict.Dict(String, Int),
   normalize_tags: Bool,
   collections: List(core.UnifiedCollection),
+  anchor_found: String,
 ) -> String {
   json.object([
     #(
@@ -42,6 +43,7 @@ pub fn fetch_result_json(
         }),
     ),
     #("collections", json.array(collections, of: collection_json)),
+    #("anchor_found", json.string(anchor_found)),
   ])
   |> json.to_string
 }

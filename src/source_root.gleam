@@ -6,6 +6,7 @@
 import adapters/api_keys
 import adapters/core
 import gleam/list
+import gleam/option
 import gleam/string
 
 /// Per-source HTTP queue policy (Bandcamp and Soundcloud carry it on `SourceRoot`).
@@ -30,20 +31,34 @@ pub type SourceRoot {
     profile_url: String,
     depth: core.DepthMode,
     timing: SourceTimingSpec,
+    fetch_newer_than: option.Option(String),
   )
-  SoundcloudRoot(entry_point: String, depth: core.DepthMode, timing: SourceTimingSpec)
-  SpotifyRoot(credentials: api_keys.SpotifyCredentials, depth: core.DepthMode)
-  YoutubeRoot(playlist_url: String, google_cloud_api_key: String)
+  SoundcloudRoot(
+    entry_point: String,
+    depth: core.DepthMode,
+    timing: SourceTimingSpec,
+    fetch_newer_than: option.Option(String),
+  )
+  SpotifyRoot(
+    credentials: api_keys.SpotifyCredentials,
+    depth: core.DepthMode,
+    fetch_newer_than: option.Option(String),
+  )
+  YoutubeRoot(
+    playlist_url: String,
+    google_cloud_api_key: String,
+    fetch_newer_than: option.Option(String),
+  )
   TunaRoot
 }
 
 /// Entry point string for listings / validate output (mirrors former `catalog_entry_point`).
 pub fn listing_entry_point(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(url, _, _) -> url
-    SoundcloudRoot(ep, _, _) -> ep
-    SpotifyRoot(_, _) -> "https://open.spotify.com/user/liked"
-    YoutubeRoot(url, _) -> url
+    BandcampRoot(url, _, _, _) -> url
+    SoundcloudRoot(ep, _, _, _) -> ep
+    SpotifyRoot(_, _, _) -> "https://open.spotify.com/user/liked"
+    YoutubeRoot(url, _, _) -> url
     TunaRoot -> "gel:tuna/main::default::Track"
   }
 }
@@ -61,14 +76,14 @@ pub fn ordered_selector_triples(
 /// Human-readable display name for the source (used in CLI progress output).
 pub fn display_name(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(url, _, _) ->
+    BandcampRoot(url, _, _, _) ->
       case string.contains(url, "/wishlist") {
         True -> "Bandcamp Wishlist"
         False -> "Bandcamp Purchases"
       }
-    SoundcloudRoot(_, _, _) -> "Soundcloud"
-    SpotifyRoot(_, _) -> "Spotify"
-    YoutubeRoot(_, _) -> "Youtube"
+    SoundcloudRoot(_, _, _, _) -> "Soundcloud"
+    SpotifyRoot(_, _, _) -> "Spotify"
+    YoutubeRoot(_, _, _) -> "Youtube"
     TunaRoot -> "Tuna"
   }
 }
@@ -76,11 +91,26 @@ pub fn display_name(root: SourceRoot) -> String {
 /// Return a copy of the root with a different `depth`, for cross-depth validation runs.
 pub fn with_depth(root: SourceRoot, depth: core.DepthMode) -> SourceRoot {
   case root {
-    BandcampRoot(url, _, timing) -> BandcampRoot(url, depth, timing)
-    SoundcloudRoot(ep, _, timing) -> SoundcloudRoot(ep, depth, timing)
-    SpotifyRoot(creds, _) -> SpotifyRoot(creds, depth)
-    YoutubeRoot(url, key) -> YoutubeRoot(url, key)
+    BandcampRoot(url, _, timing, fetch_newer_than) ->
+      BandcampRoot(url, depth, timing, fetch_newer_than)
+    SoundcloudRoot(ep, _, timing, fetch_newer_than) ->
+      SoundcloudRoot(ep, depth, timing, fetch_newer_than)
+    SpotifyRoot(creds, _, fetch_newer_than) -> SpotifyRoot(creds, depth, fetch_newer_than)
+    YoutubeRoot(url, key, fetch_newer_than) -> YoutubeRoot(url, key, fetch_newer_than)
     // YouTube ignores depth (single flat playlist); Tuna has no depth field.
+    TunaRoot -> TunaRoot
+  }
+}
+
+/// Return a copy of the root with a different `fetch_newer_than`, for incremental fetch.
+pub fn with_newer_than(root: SourceRoot, fetch_newer_than: option.Option(String)) -> SourceRoot {
+  case root {
+    BandcampRoot(url, depth, timing, _) ->
+      BandcampRoot(url, depth, timing, fetch_newer_than)
+    SoundcloudRoot(ep, depth, timing, _) ->
+      SoundcloudRoot(ep, depth, timing, fetch_newer_than)
+    SpotifyRoot(creds, depth, _) -> SpotifyRoot(creds, depth, fetch_newer_than)
+    YoutubeRoot(url, key, _) -> YoutubeRoot(url, key, fetch_newer_than)
     TunaRoot -> TunaRoot
   }
 }
@@ -88,16 +118,16 @@ pub fn with_depth(root: SourceRoot, depth: core.DepthMode) -> SourceRoot {
 /// Stable label identifying the fetch source for JSON output (mirrors `track_view.adapter_id_for_source`).
 pub fn adapter_id(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(profile_url, _, _) -> {
+    BandcampRoot(profile_url, _, _, _) -> {
       let feed_label = case string.contains(profile_url, "/wishlist") {
         True -> "bandcamp_wishlist + "
         False -> "bandcamp_purchases + "
       }
       feed_label <> profile_url
     }
-    SoundcloudRoot(entry_point, _, _) -> "soundcloud + " <> entry_point
-    SpotifyRoot(_, _) -> "spotify + liked"
-    YoutubeRoot(playlist_url, _) -> "youtube + " <> playlist_url
+    SoundcloudRoot(entry_point, _, _, _) -> "soundcloud + " <> entry_point
+    SpotifyRoot(_, _, _) -> "spotify + liked"
+    YoutubeRoot(playlist_url, _, _) -> "youtube + " <> playlist_url
     TunaRoot -> "tuna + gel:tuna/main::default::Track"
   }
 }
@@ -112,14 +142,14 @@ pub fn artifact_json_path(root: SourceRoot) -> String {
 /// Selector key string derived from the root variant.
 pub fn source_key(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(url, _, _) ->
+    BandcampRoot(url, _, _, _) ->
       case string.contains(url, "/wishlist") {
         True -> "bandcamp_wishlist"
         False -> "bandcamp_purchases"
       }
-    SoundcloudRoot(_, _, _) -> "soundcloud"
-    SpotifyRoot(_, _) -> "spotify"
-    YoutubeRoot(_, _) -> "youtube"
+    SoundcloudRoot(_, _, _, _) -> "soundcloud"
+    SpotifyRoot(_, _, _) -> "spotify"
+    YoutubeRoot(_, _, _) -> "youtube"
     TunaRoot -> "tuna"
   }
 }

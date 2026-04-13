@@ -22,7 +22,7 @@ pub fn resolve_limited(
 ) -> core.ResolveResult {
   let r = source_root.with_depth(root, depth)
   case r {
-    source_root.BandcampRoot(url, d, timing) -> {
+    source_root.BandcampRoot(url, d, timing, _fetch_newer_than) -> {
       let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
         timing
       let queue_policy =
@@ -40,9 +40,10 @@ pub fn resolve_limited(
         queue_policy,
         on_debug,
         fn(_) { Nil },
+        option.None,
       )
     }
-    source_root.SoundcloudRoot(ep, d, timing) -> {
+    source_root.SoundcloudRoot(ep, d, timing, _fetch_newer_than) -> {
       let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
         timing
       let queue_policy =
@@ -60,9 +61,10 @@ pub fn resolve_limited(
         queue_policy,
         on_debug,
         fn(_) { Nil },
+        option.None,
       )
     }
-    source_root.SpotifyRoot(creds, d) -> {
+    source_root.SpotifyRoot(creds, d, _fetch_newer_than) -> {
       let queue_policy =
         resolve_adapter.queue_policy_for_cache_mode(cache_mode, 3, 3)
       case
@@ -88,11 +90,12 @@ pub fn resolve_limited(
             queue_policy,
             on_debug,
             fn(_) { Nil },
+            option.None,
           )
         }
       }
     }
-    source_root.YoutubeRoot(playlist_url, api_key) -> {
+    source_root.YoutubeRoot(playlist_url, api_key, _fetch_newer_than) -> {
       let queue_policy =
         resolve_adapter.queue_policy_for_cache_mode(cache_mode, 3, 3)
       let keys =
@@ -108,6 +111,7 @@ pub fn resolve_limited(
           queue_policy,
           on_debug,
           fn(_) { Nil },
+          option.None,
         )
       {
         Ok(result) -> result

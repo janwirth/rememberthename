@@ -130,7 +130,8 @@ pub fn resolve_profile_with_debug_limited_timed(
   queue_policy: core.QueuePolicy,
   on_debug: fn(String) -> Nil,
   on_progress: fn(core.ResolveProgress) -> Nil,
-) -> core.ResolveResult {
+  anchor: option.Option(String),
+) -> core.ResolveResultWithAnchor {
   // Keep entry point specific: BandcampProfile -> profile_url traversal root.
   let BandcampProfile(profile_url) = profile
   core.resolve_profile_url_with_debug_limit_and_queue_policy(
@@ -141,6 +142,7 @@ pub fn resolve_profile_with_debug_limited_timed(
     fn(node) { expand(node, cache_mode) },
     on_debug,
     on_progress,
+    anchor,
   )
 }
 

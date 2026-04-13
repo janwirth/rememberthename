@@ -4,6 +4,7 @@ import adapters/core
 import cli/config_paths
 import cli/spotify_credentials
 import gleam/list
+import gleam/option
 import gleam/string
 import simplifile
 import source_root
@@ -20,6 +21,7 @@ pub fn bandcamp_purchases() -> #(String, source_root.SourceRoot, source_root.Sou
       "https://bandcamp.com/janwirth",
       core.All,
       source_root.SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
+      option.None,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 1,
@@ -46,6 +48,7 @@ pub fn bandcamp_wishlist() -> #(String, source_root.SourceRoot, source_root.Sour
       "https://bandcamp.com/janwirth/wishlist",
       core.All,
       source_root.SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
+      option.None,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 1,
@@ -69,6 +72,7 @@ pub fn soundcloud() -> #(String, source_root.SourceRoot, source_root.SourceAsser
       "https://soundcloud.com/tungstenselects",
       core.All,
       source_root.SourceTimingSpec(max_concurrency: 3, requests_per_second: 3),
+      option.None,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 10,
@@ -111,7 +115,8 @@ pub fn spotify() -> #(String, source_root.SourceRoot, source_root.SourceAssertSp
     "Spotify",
     source_root.SpotifyRoot(
       credentials: credentials,
-      depth: core.All
+      depth: core.All,
+      fetch_newer_than: option.None,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 50,
@@ -132,6 +137,7 @@ pub fn youtube() -> #(String, source_root.SourceRoot, source_root.SourceAssertSp
     source_root.YoutubeRoot(
       "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
       api_key,
+      option.None,
     ),
     source_root.SourceAssertSpec(
       min_depth_1_items: 5,

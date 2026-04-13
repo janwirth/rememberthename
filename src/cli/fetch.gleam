@@ -3,6 +3,7 @@ import adapters/core
 import cli/fetch_orchestration
 import gleam/io
 import gleam/list
+import gleam/option
 import output/visual_output
 
 /// Parses optional flags after `fetch <source>`, then runs the fetch.
@@ -10,7 +11,7 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
   case parse_fetch_args(args) {
     Error(message) -> io.println(message)
     Ok(fetch_args) -> {
-      let FetchArgs(use_cache, shallow, validate) = fetch_args
+      let FetchArgs(use_cache, shallow, validate, newer_than) = fetch_args
       let cache_mode = case use_cache {
         True -> cache.CacheReadOnly
         False -> cache.CacheOverride
@@ -25,10 +26,11 @@ pub fn fetch_source_simple(selector: String, args: List(String)) {
           )
         False -> {
           let on_update = fn(line) { io.println(line) }
-          case fetch_orchestration.fetch_with_cache_mode(
+          case fetch_orchestration.fetch_with_cache_mode_and_anchor(
             selector,
             cache_mode,
             validate,
+            newer_than,
             on_update,
           ) {
             Error(msg) -> io.println(msg)
@@ -108,7 +110,7 @@ fn track_line(track: visual_output.TrackView) -> String {
 }
 
 type FetchArgs {
-  FetchArgs(use_cache: Bool, shallow: Bool, validate: Bool)
+  FetchArgs(use_cache: Bool, shallow: Bool, validate: Bool, newer_than: option.Option(String))
 }
 
 fn parse_fetch_args(args: List(String)) -> Result(FetchArgs, String) {
@@ -117,6 +119,22 @@ fn parse_fetch_args(args: List(String)) -> Result(FetchArgs, String) {
     list.any(args, fn(a) { a == "shallow" || a == "--shallow" })
   let wants_use = list.any(args, fn(a) { a == "use-cache" })
   let wants_override = list.any(args, fn(a) { a == "override-cache" })
+
+  // Extract --newer-than value if present
+  let newer_than = case list.index_map(args, fn(arg, idx) {
+    case arg == "--newer-than" {
+      True -> option.Some(idx)
+      False -> option.None
+    }
+  }) {
+    [option.Some(idx), ..] ->
+      case list.at(args, idx + 1) {
+        Ok(value) -> option.Some(value)
+        Error(_) -> option.None
+      }
+    _ -> option.None
+  }
+
   case wants_use && wants_override {
     True -> Error("Use only one of use-cache or override-cache.")
     False -> {
@@ -128,9 +146,15 @@ fn parse_fetch_args(args: List(String)) -> Result(FetchArgs, String) {
           && a != "shallow"
           && a != "--shallow"
           && a != "--validate"
+          && a != "--newer-than"
         })
+      // Also filter out the value of --newer-than if it's the next arg
+      let unknown = case newer_than {
+        option.Some(val) -> list.filter(unknown, fn(a) { a != val })
+        option.None -> unknown
+      }
       case unknown {
-        [] -> Ok(FetchArgs(use_cache, shallow, validate))
+        [] -> Ok(FetchArgs(use_cache, shallow, validate, newer_than))
         _ -> Error(fetch_arg_error_text())
       }
     }

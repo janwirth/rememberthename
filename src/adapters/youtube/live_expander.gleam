@@ -13,8 +13,10 @@ import adapters/api_keys
 import adapters/cache
 import adapters/core
 import adapters/youtube/data_api
+import anchor_checker
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 
@@ -81,19 +83,27 @@ pub fn resolve_profile_with_debug_limited_timed(
   queue_policy: core.QueuePolicy,
   on_debug: fn(String) -> Nil,
   on_progress: fn(core.ResolveProgress) -> Nil,
-) -> Result(core.ResolveResult, api_keys.ResolveAdapterError) {
+  anchor: option.Option(String),
+) -> Result(core.ResolveResultWithAnchor, api_keys.ResolveAdapterError) {
   let YoutubePlaylistProfile(profile_url) = profile
   let _ = cache_mode
   let _ = queue_policy
   use api_key <- result.try(api_keys.require_youtube_data_api_key(keys))
   let playlist_id = parse_playlist_id(profile_url)
+  let anchor_mode = case anchor {
+    option.None -> anchor_checker.NoAnchor
+    option.Some(rid) -> anchor_checker.SearchForAnchor(rid, False, 0)
+  }
   case playlist_id == "" {
     True ->
       Ok(
-        core.ResolveResult(
-          items: [],
-          lists: [],
-          unresolved: [core.ProfileEntry(profile_url)],
+        core.ResolveResultWithAnchor(
+          core.ResolveResult(
+            items: [],
+            lists: [],
+            unresolved: [core.ProfileEntry(profile_url)],
+          ),
+          anchor_mode,
         ),
       )
     False -> {
@@ -112,11 +122,16 @@ pub fn resolve_profile_with_debug_limited_timed(
       let lists = [make_collection(playlist_id, title, visible)]
       emit_youtube_progress(profile_url, visible, lists, on_progress)
       let _ = on_debug
-      Ok(core.ResolveResult(
-        items: visible,
-        lists: lists,
-        unresolved: [],
-      ))
+      Ok(
+        core.ResolveResultWithAnchor(
+          core.ResolveResult(
+            items: visible,
+            lists: lists,
+            unresolved: [],
+          ),
+          anchor_mode,
+        ),
+      )
     }
   }
 }

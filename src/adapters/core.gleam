@@ -49,6 +49,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
+import anchor_checker
 import source_id_normalizer
 
 // Shared traversal/runtime implementation used by all live adapters.
@@ -246,6 +247,14 @@ pub type ResolveResult {
   )
 }
 
+/// Resolve result with anchor detection status.
+pub type ResolveResultWithAnchor {
+  ResolveResultWithAnchor(
+    result: ResolveResult,
+    anchor_mode: anchor_checker.AnchorMode,
+  )
+}
+
 pub type ResolveProgress {
   ResolveProgress(
     label: String,
@@ -400,8 +409,13 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
-) -> ResolveResult {
-  case depth {
+  anchor: Option(String),
+) -> ResolveResultWithAnchor {
+  let anchor_mode = case anchor {
+    None -> anchor_checker.NoAnchor
+    Some(rid) -> anchor_checker.SearchForAnchor(rid, False, 0)
+  }
+  let result = case depth {
     All ->
       resolve_profile_url_with_default_queue(
         profile_url,
@@ -410,6 +424,7 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
         expand,
         on_debug,
         on_progress,
+        anchor_mode,
       )
     _ ->
       // Start traversal exactly once from the profile entry root.
@@ -426,8 +441,10 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
         expand,
         on_debug,
         on_progress,
+        anchor_mode,
       )
   }
+  ResolveResultWithAnchor(result, anchor_mode)
 }
 
 type WorkerMsg {
@@ -441,6 +458,7 @@ fn resolve_profile_url_with_default_queue(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
+  anchor_mode: anchor_checker.AnchorMode,
 ) -> ResolveResult {
   let QueuePolicy(max_concurrency, requests_per_second) =
     normalize_queue_policy(queue_policy)
@@ -650,6 +668,7 @@ fn concurrent_loop(
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
 ) -> ResolveResult {
+  // Incremental fetch is supported for Depth1-Depth20 modes which use the non-concurrent loop.
   case queue == [] && running == 0 || reached_item_limit(items, max_items) {
     True ->
       case reached_item_limit(items, max_items) {
@@ -811,6 +830,7 @@ fn loop(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
+  anchor_mode: anchor_checker.AnchorMode,
 ) -> ResolveResult {
   // Tail-recursive resolver with:
   // - queue for deterministic traversal order
@@ -847,6 +867,7 @@ fn loop(
             expand,
             on_debug,
             on_progress,
+            anchor_mode,
           )
         }
         False -> {
@@ -866,6 +887,7 @@ fn loop(
                 expand,
                 on_debug,
                 on_progress,
+                anchor_mode,
               )
             }
             True -> {
@@ -903,6 +925,17 @@ fn loop(
                 merge_items(items, item_seen, next_items, max_items)
               let #(lists, list_seen) =
                 merge_lists(lists, list_seen, next_lists)
+
+              // Check for anchor in newly fetched items
+              let anchor_mode = anchor_checker.update_anchor_mode(anchor_mode, next_items)
+              let anchor_reached = anchor_checker.is_anchor_reached(anchor_mode)
+
+              // Filter pagination nodes if anchor found at level 0
+              let next_nodes = case anchor_reached && level == 0 {
+                False -> next_nodes
+                True -> list.filter(next_nodes, is_non_pagination_node)
+              }
+
               emit_progress(
                 on_progress,
                 node,
@@ -937,6 +970,7 @@ fn loop(
                     expand,
                     on_debug,
                     on_progress,
+                    anchor_mode,
                   )
               }
             }
@@ -944,6 +978,14 @@ fn loop(
         }
       }
     }
+  }
+}
+
+fn is_non_pagination_node(node: AdapterNode) -> Bool {
+  case node {
+    PageNode(_) -> False
+    CategoryNode(_) -> False
+    _ -> True
   }
 }
 

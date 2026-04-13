@@ -17,7 +17,7 @@ import fetch_ops
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
 import output/visual_output
 import simplifile
 import source_root
@@ -45,6 +45,47 @@ pub fn fetch_with_cache_mode(
               key,
               source_index,
               root,
+              assert_spec,
+              core.All,
+              "full",
+              cache_mode,
+              always_validate,
+              True,
+              on_update,
+            )
+          Ok(Nil)
+        }
+      }
+  }
+}
+
+/// Fetch one source with optional anchor (newer-than), supporting incremental fetch.
+pub fn fetch_with_cache_mode_and_anchor(
+  selector: String,
+  cache_mode: cache.CacheMode,
+  always_validate: Bool,
+  newer_than: Option(String),
+  on_update: fn(String) -> Nil,
+) -> Result(Nil, String) {
+  let ordered = source_root.ordered_selector_triples(source_specs.all())
+  case selector == "all" {
+    True -> {
+      fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
+      Ok(Nil)
+    }
+    False ->
+      case source_pick.triple_by_selector(ordered, selector) {
+        Error(_) -> Error("Invalid source selector: " <> selector)
+        Ok(#(source_index, key, root, assert_spec)) -> {
+          let root_with_anchor = case newer_than {
+            None -> root
+            Some(rid) -> source_root.with_newer_than(root, Some(rid))
+          }
+          let _ =
+            run_fetch(
+              key,
+              source_index,
+              root_with_anchor,
               assert_spec,
               core.All,
               "full",
@@ -260,13 +301,14 @@ pub fn run_fetch(
         lists: [],
         unresolved: [],
         tuna_metadata: None,
+        anchor_found: Ok("No anchor specified"),
       )
     }
   }
   let resolve_elapsed_ms = runtime.now_ms() - resolve_start_ms
 
   let adapter_id = source_root.adapter_id(root)
-  let fetch_ops.FetchResult(items, lists, unresolved, ..) = fetch_result
+  let fetch_ops.FetchResult(items, lists, unresolved, _tuna_metadata, anchor_found) = fetch_result
   let #(tracks, imported_dates) =
     fetch_ops.fetch_result_to_tracks(fetch_result, adapter_id)
   let files_count = export_json.count_tracks_with_file(tracks)
@@ -294,8 +336,12 @@ pub fn run_fetch(
         source_root.TunaRoot -> True
         _ -> False
       }
+      let anchor_msg = case anchor_found {
+        Ok(msg) -> msg
+        Error(msg) -> msg
+      }
       let content =
-        export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists)
+        export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists, anchor_msg)
       let json_path = source_root.artifact_json_path(root)
       let export_start_ms = runtime.now_ms()
       let _ = simplifile.write(content, to: json_path)

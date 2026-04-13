@@ -11,6 +11,7 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
+import anchor_checker
 import cli/export_json
 import cli/resolve_adapter
 import cli/track_view
@@ -31,6 +32,7 @@ pub type FetchResult {
     tuna_metadata: option.Option(
       dict.Dict(String, tuna_normalized_source.ExportMetadata),
     ),
+    anchor_found: Result(String, String),
   )
 }
 
@@ -47,12 +49,12 @@ pub fn fetch(
   on_update: fn(String) -> Nil,
 ) -> Result(FetchResult, String) {
   case root {
-    source_root.BandcampRoot(profile_url, depth, timing) -> {
+    source_root.BandcampRoot(profile_url, depth, timing, fetch_newer_than) -> {
       let source_root.SourceTimingSpec(max_conc, rps) = timing
       let qp =
         resolve_adapter.queue_policy_for_cache_mode(cache_mode, max_conc, rps)
       let profile = bandcamp_live_expander.bandcamp_profile(profile_url)
-      let result =
+      let core.ResolveResultWithAnchor(result, anchor_mode) =
         bandcamp_live_expander.resolve_profile_with_debug_limited_timed(
           profile,
           depth,
@@ -61,17 +63,19 @@ pub fn fetch(
           qp,
           fn(_) { Nil },
           fn(p) { on_update(core.format_resolve_progress_line(p)) },
+          fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      Ok(FetchResult(items, lists, unresolved, None))
+      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
-    source_root.SoundcloudRoot(entry_point, depth, timing) -> {
+    source_root.SoundcloudRoot(entry_point, depth, timing, fetch_newer_than) -> {
       let source_root.SourceTimingSpec(max_conc, rps) = timing
       let qp =
         resolve_adapter.queue_policy_for_cache_mode(cache_mode, max_conc, rps)
       let profile = soundcloud_live_expander.soundcloud_profile(entry_point)
-      let result =
+      let core.ResolveResultWithAnchor(result, anchor_mode) =
         soundcloud_live_expander.resolve_profile_with_debug_limited_timed(
           profile,
           depth,
@@ -80,19 +84,21 @@ pub fn fetch(
           qp,
           fn(_) { Nil },
           fn(p) { on_update(core.format_resolve_progress_line(p)) },
+          fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      Ok(FetchResult(items, lists, unresolved, None))
+      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
-    source_root.SpotifyRoot(credentials, depth) -> {
+    source_root.SpotifyRoot(credentials, depth, fetch_newer_than) -> {
       let qp = resolve_adapter.queue_policy_for_cache_mode(cache_mode, 3, 3)
       let config = spotify_live_expander.spotify_config(credentials)
       let profile =
         spotify_live_expander.spotify_user(
           "https://open.spotify.com/user/liked",
         )
-      let result =
+      let core.ResolveResultWithAnchor(result, anchor_mode) =
         spotify_live_expander.resolve_profile_with_debug_limited_timed(
           profile,
           depth,
@@ -102,12 +108,14 @@ pub fn fetch(
           qp,
           fn(_) { Nil },
           fn(p) { on_update(core.format_resolve_progress_line(p)) },
+          fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      Ok(FetchResult(items, lists, unresolved, None))
+      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
-    source_root.YoutubeRoot(playlist_url, api_key) -> {
+    source_root.YoutubeRoot(playlist_url, api_key, fetch_newer_than) -> {
       let qp = resolve_adapter.queue_policy_for_cache_mode(cache_mode, 3, 3)
       let keys = api_keys.ApiKeys(spotify: None, google_cloud: Some(api_key))
       let profile = youtube_live_expander.youtube_playlist(playlist_url)
@@ -121,11 +129,13 @@ pub fn fetch(
           qp,
           fn(_) { Nil },
           fn(p) { on_update(core.format_resolve_progress_line(p)) },
+          fetch_newer_than,
         )
       {
-        Ok(result) -> {
+        Ok(core.ResolveResultWithAnchor(result, anchor_mode)) -> {
           let core.ResolveResult(items, lists, unresolved) = result
-          Ok(FetchResult(items, lists, unresolved, None))
+          let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+          Ok(FetchResult(items, lists, unresolved, None, anchor_result))
         }
         Error(e) -> Error(api_keys.format_resolve_adapter_error(e))
       }
@@ -142,7 +152,7 @@ pub fn fetch(
           on_update,
         )
       let core.ResolveResult(items, lists, unresolved) = resolve_result
-      Ok(FetchResult(items, lists, unresolved, Some(export_metadata)))
+      Ok(FetchResult(items, lists, unresolved, Some(export_metadata), Ok("No anchor specified")))
     }
   }
 }
@@ -156,7 +166,7 @@ pub fn fetch_and_save_json(
   cache_mode: cache.CacheMode,
 ) -> Result(String, String) {
   use fetch_result <- result.try(fetch(root, cache_mode, fn(_) { Nil }))
-  let FetchResult(items, lists, _unresolved, tuna_metadata) = fetch_result
+  let FetchResult(items, lists, _unresolved, tuna_metadata, anchor_found) = fetch_result
   let adapter_id = source_root.adapter_id(root)
   let is_tuna = case root {
     source_root.TunaRoot -> True
@@ -175,8 +185,12 @@ pub fn fetch_and_save_json(
       dict.new(),
     )
   }
+  let anchor_msg = case anchor_found {
+    Ok(msg) -> msg
+    Error(msg) -> msg
+  }
   let content =
-    export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists)
+    export_json.fetch_result_json(tracks, imported_dates, !is_tuna, lists, anchor_msg)
   let path = source_root.artifact_json_path(root)
   case simplifile.write(content, to: path) {
     Ok(_) -> Ok(path)
@@ -189,7 +203,7 @@ pub fn fetch_result_to_tracks(
   fetch_result: FetchResult,
   adapter_id: String,
 ) -> #(List(visual_output.TrackView), dict.Dict(String, Int)) {
-  let FetchResult(items, _lists, _unresolved, tuna_metadata) = fetch_result
+  let FetchResult(items, _lists, _unresolved, tuna_metadata, _anchor_found) = fetch_result
   case tuna_metadata {
     Some(metadata_index) -> {
       let tracks =
