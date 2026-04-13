@@ -14,6 +14,10 @@ pub fn all() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertS
   [bandcamp_purchases(), bandcamp_wishlist(), soundcloud(), spotify(), youtube(), tuna()]
 }
 
+pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
+  bandcamp_purchases()
+}
+
 pub fn bandcamp_purchases() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Bandcamp",

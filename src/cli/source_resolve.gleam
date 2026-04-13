@@ -41,7 +41,7 @@ pub fn resolve_limited(
         on_debug,
         fn(_) { Nil },
         option.None,
-      )
+      ).result
     }
     source_root.SoundcloudRoot(ep, d, timing, _fetch_newer_than) -> {
       let source_root.SourceTimingSpec(max_concurrency, requests_per_second) =
@@ -62,7 +62,7 @@ pub fn resolve_limited(
         on_debug,
         fn(_) { Nil },
         option.None,
-      )
+      ).result
     }
     source_root.SpotifyRoot(creds, d, _fetch_newer_than) -> {
       let queue_policy =
@@ -91,7 +91,7 @@ pub fn resolve_limited(
             on_debug,
             fn(_) { Nil },
             option.None,
-          )
+          ).result
         }
       }
     }
@@ -114,7 +114,7 @@ pub fn resolve_limited(
           option.None,
         )
       {
-        Ok(result) -> result
+        Ok(result_with_anchor) -> result_with_anchor.result
         Error(err) -> {
           io.println(api_keys.format_resolve_adapter_error(err))
           core.ResolveResult(items: [], lists: [], unresolved: [])

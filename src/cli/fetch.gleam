@@ -128,7 +128,7 @@ fn parse_fetch_args(args: List(String)) -> Result(FetchArgs, String) {
     }
   }) {
     [option.Some(idx), ..] ->
-      case list.at(args, idx + 1) {
+      case list.drop(args, idx + 1) |> list.first() {
         Ok(value) -> option.Some(value)
         Error(_) -> option.None
       }

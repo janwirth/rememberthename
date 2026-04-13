@@ -27,7 +27,7 @@ pub fn depth_assert_spec(spec: SourceSpec) -> depth_test_spec.DepthAssertSpec {
 }
 
 pub fn bandcamp() -> SourceSpec {
-  from_canonical(canonical_rows.bandcamp())
+  from_canonical(canonical_rows.bandcamp_purchases())
 }
 
 pub fn soundcloud() -> SourceSpec {
