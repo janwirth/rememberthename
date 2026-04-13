@@ -20,7 +20,7 @@ pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertS
 
 pub fn bandcamp_purchases() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
-    "Bandcamp",
+    "Bandcamp Purchases",
     source_root.BandcampRoot(
       "https://bandcamp.com/janwirth",
       core.All,
@@ -47,7 +47,7 @@ pub fn bandcamp_purchases() -> #(String, source_root.SourceRoot, source_root.Sou
 
 pub fn bandcamp_wishlist() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
-    "Bandcamp",
+    "Bandcamp Wishlist",
     source_root.BandcampRoot(
       "https://bandcamp.com/janwirth/wishlist",
       core.All,
