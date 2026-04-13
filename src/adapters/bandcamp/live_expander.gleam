@@ -172,45 +172,48 @@ fn expand_profile(
   let #(html, #(hits, fetches)) = cached_fetch(profile_url, cache_mode)
   let entry_items = parse_entry_items(html)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
-  let collection_token =
-    extract_between(
-      html,
-      "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;",
-      "&quot;",
-    )
-  let wishlist_token =
-    extract_between(
-      html,
-      "&quot;wishlist_data&quot;:{&quot;last_token&quot;:&quot;",
-      "&quot;",
-    )
+  let is_wishlist = string.contains(profile_url, "/wishlist")
 
-  case fan_id == "" || collection_token == "" || wishlist_token == "" {
+  let token = case is_wishlist {
     True ->
-      core.ExpandResult(
-        items: entry_items,
-        lists: [],
-        next_nodes: [],
-        unresolved: [core.ProfileEntry(profile_url)],
-        cache_hits: hits,
-        cache_fetches: fetches,
+      extract_between(
+        html,
+        "&quot;wishlist_data&quot;:{&quot;last_token&quot;:&quot;",
+        "&quot;",
       )
     False ->
+      extract_between(
+        html,
+        "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;",
+        "&quot;",
+      )
+  }
+
+  case fan_id == "" || token == "" {
+    True -> core.ExpandResult(
+      items: entry_items,
+      lists: [],
+      next_nodes: [],
+      unresolved: [core.ProfileEntry(profile_url)],
+      cache_hits: hits,
+      cache_fetches: fetches,
+    )
+    False -> {
+      let feed_kind = case is_wishlist {
+        True -> "wishlist"
+        False -> "collection"
+      }
       core.ExpandResult(
         items: entry_items,
         lists: [],
         next_nodes: [
-          core.CategoryNode(
-            "collection" <> "|" <> fan_id <> "|" <> collection_token,
-          ),
-          core.CategoryNode(
-            "wishlist" <> "|" <> fan_id <> "|" <> wishlist_token,
-          ),
+          core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token),
         ],
         unresolved: [],
         cache_hits: hits,
         cache_fetches: fetches,
       )
+    }
   }
 }
 

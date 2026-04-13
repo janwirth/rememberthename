@@ -6,6 +6,7 @@
 import adapters/api_keys
 import adapters/core
 import gleam/list
+import gleam/string
 
 /// Per-source HTTP queue policy (Bandcamp and Soundcloud carry it on `SourceRoot`).
 pub type SourceTimingSpec {
@@ -60,7 +61,11 @@ pub fn ordered_selector_triples(
 /// Human-readable display name for the source (used in CLI progress output).
 pub fn display_name(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(_, _, _) -> "Bandcamp"
+    BandcampRoot(url, _, _) ->
+      case string.contains(url, "/wishlist") {
+        True -> "Bandcamp Wishlist"
+        False -> "Bandcamp Purchases"
+      }
     SoundcloudRoot(_, _, _) -> "Soundcloud"
     SpotifyRoot(_, _) -> "Spotify"
     YoutubeRoot(_, _) -> "Youtube"
@@ -83,7 +88,13 @@ pub fn with_depth(root: SourceRoot, depth: core.DepthMode) -> SourceRoot {
 /// Stable label identifying the fetch source for JSON output (mirrors `track_view.adapter_id_for_source`).
 pub fn adapter_id(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(profile_url, _, _) -> "bandcamp + " <> profile_url
+    BandcampRoot(profile_url, _, _) -> {
+      let feed_label = case string.contains(profile_url, "/wishlist") {
+        True -> "bandcamp_wishlist + "
+        False -> "bandcamp_purchases + "
+      }
+      feed_label <> profile_url
+    }
     SoundcloudRoot(entry_point, _, _) -> "soundcloud + " <> entry_point
     SpotifyRoot(_, _) -> "spotify + liked"
     YoutubeRoot(playlist_url, _) -> "youtube + " <> playlist_url
@@ -101,7 +112,11 @@ pub fn artifact_json_path(root: SourceRoot) -> String {
 /// Selector key string derived from the root variant.
 pub fn source_key(root: SourceRoot) -> String {
   case root {
-    BandcampRoot(_, _, _) -> "bandcamp"
+    BandcampRoot(url, _, _) ->
+      case string.contains(url, "/wishlist") {
+        True -> "bandcamp_wishlist"
+        False -> "bandcamp_purchases"
+      }
     SoundcloudRoot(_, _, _) -> "soundcloud"
     SpotifyRoot(_, _) -> "spotify"
     YoutubeRoot(_, _) -> "youtube"

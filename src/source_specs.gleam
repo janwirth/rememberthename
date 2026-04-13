@@ -10,10 +10,10 @@ import source_root
 
 
 pub fn all() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
-  [bandcamp(), soundcloud(), spotify(), youtube(), tuna()]
+  [bandcamp_purchases(), bandcamp_wishlist(), soundcloud(), spotify(), youtube(), tuna()]
 }
 
-pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
+pub fn bandcamp_purchases() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
   #(
     "Bandcamp",
     source_root.BandcampRoot(
@@ -31,11 +31,32 @@ pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertS
       required_full_fragments: [
         "Badlands",
         "Dimebag",
-        "Redshift 7",
-        "World, Hold On",
         "Buttercup",
         "Ghost Radio",
         "Acid House",
+      ],
+    ),
+  )
+}
+
+pub fn bandcamp_wishlist() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {
+  #(
+    "Bandcamp",
+    source_root.BandcampRoot(
+      "https://bandcamp.com/janwirth/wishlist",
+      core.All,
+      source_root.SourceTimingSpec(max_concurrency: 5, requests_per_second: 5),
+    ),
+    source_root.SourceAssertSpec(
+      min_depth_1_items: 1,
+      min_full_items: 700,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      // Stable fixture anchors from live Bandcamp profile traversal.
+      anchor_fragments: ["Spore Spreader"],
+      required_full_fragments: [
+        "Redshift 7",
+        "World, Hold On",
       ],
     ),
   )
