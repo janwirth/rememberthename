@@ -13,7 +13,6 @@ import adapters/api_keys
 import adapters/cache
 import adapters/core
 import adapters/youtube/data_api
-import anchor_checker
 import gleam/int
 import gleam/list
 import gleam/option
@@ -71,7 +70,9 @@ pub fn resolve_profile_with_debug_limited(
     core.default_queue_policy(),
     on_debug,
     fn(_) { Nil },
+    option.None,
   )
+  |> result.map(fn(result_with_anchor) { result_with_anchor.result })
 }
 
 pub fn resolve_profile_with_debug_limited_timed(
@@ -91,8 +92,8 @@ pub fn resolve_profile_with_debug_limited_timed(
   use api_key <- result.try(api_keys.require_youtube_data_api_key(keys))
   let playlist_id = parse_playlist_id(profile_url)
   let anchor_mode = case anchor {
-    option.None -> anchor_checker.NoAnchor
-    option.Some(rid) -> anchor_checker.SearchForAnchor(rid, False, 0)
+    option.None -> core.NoAnchor
+    option.Some(rid) -> core.SearchForAnchor(rid, False, 0)
   }
   case playlist_id == "" {
     True ->

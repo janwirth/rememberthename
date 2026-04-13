@@ -49,7 +49,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
-import anchor_checker
 import source_id_normalizer
 
 // Shared traversal/runtime implementation used by all live adapters.
@@ -60,6 +59,16 @@ pub type DepthMode {
   Depth10
   Depth20
   All
+}
+
+/// Anchor search state threading through resolve/loop.
+///
+/// Anchors identify a target item by ResourceId string; when found during pagination,
+/// stop adding new pagination nodes to the queue at level 0 (but continue fetching
+/// sub-items at level > 0).
+pub type AnchorMode {
+  NoAnchor
+  SearchForAnchor(target_id: String, found: Bool, page_number: Int)
 }
 
 pub type QueuePolicy {
@@ -251,7 +260,7 @@ pub type ResolveResult {
 pub type ResolveResultWithAnchor {
   ResolveResultWithAnchor(
     result: ResolveResult,
-    anchor_mode: anchor_checker.AnchorMode,
+    anchor_mode: AnchorMode,
   )
 }
 
@@ -398,7 +407,8 @@ pub fn resolve_profile_url_with_debug_and_limit(
     expand,
     on_debug,
     on_progress,
-  )
+    None,
+  ).result
 }
 
 pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
@@ -412,8 +422,8 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
   anchor: Option(String),
 ) -> ResolveResultWithAnchor {
   let anchor_mode = case anchor {
-    None -> anchor_checker.NoAnchor
-    Some(rid) -> anchor_checker.SearchForAnchor(rid, False, 0)
+    None -> NoAnchor
+    Some(rid) -> SearchForAnchor(rid, False, 0)
   }
   let result = case depth {
     All ->
@@ -458,7 +468,7 @@ fn resolve_profile_url_with_default_queue(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
-  anchor_mode: anchor_checker.AnchorMode,
+  _anchor_mode: AnchorMode,
 ) -> ResolveResult {
   let QueuePolicy(max_concurrency, requests_per_second) =
     normalize_queue_policy(queue_policy)
@@ -830,7 +840,7 @@ fn loop(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
-  anchor_mode: anchor_checker.AnchorMode,
+  anchor_mode: AnchorMode,
 ) -> ResolveResult {
   // Tail-recursive resolver with:
   // - queue for deterministic traversal order
@@ -927,8 +937,8 @@ fn loop(
                 merge_lists(lists, list_seen, next_lists)
 
               // Check for anchor in newly fetched items
-              let anchor_mode = anchor_checker.update_anchor_mode(anchor_mode, next_items)
-              let anchor_reached = anchor_checker.is_anchor_reached(anchor_mode)
+              let anchor_mode = update_anchor_mode(anchor_mode, next_items)
+              let anchor_reached = is_anchor_reached(anchor_mode)
 
               // Filter pagination nodes if anchor found at level 0
               let next_nodes = case anchor_reached && level == 0 {
@@ -1181,6 +1191,62 @@ fn last_non_empty(parts: List(String)) -> String {
       case head == "" {
         True -> last_non_empty(list.reverse(rest))
         False -> head
+      }
+  }
+}
+
+// Anchor checking functions (moved from anchor_checker module to break import cycle)
+
+pub fn check_items_for_anchor(
+  items: List(UnifiedItem),
+  target_id: String,
+) -> option.Option(Int) {
+  list.index_fold(items, None, fn(result, item, idx) {
+    case result {
+      Some(_) -> result
+      None ->
+        case item.id == target_id {
+          True -> Some(idx)
+          False -> None
+        }
+    }
+  })
+}
+
+pub fn update_anchor_mode(
+  anchor_mode: AnchorMode,
+  items: List(UnifiedItem),
+) -> AnchorMode {
+  case anchor_mode {
+    NoAnchor -> NoAnchor
+    SearchForAnchor(target_id, found, page_number) ->
+      case found {
+        True -> SearchForAnchor(target_id, True, page_number)
+        False ->
+          case check_items_for_anchor(items, target_id) {
+            Some(_) -> SearchForAnchor(target_id, True, page_number)
+            None -> SearchForAnchor(target_id, False, page_number + 1)
+          }
+      }
+  }
+}
+
+pub fn is_anchor_reached(anchor_mode: AnchorMode) -> Bool {
+  case anchor_mode {
+    NoAnchor -> False
+    SearchForAnchor(_, found, _) -> found
+  }
+}
+
+pub fn format_message(anchor_mode: AnchorMode, resource_id: option.Option(String)) -> Result(String, String) {
+  case resource_id {
+    None -> Ok("No anchor specified")
+    Some(rid) ->
+      case anchor_mode {
+        NoAnchor -> Ok("No anchor specified")
+        SearchForAnchor(_, True, page) ->
+          Ok("anchor " <> rid <> " found on page " <> int.to_string(page))
+        SearchForAnchor(_, False, _) -> Error("Anchor not found")
       }
   }
 }

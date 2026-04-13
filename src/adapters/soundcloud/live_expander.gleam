@@ -80,7 +80,8 @@ pub fn resolve_profile_with_debug_limited(
     core.default_queue_policy(),
     on_debug,
     fn(_) { Nil },
-  )
+    option.None,
+  ).result
 }
 
 pub fn resolve_profile_with_debug_limited_timed(

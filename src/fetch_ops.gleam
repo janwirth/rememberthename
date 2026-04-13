@@ -11,7 +11,6 @@ import adapters/soundcloud/live_expander as soundcloud_live_expander
 import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/normalized_source as tuna_normalized_source
 import adapters/youtube/live_expander as youtube_live_expander
-import anchor_checker
 import cli/export_json
 import cli/resolve_adapter
 import cli/track_view
@@ -66,7 +65,7 @@ pub fn fetch(
           fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      let anchor_result = core.format_message(anchor_mode, fetch_newer_than)
       Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
@@ -87,7 +86,7 @@ pub fn fetch(
           fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      let anchor_result = core.format_message(anchor_mode, fetch_newer_than)
       Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
@@ -111,7 +110,7 @@ pub fn fetch(
           fetch_newer_than,
         )
       let core.ResolveResult(items, lists, unresolved) = result
-      let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+      let anchor_result = core.format_message(anchor_mode, fetch_newer_than)
       Ok(FetchResult(items, lists, unresolved, None, anchor_result))
     }
 
@@ -134,7 +133,7 @@ pub fn fetch(
       {
         Ok(core.ResolveResultWithAnchor(result, anchor_mode)) -> {
           let core.ResolveResult(items, lists, unresolved) = result
-          let anchor_result = anchor_checker.format_message(anchor_mode, fetch_newer_than)
+          let anchor_result = core.format_message(anchor_mode, fetch_newer_than)
           Ok(FetchResult(items, lists, unresolved, None, anchor_result))
         }
         Error(e) -> Error(api_keys.format_resolve_adapter_error(e))
