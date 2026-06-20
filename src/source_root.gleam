@@ -102,6 +102,16 @@ pub fn with_depth(root: SourceRoot, depth: core.DepthMode) -> SourceRoot {
   }
 }
 
+pub fn fetch_newer_than(root: SourceRoot) -> option.Option(String) {
+  case root {
+    BandcampRoot(_, _, _, fetch_newer_than) -> fetch_newer_than
+    SoundcloudRoot(_, _, _, fetch_newer_than) -> fetch_newer_than
+    SpotifyRoot(_, _, fetch_newer_than) -> fetch_newer_than
+    YoutubeRoot(_, _, fetch_newer_than) -> fetch_newer_than
+    TunaRoot -> option.None
+  }
+}
+
 /// Return a copy of the root with a different `fetch_newer_than`, for incremental fetch.
 pub fn with_newer_than(root: SourceRoot, fetch_newer_than: option.Option(String)) -> SourceRoot {
   case root {

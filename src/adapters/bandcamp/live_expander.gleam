@@ -173,9 +173,13 @@ fn expand_profile(
 ) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
   let #(html, #(hits, fetches)) = cached_fetch(profile_url, cache_mode)
-  let entry_items = parse_entry_items(html)
-  let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
   let is_wishlist = string.contains(profile_url, "/wishlist")
+  let feed_kind = case is_wishlist {
+    True -> "wishlist"
+    False -> "collection"
+  }
+  let entry_items = parse_entry_items(html, feed_kind)
+  let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
 
   let token = case is_wishlist {
     True ->
@@ -202,10 +206,6 @@ fn expand_profile(
       cache_fetches: fetches,
     )
     False -> {
-      let feed_kind = case is_wishlist {
-        True -> "wishlist"
-        False -> "collection"
-      }
       core.ExpandResult(
         items: entry_items,
         lists: [],
@@ -604,11 +604,31 @@ fn parse_album_track_titles(
   }
 }
 
-fn parse_entry_items(html: String) -> List(core.UnifiedItem) {
-  // Profile page stores initial rows inside HTML-escaped JSON (`&quot;...&quot;`).
-  html
-  |> string.replace("&quot;", "\"")
-  |> parse_items("collection")
+fn parse_entry_items(html: String, feed_kind: String) -> List(core.UnifiedItem) {
+  // Bootstrap rows live in `item_cache.collection` / `item_cache.wishlist`, not the full page.
+  let decoded = string.replace(html, "&quot;", "\"")
+  let segment = entry_items_segment(decoded, feed_kind)
+  case segment {
+    "" -> []
+    s -> parse_items(s, feed_kind)
+  }
+}
+
+fn entry_items_segment(decoded: String, feed_kind: String) -> String {
+  case string.split(decoded, "\"item_cache\":{") {
+    [_, tail, ..] -> {
+      let open = "\"" <> feed_kind <> "\":{"
+      case string.split(tail, open) {
+        [_, body, ..] ->
+          case feed_kind {
+            "wishlist" -> first_segment(body, "},\"gifts_given\":")
+            _ -> first_segment(body, "},\"wishlist\":{")
+          }
+        _ -> ""
+      }
+    }
+    _ -> ""
+  }
 }
 
 fn parse_item_parts(

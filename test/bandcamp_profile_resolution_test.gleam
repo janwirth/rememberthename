@@ -144,6 +144,37 @@ pub fn bandcamp_purchased_album_collection_and_wishlist_tracks_resolve_test() {
   |> should.equal(False)
 }
 
+fn seed_item_cache_html(
+  fan_id: String,
+  col_tok: String,
+  wish_tok: String,
+) -> String {
+  seed_profile_html(fan_id, col_tok, wish_tok)
+  <> ",&quot;item_cache&quot;:{&quot;collection&quot;:{&quot;t9001&quot;:{&quot;item_id&quot;:9001,&quot;item_type&quot;:&quot;track&quot;,&quot;item_title&quot;:&quot;Purchased bootstrap&quot;,&quot;band_name&quot;:&quot;Buyer&quot;,&quot;item_url&quot;:&quot;https://buy.bandcamp.com/track/purchased&quot;,&quot;added&quot;:&quot;&quot;}},&quot;wishlist&quot;:{&quot;a9002&quot;:{&quot;item_id&quot;:9002,&quot;item_type&quot;:&quot;track&quot;,&quot;item_title&quot;:&quot;Wishlist bootstrap&quot;,&quot;band_name&quot;:&quot;Saver&quot;,&quot;item_url&quot;:&quot;https://save.bandcamp.com/track/wishlist&quot;,&quot;added&quot;:&quot;&quot;}},&quot;gifts_given&quot;:{},&quot;hidden&quot;:{},&quot;follower&quot;:{}}"
+}
+
+fn entry_bootstrap_titles(
+  profile_url: String,
+) -> List(String) {
+  cache.seed_adapter_cache(
+    "bandcamp_fetch",
+    profile_url,
+    seed_item_cache_html("4242", "coltok", "wishtok"),
+  )
+  let r =
+    bandcamp.expand(core.ProfileEntry(profile_url), cache.CacheReadOnly)
+  item_titles(r.items)
+}
+
+pub fn bandcamp_profile_entry_items_use_feed_specific_item_cache_test() {
+  let purchases = entry_bootstrap_titles(profile_url)
+  let wishlist =
+    entry_bootstrap_titles(profile_url <> "/wishlist")
+
+  purchases |> should.equal(["Purchased bootstrap"])
+  wishlist |> should.equal(["Wishlist bootstrap"])
+}
+
 pub fn bandcamp_collection_page_enqueues_every_album_not_capped_test() {
   let fan = "9999"
   let tok = "pagetok"

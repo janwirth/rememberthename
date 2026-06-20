@@ -436,25 +436,31 @@ pub fn resolve_profile_url_with_debug_limit_and_queue_policy(
         on_progress,
         anchor_mode,
       )
-    _ ->
+    _ -> {
       // Start traversal exactly once from the profile entry root.
-      loop(
-        [#(ProfileEntry(profile_url), 0)],
-        set.new(),
-        set.new(),
-        set.new(),
-        [],
-        [],
-        [],
-        depth,
-        max_items,
-        expand,
-        on_debug,
-        on_progress,
+      let ResolveResult(items, lists, unresolved) =
+        loop(
+          [#(ProfileEntry(profile_url), 0)],
+          set.new(),
+          set.new(),
+          set.new(),
+          [],
+          [],
+          [],
+          depth,
+          max_items,
+          expand,
+          on_debug,
+          on_progress,
+          anchor_mode,
+        )
+      ResolveResultWithAnchor(
+        ResolveResult(items, lists, unresolved),
         anchor_mode,
       )
+    }
   }
-  ResolveResultWithAnchor(result, anchor_mode)
+  result
 }
 
 type WorkerMsg {
@@ -468,8 +474,8 @@ fn resolve_profile_url_with_default_queue(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
-  _anchor_mode: AnchorMode,
-) -> ResolveResult {
+  anchor_mode: AnchorMode,
+) -> ResolveResultWithAnchor {
   let QueuePolicy(max_concurrency, requests_per_second) =
     normalize_queue_policy(queue_policy)
   let queue_interval_ms = 1000 / requests_per_second
@@ -512,7 +518,7 @@ fn resolve_profile_url_with_default_queue(
       expand,
       on_debug,
     )
-  let ResolveResult(items, lists, unresolved) =
+  let #(result, anchor_mode) =
     concurrent_loop(
       queue,
       running,
@@ -531,9 +537,10 @@ fn resolve_profile_url_with_default_queue(
       expand,
       on_debug,
       on_progress,
+      anchor_mode,
     )
   emit_debug(All, on_debug, "[queue] complete")
-  ResolveResult(items, lists, unresolved)
+  ResolveResultWithAnchor(result, anchor_mode)
 }
 
 fn start_workers(
@@ -677,18 +684,22 @@ fn concurrent_loop(
   expand: fn(AdapterNode) -> ExpandResult,
   on_debug: fn(String) -> Nil,
   on_progress: fn(ResolveProgress) -> Nil,
-) -> ResolveResult {
-  // Incremental fetch is supported for Depth1-Depth20 modes which use the non-concurrent loop.
+  anchor_mode: AnchorMode,
+) -> #(ResolveResult, AnchorMode) {
+  // Incremental fetch stops level-0 pagination once the anchor id appears.
   case queue == [] && running == 0 || reached_item_limit(items, max_items) {
     True ->
       case reached_item_limit(items, max_items) {
         True ->
-          ResolveResult(
-            items,
-            lists,
-            with_limit_unresolved(unresolved, queue, max_items),
+          #(
+            ResolveResult(
+              items,
+              lists,
+              with_limit_unresolved(unresolved, queue, max_items),
+            ),
+            anchor_mode,
           )
-        False -> ResolveResult(items, lists, unresolved)
+        False -> #(ResolveResult(items, lists, unresolved), anchor_mode)
       }
     False -> {
       let #(
@@ -722,7 +733,7 @@ fn concurrent_loop(
           on_debug,
         )
       case running == 0 {
-        True -> ResolveResult(items, lists, unresolved)
+        True -> #(ResolveResult(items, lists, unresolved), anchor_mode)
         False -> {
           let message = process.receive_forever(subject)
           let WorkerDone(node, level, payload) = message
@@ -751,6 +762,12 @@ fn concurrent_loop(
           let #(items, item_seen, limit_hit) =
             merge_items(items, item_seen, next_items, max_items)
           let #(lists, list_seen) = merge_lists(lists, list_seen, next_lists)
+          let anchor_mode = update_anchor_mode(anchor_mode, next_items)
+          let anchor_reached = is_anchor_reached(anchor_mode)
+          let next_nodes = case anchor_reached && level == 0 {
+            False -> next_nodes
+            True -> list.filter(next_nodes, is_non_pagination_node)
+          }
           let unresolved = list.append(unresolved, next_unresolved)
           emit_debug(
             All,
@@ -777,10 +794,13 @@ fn concurrent_loop(
             True -> {
               let deferred =
                 list.append(queue, with_level(next_nodes, level + 1))
-              ResolveResult(
-                items,
-                lists,
-                with_limit_unresolved(unresolved, deferred, max_items),
+              #(
+                ResolveResult(
+                  items,
+                  lists,
+                  with_limit_unresolved(unresolved, deferred, max_items),
+                ),
+                anchor_mode,
               )
             }
             False -> {
@@ -803,6 +823,7 @@ fn concurrent_loop(
                 expand,
                 on_debug,
                 on_progress,
+                anchor_mode,
               )
             }
           }

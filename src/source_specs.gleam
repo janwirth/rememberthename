@@ -5,6 +5,7 @@ import cli/config_paths
 import cli/spotify_credentials
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
 import simplifile
 import source_root
@@ -12,6 +13,122 @@ import source_root
 
 pub fn all() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
   [bandcamp_purchases(), bandcamp_wishlist(), soundcloud(), spotify(), youtube(), tuna()]
+}
+
+fn spotify_if_configured() -> Result(
+  #(String, source_root.SourceRoot, source_root.SourceAssertSpec),
+  Nil,
+) {
+  let has_bundle =
+    list.any(config_paths.env_search_roots(), fn(root) {
+      let env = config_paths.join_under(root, ".env")
+      let session = config_paths.join_under(root, ".spotify_oauth_session.json")
+      case simplifile.is_file(env), simplifile.is_file(session) {
+        Ok(True), Ok(True) -> True
+        _, _ -> False
+      }
+    })
+  case has_bundle {
+    True -> Ok(spotify())
+    False -> Error(Nil)
+  }
+}
+
+fn youtube_if_configured() -> Result(
+  #(String, source_root.SourceRoot, source_root.SourceAssertSpec),
+  Nil,
+) {
+  use api_key <- result.try(google_cloud_api_key_from_env())
+  Ok(#(
+    "Youtube",
+    source_root.YoutubeRoot(
+      "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V",
+      api_key,
+      option.None,
+    ),
+    source_root.SourceAssertSpec(
+      min_depth_1_items: 5,
+      min_full_items: 1000,
+      source_limit: 4000,
+      first_items_to_preserve: 3,
+      anchor_fragments: [
+        "Angine de poitrine - Sahardnieh",
+        "Nimo - BITTER",
+        "Vengaboys - Up & Down",
+        "Dendemann - Wo ich wech bin",
+        "BHZ - SCHLIESSE DIE AUGEN",
+      ],
+      required_full_fragments: ["chanel"],
+    ),
+  ))
+}
+
+/// Like [`all_configured`] but reads credentials from an explicit profile directory
+/// (e.g. `~/tuna/default`) instead of cwd-relative search roots.
+/// Accepts an optional YouTube playlist URL; falls back to the hardcoded default when None.
+pub fn all_configured_for_profile(
+  profile_dir: String,
+  youtube_playlist_url: option.Option(String),
+) -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
+  let env_file = profile_dir <> "/.env"
+  let session_file = profile_dir <> "/.spotify_oauth_session.json"
+  let rows = [bandcamp_purchases(), bandcamp_wishlist(), soundcloud()]
+  let rows = case simplifile.is_file(env_file), simplifile.is_file(session_file) {
+    Ok(True), Ok(True) -> {
+      let redirect = spotify_credentials.spotify_redirect_uri(env_file)
+      let creds = spotify_credentials.with_spotify_from_disk(session_file, env_file, redirect)
+      let row = #(
+        "Spotify",
+        source_root.SpotifyRoot(credentials: creds, depth: core.All, fetch_newer_than: option.None),
+        source_root.SourceAssertSpec(
+          min_depth_1_items: 50, min_full_items: 1000, source_limit: 4000,
+          first_items_to_preserve: 3, anchor_fragments: [], required_full_fragments: [],
+        ),
+      )
+      list.append(rows, [row])
+    }
+    _, _ -> rows
+  }
+  let rows = case simplifile.is_file(env_file) {
+    Ok(True) -> {
+      let raw = spotify_credentials.read_env_value(env_file, "GOOGLE_CLOUD_API_KEY") |> string.trim
+      case raw {
+        "" -> rows
+        api_key -> {
+          let playlist_url = case youtube_playlist_url {
+            option.Some(u) -> u
+            option.None ->
+              "https://www.youtube.com/playlist?list=PLK7cxKkqBmwmpPoWznuEF-xEljswMRR3V"
+          }
+          let row = #(
+            "Youtube",
+            source_root.YoutubeRoot(playlist_url, api_key, option.None),
+            source_root.SourceAssertSpec(
+              min_depth_1_items: 5, min_full_items: 1000, source_limit: 4000,
+              first_items_to_preserve: 3, anchor_fragments: [], required_full_fragments: [],
+            ),
+          )
+          list.append(rows, [row])
+        }
+      }
+    }
+    _ -> rows
+  }
+  list.append(rows, [tuna()])
+}
+
+/// Same order intent as [`all`], but omits Spotify / YouTube when credentials or env bundles are missing.
+pub fn all_configured() -> List(#(String, source_root.SourceRoot, source_root.SourceAssertSpec)) {
+  let rows = [bandcamp_purchases(), bandcamp_wishlist(), soundcloud()]
+  let rows = case spotify_if_configured() {
+    Ok(row) -> list.append(rows, [row])
+    Error(_) -> rows
+  }
+  let rows = case youtube_if_configured() {
+    Ok(row) -> list.append(rows, [row])
+    Error(_) -> rows
+  }
+  list.append(rows, [tuna()])
 }
 
 pub fn bandcamp() -> #(String, source_root.SourceRoot, source_root.SourceAssertSpec) {

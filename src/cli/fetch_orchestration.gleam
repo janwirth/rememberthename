@@ -30,7 +30,7 @@ pub fn fetch_with_cache_mode(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  let ordered = source_root.ordered_selector_triples(source_specs.all())
+  let ordered = source_root.ordered_selector_triples(source_specs.all_configured())
   case selector == "all" {
     True -> {
       fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
@@ -67,7 +67,7 @@ pub fn fetch_with_cache_mode_and_anchor(
   newer_than: Option(String),
   on_update: fn(String) -> Nil,
 ) -> Result(Nil, String) {
-  let ordered = source_root.ordered_selector_triples(source_specs.all())
+  let ordered = source_root.ordered_selector_triples(source_specs.all_configured())
   case selector == "all" {
     True -> {
       fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
@@ -106,7 +106,7 @@ pub fn fetch_all_sources(
   always_validate: Bool,
   on_update: fn(String) -> Nil,
 ) {
-  let ordered = source_root.ordered_selector_triples(source_specs.all())
+  let ordered = source_root.ordered_selector_triples(source_specs.all_configured())
   fetch_all_sources_with_ordered(ordered, cache_mode, always_validate, on_update)
 }
 
@@ -224,7 +224,7 @@ pub fn fetch_source_tracks_with_depth(
   case selector == "all" {
     True -> Error("use fetch_all for all sources")
     False -> {
-      let ordered = source_root.ordered_selector_triples(source_specs.all())
+      let ordered = source_root.ordered_selector_triples(source_specs.all_configured())
       case source_pick.triple_by_selector(ordered, selector) {
         Error(_) -> Error("Invalid source selector: " <> selector)
         Ok(#(source_index, key, base_root, assert_spec)) -> {
