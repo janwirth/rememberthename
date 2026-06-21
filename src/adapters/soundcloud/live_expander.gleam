@@ -32,6 +32,7 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/hackney
 import gleam/http/request
+import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json
 import gleam/list
@@ -429,6 +430,11 @@ fn cached_json_track_ids(
   })
 }
 
+@external(erlang, "soundcloud_http_ffi", "safe_send")
+fn safe_send(
+  req: request.Request(String),
+) -> Result(Response(String), hackney.Error)
+
 fn fetch_profile_body(url: String) -> String {
   case request.to(url) {
     Error(_) -> ""
@@ -437,7 +443,7 @@ fn fetch_profile_body(url: String) -> String {
         req
         |> request.set_header("user-agent", "Mozilla/5.0")
         |> request.set_header("accept", "application/json,text/html,*/*")
-      case hackney.send(req) {
+      case safe_send(req) {
         Ok(response) -> response.body
         Error(_) -> ""
       }

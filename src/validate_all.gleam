@@ -141,10 +141,13 @@ fn validate_results(
     True -> True
     False -> i2 >= i1 && iall >= i2
   }
-  let consistency_ok = lall >= l1 && uall == u1
+  // uall can exceed u1: full traversal attempts nodes depth_1 skips.
+  let consistency_ok = lall >= l1 && uall >= u1
   let first_ids = first_item_ids(d1, first_items_to_preserve)
-  let first_items_ok =
-    first_ids != [] && list.all(first_ids, fn(id) { has_item_id(all, id) })
+  let first_items_ok = case first_items_to_preserve {
+    0 -> True
+    _ -> first_ids != [] && list.all(first_ids, fn(id) { has_item_id(all, id) })
+  }
   let anchors_shallow_ok =
     list.all(anchor_fragments, fn(fragment) {
       has_title_fragment(items_1, fragment)

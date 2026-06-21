@@ -123,6 +123,7 @@ pub fn resolve_profile_with_debug_limited_timed(
       let lists = [make_collection(playlist_id, title, visible)]
       emit_youtube_progress(profile_url, visible, lists, on_progress)
       let _ = on_debug
+      let anchor_mode = core.update_anchor_mode(anchor_mode, visible)
       Ok(
         core.ResolveResultWithAnchor(
           core.ResolveResult(
