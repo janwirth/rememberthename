@@ -15,6 +15,7 @@ fn test_item(id: String, title: String) -> core.UnifiedItem {
     cover_url: None,
     file_path: None,
     added_at: timestamp.unix_epoch,
+    genres: [],
   )
 }
 

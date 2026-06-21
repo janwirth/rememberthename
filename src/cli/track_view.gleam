@@ -28,6 +28,7 @@ pub fn to_track_view(
     cover_url,
     file_path,
     added_at,
+    _,
   ) =
     item
   visual_output.TrackView(
@@ -66,7 +67,7 @@ pub fn imported_dates_for_items(
   metadata_index: dict.Dict(String, tuna_normalized_source.ExportMetadata),
 ) -> dict.Dict(String, Int) {
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(_, _, _, service, _, source_id, _, _, _, _) = item
+    let core.UnifiedItem(_, _, _, service, _, source_id, _, _, _, _, _) = item
     case dict.get(metadata_index, tuna_metadata_key(service, source_id)) {
       Ok(tuna_normalized_source.ExportMetadata(_, _, _, imported_date))
         if imported_date > 0 ->
@@ -93,6 +94,7 @@ pub fn to_tuna_track_view(
     item_cover_url,
     item_file_path,
     added_at,
+    _,
   ) =
     item
   let tuna_normalized_source.ExportMetadata(download, cover, tags, _) =

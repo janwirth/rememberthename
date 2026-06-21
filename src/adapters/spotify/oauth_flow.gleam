@@ -7,8 +7,7 @@ import gleam/string
 import gleam/uri
 
 /// Default redirect; override with `SPOTIFY_REDIRECT_URI` in `.env` (must match Spotify app settings).
-pub const default_redirect_uri: String =
-  "https://127.0.0.1:8080/spotify-oauth-success"
+pub const default_redirect_uri: String = "tuna://spotify.auth"
 
 const scope: String =
   "playlist-read-private playlist-read-collaborative user-library-read"

@@ -79,7 +79,7 @@ fn seed_bandcamp_resolution_cache() -> Nil {
 
 fn item_titles(items: List(core.UnifiedItem)) -> List(String) {
   list.map(items, fn(i) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _) = i
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _) = i
     title
   })
 }
@@ -124,7 +124,7 @@ pub fn bandcamp_purchased_album_collection_and_wishlist_tracks_resolve_test() {
       string.contains(t, "Nord dab")
     })
   let assert Ok(nord_item) = nord
-  let core.UnifiedItem(nord_id, _, _, _, _, _, _, cover, _, _) = nord_item
+  let core.UnifiedItem(nord_id, _, _, _, _, _, _, cover, _, _, _) = nord_item
   list.contains(track_ids, nord_id) |> should.equal(True)
   case cover {
     option.Some(cover_url) -> {

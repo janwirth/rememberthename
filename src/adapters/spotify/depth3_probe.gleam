@@ -92,7 +92,7 @@ fn print_item_preview(items: List(core.UnifiedItem)) {
 
 fn print_items(items: List(core.UnifiedItem)) {
   list.each(items, fn(item) {
-    let core.UnifiedItem(id, title, artist, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, title, artist, _, _, _, _, _, _, _, _) = item
     io.println("  - " <> id <> " | " <> title <> " | " <> artist)
   })
 }

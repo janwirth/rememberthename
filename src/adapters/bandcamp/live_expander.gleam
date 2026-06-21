@@ -313,7 +313,7 @@ fn expand_album_fetched(
     True -> {
       let track_ids =
         list.map(tracks, fn(t) {
-          let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _) = t
+          let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = t
           id
         })
       let list_source_id = "bandcamp:collection:" <> album_id
@@ -430,6 +430,7 @@ fn parse_item_parts_with_album_nodes(
               page_url,
               fan_item_cover(part),
               added_at,
+              [],
             )
           let nodes_acc = case item_type == "album" && item_url != "" {
             True -> [
@@ -508,6 +509,7 @@ fn parse_track_id_parts(
               title_link,
               tracklist_track_cover(part),
               added_at,
+              [],
             )
           parse_track_id_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -519,15 +521,33 @@ fn parse_track_id_parts(
   }
 }
 
+fn extract_bc_tags(html: String) -> List(String) {
+  let decoded = string.replace(html, "&quot;", "\"")
+  case string.split_once(decoded, "\"tags\":[") {
+    Error(_) -> []
+    Ok(#(_, after)) ->
+      case string.split_once(after, "]") {
+        Error(_) -> []
+        Ok(#(tags_raw, _)) ->
+          string.split(tags_raw, ",")
+          |> list.map(fn(s) {
+            s |> string.replace("\"", "") |> string.trim |> string.lowercase
+          })
+          |> list.filter(fn(s) { s != "" })
+      }
+  }
+}
+
 fn parse_album_tracks(html: String, album_id: String) -> List(core.UnifiedItem) {
   let album_cover = album_thumb_from_html(html)
+  let album_genres = extract_bc_tags(html)
   let decoded = string.replace(html, "&quot;", "\"")
   let trackinfo_split = string.split(decoded, "\"trackinfo\":")
   case trackinfo_split {
     [_, tail, ..] ->
       tail
       |> first_segment("],")
-      |> parse_album_track_parts(album_id, album_cover)
+      |> parse_album_track_parts(album_id, album_cover, album_genres)
     _ -> []
   }
 }
@@ -536,12 +556,13 @@ fn parse_album_track_parts(
   segment: String,
   album_id: String,
   album_cover: String,
+  album_genres: List(String),
 ) -> List(core.UnifiedItem) {
   let parts = string.split(segment, "\"title\":\"")
   case parts {
     [] -> []
     [_, ..rest] ->
-      parse_album_track_titles(rest, album_id, 0, [], album_cover)
+      parse_album_track_titles(rest, album_id, 0, [], album_cover, album_genres)
   }
 }
 
@@ -551,6 +572,7 @@ fn parse_album_track_titles(
   index: Int,
   acc: List(core.UnifiedItem),
   album_cover: String,
+  album_genres: List(String),
 ) -> List(core.UnifiedItem) {
   case parts {
     [] -> list.reverse(acc)
@@ -578,7 +600,7 @@ fn parse_album_track_titles(
         )
       case title == "" {
         True ->
-          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover)
+          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres)
         False -> {
           let raw_source_id = case track_id {
             "" -> album_id <> ":" <> int.to_string(index)
@@ -593,11 +615,12 @@ fn parse_album_track_titles(
               title_link,
               cover,
               added_at,
+              album_genres,
             )
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc
-          }, album_cover)
+          }, album_cover, album_genres)
         }
       }
     }
@@ -662,6 +685,7 @@ fn parse_item_parts(
               item_url,
               fan_item_cover(part),
               added_at,
+              [],
             )
           parse_item_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -833,3 +857,4 @@ fn is_ascii_digit(char: String) -> Bool {
     _ -> False
   }
 }
+

@@ -127,6 +127,7 @@ fn playlist_item_to_unified_item(
             "",
             thumb,
             added_at,
+            [],
           )
         }
       }

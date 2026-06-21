@@ -48,6 +48,7 @@ pub fn cloud_unified_item(
     cover_url:,
     file_path:,
     added_at:,
+    genres: [],
   )
 }
 
@@ -173,7 +174,7 @@ pub fn imported_tags_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
@@ -201,7 +202,7 @@ pub fn imported_ratings_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
@@ -247,4 +248,19 @@ fn imported_track_tag_id(
 
 pub fn export_tags(tags: String) -> List(String) {
   tuna_tags.export_tags(tags)
+}
+
+/// Genre tags carried on each item from the fetch (SC tag_list, BC album tags).
+/// No additional fetches — genres are embedded directly in the UnifiedItem.
+pub fn imported_genres_from_fetch(
+  fetch: FetchResult,
+) -> dict.Dict(String, List(String)) {
+  let fetch_ops.FetchResult(items, _, _, _, _) = fetch
+  list.fold(items, dict.new(), fn(acc, item) {
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, file_path, _, genres) = item
+    case genres {
+      [] -> acc
+      _ -> dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+    }
+  })
 }

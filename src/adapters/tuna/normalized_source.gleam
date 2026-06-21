@@ -690,6 +690,7 @@ fn push_item_with_metadata(
           gel_external_url(row, service),
           tuna_row_cover_url(cover_path),
           added_at,
+          [],
         )
       {
         Ok(item) -> {
@@ -707,6 +708,7 @@ fn push_item_with_metadata(
                 cover_url,
                 _,
                 added_at,
+                genres,
               ) = item
               core.UnifiedItem(
                 id: id,
@@ -719,6 +721,7 @@ fn push_item_with_metadata(
                 cover_url: cover_url,
                 file_path: Some(cleaned),
                 added_at: added_at,
+                genres: genres,
               )
             }
           }

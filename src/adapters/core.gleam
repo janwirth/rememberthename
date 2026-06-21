@@ -98,6 +98,8 @@ pub type UnifiedItem {
     file_path: Option(String),
     /// When the source has no date, use [`timestamp.unix_epoch`]. Otherwise a parsed instant (RFC 3339 at boundaries).
     added_at: timestamp.Timestamp,
+    /// Genre tags extracted from the source (e.g. SC tag_list, BC album tags).
+    genres: List(String),
   )
 }
 
@@ -151,6 +153,7 @@ pub fn track_item(
     explicit_external_source_url,
     cover_url,
     "",
+    [],
   )
 }
 
@@ -176,6 +179,7 @@ pub fn track_item_with_added_at(
   explicit_external_source_url: String,
   cover_url: String,
   added_at: String,
+  genres: List(String),
 ) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
   case source_id == "" {
@@ -196,6 +200,7 @@ pub fn track_item_with_added_at(
         cover_url: cover,
         file_path: None,
         added_at: added,
+        genres: genres,
       ))
     }
   }
@@ -1120,7 +1125,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

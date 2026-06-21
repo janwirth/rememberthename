@@ -335,7 +335,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -444,6 +444,10 @@ fn saved_library_items_to_tsv(items: List(SavedLibTrack)) -> String {
       Some(s) -> s
       None -> ""
     }
+    let cover_url = case t.album.images {
+      [img, ..] -> img.url
+      [] -> ""
+    }
     track_id
     <> "\t"
     <> t.name
@@ -452,7 +456,7 @@ fn saved_library_items_to_tsv(items: List(SavedLibTrack)) -> String {
     <> "\t"
     <> url
     <> "\t"
-    <> ""
+    <> cover_url
     <> "\t"
     <> added
   })
@@ -499,6 +503,7 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
           string.trim(track_url),
           string.trim(cover_url),
           added_at_str,
+          [],
         )
     }
   })
