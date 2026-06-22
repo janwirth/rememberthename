@@ -373,18 +373,8 @@ fn parse_tracks(
           "",
         )
       }
-      // SC tag_list is CSV with quoted multi-word tags: "hip hop", electronic
-      let genres =
-        string.split(tag_list, ",")
-        |> list.map(string.trim)
-        |> list.map(fn(t) {
-          case string.starts_with(t, "\"") && string.ends_with(t, "\"") {
-            True -> string.slice(t, 1, string.length(t) - 2)
-            False -> t
-          }
-        })
-        |> list.map(string.lowercase)
-        |> list.filter(fn(t) { t != "" })
+      // SC tag_list: space-separated, multi-word tags quoted: "hip hop" electronic
+      let genres = parse_sc_tag_list(tag_list)
       core.track_item_with_added_at(
         "soundcloud",
         raw_source_id,
@@ -772,6 +762,40 @@ fn parse_lines(raw: String) -> List(String) {
 
 fn trim(value: String) -> String {
   string.trim(value)
+}
+
+fn parse_sc_tag_list(tag_list: String) -> List(String) {
+  parse_sc_tags(string.to_graphemes(tag_list), False, "", [])
+}
+
+fn parse_sc_tags(
+  chars: List(String),
+  in_quotes: Bool,
+  current: String,
+  acc: List(String),
+) -> List(String) {
+  case chars {
+    [] ->
+      case string.trim(current) {
+        "" -> list.reverse(acc)
+        t -> list.reverse([string.lowercase(t), ..acc])
+      }
+    [c, ..rest] ->
+      case c {
+        "\"" -> parse_sc_tags(rest, !in_quotes, current, acc)
+        " " ->
+          case in_quotes {
+            True -> parse_sc_tags(rest, True, current <> " ", acc)
+            False ->
+              case string.trim(current) {
+                "" -> parse_sc_tags(rest, False, "", acc)
+                t ->
+                  parse_sc_tags(rest, False, "", [string.lowercase(t), ..acc])
+              }
+          }
+        _ -> parse_sc_tags(rest, in_quotes, current <> c, acc)
+      }
+  }
 }
 
 fn extract_between(body: String, start: String, ending: String) -> String {
