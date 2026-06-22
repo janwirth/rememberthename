@@ -250,16 +250,34 @@ pub fn export_tags(tags: String) -> List(String) {
   tuna_tags.export_tags(tags)
 }
 
-/// Source-provided tags (SC tag_list, BC album tags) as plain tags.
+/// Bandcamp genre tags — stored with `genre/` prefix by callers.
 pub fn imported_genres_from_fetch(
   fetch: FetchResult,
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, file_path, _, genres) = item
-    case genres {
-      [] -> acc
-      _ -> dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+      item
+    case service, genres {
+      "bandcamp", [_, ..] ->
+        dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+      _, _ -> acc
+    }
+  })
+}
+
+/// SC tags (CSV-parsed tag_list) as plain tags.
+pub fn imported_sc_tags_from_fetch(
+  fetch: FetchResult,
+) -> dict.Dict(String, List(String)) {
+  let fetch_ops.FetchResult(items, _, _, _, _) = fetch
+  list.fold(items, dict.new(), fn(acc, item) {
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+      item
+    case service, genres {
+      "soundcloud", [_, ..] ->
+        dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+      _, _ -> acc
     }
   })
 }

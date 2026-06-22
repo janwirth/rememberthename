@@ -373,9 +373,16 @@ fn parse_tracks(
           "",
         )
       }
+      // SC tag_list is CSV with quoted multi-word tags: "hip hop", electronic
       let genres =
-        string.split(tag_list, " ")
+        string.split(tag_list, ",")
         |> list.map(string.trim)
+        |> list.map(fn(t) {
+          case string.starts_with(t, "\"") && string.ends_with(t, "\"") {
+            True -> string.slice(t, 1, string.length(t) - 2)
+            False -> t
+          }
+        })
         |> list.map(string.lowercase)
         |> list.filter(fn(t) { t != "" })
       core.track_item_with_added_at(
