@@ -120,7 +120,7 @@ pub fn bandcamp_purchased_album_collection_and_wishlist_tracks_resolve_test() {
   title |> should.equal("Digi Spa EP")
   let nord =
     list.find(items, fn(i) {
-      let core.UnifiedItem(_, t, _, _, _, _, _, _, _, _) = i
+      let core.UnifiedItem(_, t, _, _, _, _, _, _, _, _, _) = i
       string.contains(t, "Nord dab")
     })
   let assert Ok(nord_item) = nord

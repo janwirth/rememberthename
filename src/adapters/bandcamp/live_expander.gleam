@@ -413,14 +413,6 @@ fn cached_post_json(
   )
 }
 
-fn parse_items(json: String, _kind: String) -> List(core.UnifiedItem) {
-  let parts = string.split(json, "\"item_id\":")
-  case parts {
-    [] -> []
-    [_, ..rest] -> parse_item_parts(rest, [])
-  }
-}
-
 fn parse_category_payload(
   json: String,
   kind: String,
@@ -671,11 +663,6 @@ fn parse_album_track_titles(
   }
 }
 
-fn parse_entry_items(html: String, feed_kind: String) -> List(core.UnifiedItem) {
-  let #(items, _) = parse_entry_items_with_nodes(html, feed_kind)
-  items
-}
-
 fn parse_entry_items_with_nodes(
   html: String,
   feed_kind: String,
@@ -708,49 +695,6 @@ fn entry_items_segment(decoded: String, feed_kind: String) -> String {
       }
     }
     _ -> ""
-  }
-}
-
-fn parse_item_parts(
-  parts: List(String),
-  acc: List(core.UnifiedItem),
-) -> List(core.UnifiedItem) {
-  case parts {
-    [] -> list.reverse(acc)
-    [part, ..rest] -> {
-      let id = first_segment(part, ",")
-      let item_type = extract_between(part, "\"item_type\":\"", "\"")
-      let title = extract_between(part, "\"item_title\":\"", "\"")
-      let artist = extract_between(part, "\"band_name\":\"", "\"")
-      let item_url = decode(extract_between(part, "\"item_url\":\"", "\""))
-      let added_at =
-        option_unwrap(
-          parse_bandcamp_added_at(
-            decode(extract_between(part, "\"added\":\"", "\"")),
-          ),
-          "",
-        )
-      case id == "" || item_type == "" || title == "" || item_type == "album" {
-        True -> parse_item_parts(rest, acc)
-        False -> {
-          let maybe_item =
-            core.track_item_with_added_at(
-              "bandcamp",
-              id,
-              decode(title),
-              decode(default_if_empty(artist, "unknown")),
-              item_url,
-              fan_item_cover(part),
-              added_at,
-              [],
-            )
-          parse_item_parts(rest, case maybe_item {
-            Ok(item) -> [item, ..acc]
-            Error(_) -> acc
-          })
-        }
-      }
-    }
   }
 }
 
