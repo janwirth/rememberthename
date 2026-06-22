@@ -173,50 +173,59 @@ fn expand_profile(
 ) -> core.ExpandResult {
   // Depth-1 should come from profile entry payload, then API starts at deeper levels.
   let #(html, #(hits, fetches)) = cached_fetch(profile_url, cache_mode)
-  let is_wishlist = string.contains(profile_url, "/wishlist")
-  let feed_kind = case is_wishlist {
-    True -> "wishlist"
-    False -> "collection"
-  }
-  let #(entry_items, entry_album_nodes) =
-    parse_entry_items_with_nodes(html, feed_kind)
-  let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
-
-  // Search within the section rather than requiring exact prefix —
-  // BC may have additional fields before last_token (e.g. redownload_urls).
-  let token = {
-    let section_key = case is_wishlist {
-      True -> "&quot;wishlist_data&quot;:"
-      False -> "&quot;collection_data&quot;:"
-    }
-    case string.split(html, section_key) {
-      [_, section, ..] ->
-        extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
-      _ -> ""
-    }
-  }
-
-  case fan_id == "" || token == "" {
-    True -> core.ExpandResult(
-      items: entry_items,
-      lists: [],
-      next_nodes: entry_album_nodes,
-      unresolved: [core.ProfileEntry(profile_url)],
-      cache_hits: hits,
-      cache_fetches: fetches,
-    )
-    False -> {
+  case html == "" {
+    True ->
       core.ExpandResult(
-        items: entry_items,
+        items: [],
         lists: [],
-        next_nodes: [
-          core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token),
-          ..entry_album_nodes
-        ],
-        unresolved: [],
+        next_nodes: [],
+        unresolved: [core.ProfileEntry(profile_url)],
         cache_hits: hits,
         cache_fetches: fetches,
       )
+    False -> {
+      let is_wishlist = string.contains(profile_url, "/wishlist")
+      let feed_kind = case is_wishlist {
+        True -> "wishlist"
+        False -> "collection"
+      }
+      let #(entry_items, entry_album_nodes) =
+        parse_entry_items_with_nodes(html, feed_kind)
+      let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
+      let token = {
+        let section_key = case is_wishlist {
+          True -> "&quot;wishlist_data&quot;:"
+          False -> "&quot;collection_data&quot;:"
+        }
+        case string.split(html, section_key) {
+          [_, section, ..] ->
+            extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
+          _ -> ""
+        }
+      }
+      case fan_id == "" || token == "" {
+        True ->
+          core.ExpandResult(
+            items: entry_items,
+            lists: [],
+            next_nodes: entry_album_nodes,
+            unresolved: [core.ProfileEntry(profile_url)],
+            cache_hits: hits,
+            cache_fetches: fetches,
+          )
+        False ->
+          core.ExpandResult(
+            items: entry_items,
+            lists: [],
+            next_nodes: [
+              core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token),
+              ..entry_album_nodes
+            ],
+            unresolved: [],
+            cache_hits: hits,
+            cache_fetches: fetches,
+          )
+      }
     }
   }
 }
@@ -261,6 +270,19 @@ fn fetch_category_page(
     <> "\",\"count\":50}"
 
   let #(json, #(hits, fetches)) = cached_post_json(endpoint, body, cache_mode)
+  // Empty response = HTTP failure; re-queue node as unresolved rather than
+  // treating it as a legitimate empty last page (which silently stops pagination).
+  case json == "" {
+    True ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [core.CategoryNode(kind <> "|" <> fan_id <> "|" <> token)],
+        cache_hits: hits,
+        cache_fetches: fetches,
+      )
+    False -> {
   let #(page_items, album_nodes) = parse_category_payload(json, kind)
   let items = list.append(page_items, parse_tracklist_items(json, kind))
   let next = extract_between(json, "\"last_token\":\"", "\"")
@@ -280,6 +302,8 @@ fn fetch_category_page(
     cache_hits: hits,
     cache_fetches: fetches,
   )
+    }
+  }
 }
 
 fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
@@ -308,38 +332,55 @@ fn expand_album_fetched(
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   let #(html, #(hits, fetches)) = cached_fetch(album_url, cache_mode)
-  let tracks = parse_album_tracks(html, album_id)
-  let album_title = extract_album_title_from_html(html)
-  let lists = case feed_kind == "collection" {
-    True -> {
-      let track_ids =
-        list.map(tracks, fn(t) {
-          let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = t
-          id
-        })
-      let list_source_id = "bandcamp:collection:" <> album_id
-      [
-        core.UnifiedCollection(
-          id: list_source_id,
-          title: album_title,
-          track_ids: track_ids,
-          list_ids: [],
-          service: "bandcamp",
-          source_type: "collection",
-          source_id: list_source_id,
-        ),
-      ]
+  case html == "" {
+    True ->
+      core.ExpandResult(
+        items: [],
+        lists: [],
+        next_nodes: [],
+        unresolved: [
+          core.ListNode(
+            "album|" <> feed_kind <> "|" <> album_url <> "|" <> album_id,
+          ),
+        ],
+        cache_hits: hits,
+        cache_fetches: fetches,
+      )
+    False -> {
+      let tracks = parse_album_tracks(html, album_id)
+      let album_title = extract_album_title_from_html(html)
+      let lists = case feed_kind == "collection" {
+        True -> {
+          let track_ids =
+            list.map(tracks, fn(t) {
+              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = t
+              id
+            })
+          let list_source_id = "bandcamp:collection:" <> album_id
+          [
+            core.UnifiedCollection(
+              id: list_source_id,
+              title: album_title,
+              track_ids: track_ids,
+              list_ids: [],
+              service: "bandcamp",
+              source_type: "collection",
+              source_id: list_source_id,
+            ),
+          ]
+        }
+        False -> []
+      }
+      core.ExpandResult(
+        items: tracks,
+        lists: lists,
+        next_nodes: [],
+        unresolved: [],
+        cache_hits: hits,
+        cache_fetches: fetches,
+      )
     }
-    False -> []
   }
-  core.ExpandResult(
-    items: tracks,
-    lists: lists,
-    next_nodes: [],
-    unresolved: [],
-    cache_hits: hits,
-    cache_fetches: fetches,
-  )
 }
 
 fn extract_album_title_from_html(html: String) -> String {
