@@ -181,19 +181,18 @@ fn expand_profile(
   let entry_items = parse_entry_items(html, feed_kind)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
 
-  let token = case is_wishlist {
-    True ->
-      extract_between(
-        html,
-        "&quot;wishlist_data&quot;:{&quot;last_token&quot;:&quot;",
-        "&quot;",
-      )
-    False ->
-      extract_between(
-        html,
-        "&quot;collection_data&quot;:{&quot;redownload_urls&quot;:{},&quot;last_token&quot;:&quot;",
-        "&quot;",
-      )
+  // Search within the section rather than requiring exact prefix —
+  // BC may have additional fields before last_token (e.g. redownload_urls).
+  let token = {
+    let section_key = case is_wishlist {
+      True -> "&quot;wishlist_data&quot;:"
+      False -> "&quot;collection_data&quot;:"
+    }
+    case string.split(html, section_key) {
+      [_, section, ..] ->
+        extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
+      _ -> ""
+    }
   }
 
   case fan_id == "" || token == "" {
