@@ -250,17 +250,35 @@ pub fn export_tags(tags: String) -> List(String) {
   tuna_tags.export_tags(tags)
 }
 
-/// Genre tags carried on each item from the fetch (SC tag_list, BC album tags).
-/// No additional fetches — genres are embedded directly in the UnifiedItem.
+/// Genre tags from non-SC sources (BC album tags etc.) — stored with `genre/` prefix.
+/// SC tag_list goes into plain tags via `imported_sc_tags_from_fetch`.
 pub fn imported_genres_from_fetch(
   fetch: FetchResult,
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, file_path, _, genres) = item
-    case genres {
-      [] -> acc
-      _ -> dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+      item
+    case service, genres {
+      "soundcloud", _ -> acc
+      _, [] -> acc
+      _, _ -> dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+    }
+  })
+}
+
+/// SC tag_list as plain tags (no `genre/` prefix).
+pub fn imported_sc_tags_from_fetch(
+  fetch: FetchResult,
+) -> dict.Dict(String, List(String)) {
+  let fetch_ops.FetchResult(items, _, _, _, _) = fetch
+  list.fold(items, dict.new(), fn(acc, item) {
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+      item
+    case service, genres {
+      "soundcloud", [_, ..] ->
+        dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+      _, _ -> acc
     }
   })
 }
