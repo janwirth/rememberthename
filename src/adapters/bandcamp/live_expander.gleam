@@ -432,7 +432,8 @@ fn parse_item_parts_with_album_nodes(
               added_at,
               [],
             )
-          let nodes_acc = case item_type == "album" && item_url != "" {
+          let is_album = item_type == "album"
+          let nodes_acc = case is_album && item_url != "" {
             True -> [
               core.ListNode(
                 "album|" <> feed_kind <> "|" <> page_url <> "|" <> id,
@@ -441,15 +442,16 @@ fn parse_item_parts_with_album_nodes(
             ]
             False -> nodes_acc
           }
-          parse_item_parts_with_album_nodes(
-            rest,
-            feed_kind,
-            case maybe_item {
-              Ok(item) -> [item, ..items_acc]
-              Error(_) -> items_acc
-            },
-            nodes_acc,
-          )
+          // albums expand into tracks via ListNode; don't emit album as a single item
+          let items_acc = case is_album {
+            True -> items_acc
+            False ->
+              case maybe_item {
+                Ok(item) -> [item, ..items_acc]
+                Error(_) -> items_acc
+              }
+          }
+          parse_item_parts_with_album_nodes(rest, feed_kind, items_acc, nodes_acc)
         }
       }
     }
@@ -673,7 +675,7 @@ fn parse_item_parts(
           ),
           "",
         )
-      case id == "" || item_type == "" || title == "" {
+      case id == "" || item_type == "" || title == "" || item_type == "album" {
         True -> parse_item_parts(rest, acc)
         False -> {
           let maybe_item =
