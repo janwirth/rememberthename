@@ -178,7 +178,8 @@ fn expand_profile(
     True -> "wishlist"
     False -> "collection"
   }
-  let entry_items = parse_entry_items(html, feed_kind)
+  let #(entry_items, entry_album_nodes) =
+    parse_entry_items_with_nodes(html, feed_kind)
   let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
 
   // Search within the section rather than requiring exact prefix —
@@ -199,7 +200,7 @@ fn expand_profile(
     True -> core.ExpandResult(
       items: entry_items,
       lists: [],
-      next_nodes: [],
+      next_nodes: entry_album_nodes,
       unresolved: [core.ProfileEntry(profile_url)],
       cache_hits: hits,
       cache_fetches: fetches,
@@ -210,6 +211,7 @@ fn expand_profile(
         lists: [],
         next_nodes: [
           core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token),
+          ..entry_album_nodes
         ],
         unresolved: [],
         cache_hits: hits,
@@ -629,12 +631,25 @@ fn parse_album_track_titles(
 }
 
 fn parse_entry_items(html: String, feed_kind: String) -> List(core.UnifiedItem) {
-  // Bootstrap rows live in `item_cache.collection` / `item_cache.wishlist`, not the full page.
+  let #(items, _) = parse_entry_items_with_nodes(html, feed_kind)
+  items
+}
+
+fn parse_entry_items_with_nodes(
+  html: String,
+  feed_kind: String,
+) -> #(List(core.UnifiedItem), List(core.AdapterNode)) {
   let decoded = string.replace(html, "&quot;", "\"")
   let segment = entry_items_segment(decoded, feed_kind)
   case segment {
-    "" -> []
-    s -> parse_items(s, feed_kind)
+    "" -> #([], [])
+    s -> {
+      let parts = string.split(s, "\"item_id\":")
+      case parts {
+        [] -> #([], [])
+        [_, ..rest] -> parse_item_parts_with_album_nodes(rest, feed_kind, [], [])
+      }
+    }
   }
 }
 
