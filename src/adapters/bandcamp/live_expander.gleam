@@ -35,6 +35,8 @@
 
 import adapters/cache
 import adapters/core
+import gleam/erlang/process
+import gleam/float
 import gleam/hackney
 import gleam/http.{Post}
 import gleam/http/request
@@ -45,6 +47,29 @@ import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
 
+fn should_retry(status: Int) -> Bool {
+  status == 429 || status == 503 || status == 500
+}
+
+fn fetch_with_retry(req: request.Request(String), attempt: Int) -> String {
+  case hackney.send(req) {
+    Error(_) -> ""
+    Ok(response) -> {
+      case response.status == 200 {
+        True -> response.body
+        False ->
+          case should_retry(response.status) && attempt < 4 {
+            True -> {
+              process.sleep(1000 * int.bitwise_shift_left(1, attempt))
+              fetch_with_retry(req, attempt + 1)
+            }
+            False -> ""
+          }
+      }
+    }
+  }
+}
+
 fn fetch(url: String) -> String {
   case request.to(url) {
     Error(_) -> ""
@@ -53,10 +78,7 @@ fn fetch(url: String) -> String {
         req
         |> request.set_header("user-agent", "Mozilla/5.0")
         |> request.set_header("accept", "application/json,text/html,*/*")
-      case hackney.send(req) {
-        Ok(response) -> response.body
-        Error(_) -> ""
-      }
+      fetch_with_retry(req, 0)
     }
   }
 }
@@ -71,10 +93,7 @@ fn post_json(url: String, body: String) -> String {
         |> request.set_header("content-type", "application/json")
         |> request.set_header("user-agent", "Mozilla/5.0")
         |> request.set_body(body)
-      case hackney.send(req) {
-        Ok(response) -> response.body
-        Error(_) -> ""
-      }
+      fetch_with_retry(req, 0)
     }
   }
 }
@@ -203,6 +222,15 @@ fn expand_profile(
           _ -> ""
         }
       }
+      let wishlist_token = case is_wishlist {
+        True -> ""
+        False ->
+          case string.split(html, "&quot;wishlist_data&quot;:") {
+            [_, section, ..] ->
+              extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
+            _ -> ""
+          }
+      }
       case fan_id == "" || token == "" {
         True ->
           core.ExpandResult(
@@ -213,18 +241,23 @@ fn expand_profile(
             cache_hits: hits,
             cache_fetches: fetches,
           )
-        False ->
+        False -> {
+          let wishlist_node = case wishlist_token != "" {
+            True -> [core.CategoryNode("wishlist|" <> fan_id <> "|" <> wishlist_token)]
+            False -> []
+          }
           core.ExpandResult(
             items: entry_items,
             lists: [],
-            next_nodes: [
-              core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token),
-              ..entry_album_nodes
-            ],
+            next_nodes: list.append(
+              [core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token)],
+              list.append(wishlist_node, entry_album_nodes),
+            ),
             unresolved: [],
             cache_hits: hits,
             cache_fetches: fetches,
           )
+        }
       }
     }
   }
@@ -309,10 +342,12 @@ fn fetch_category_page(
 fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
   let parts = string.split(ctx, "|")
   case parts {
+    ["album", feed_kind, album_url, album_id, album_added_at] ->
+      expand_album_fetched(feed_kind, album_url, album_id, album_added_at, cache_mode)
     ["album", feed_kind, album_url, album_id] ->
-      expand_album_fetched(feed_kind, album_url, album_id, cache_mode)
+      expand_album_fetched(feed_kind, album_url, album_id, "", cache_mode)
     ["album", album_url, album_id] ->
-      expand_album_fetched("wishlist", album_url, album_id, cache_mode)
+      expand_album_fetched("wishlist", album_url, album_id, "", cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -329,6 +364,7 @@ fn expand_album_fetched(
   feed_kind: String,
   album_url: String,
   album_id: String,
+  album_added_at: String,
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
   let #(html, #(hits, fetches)) = cached_fetch(album_url, cache_mode)
@@ -340,20 +376,20 @@ fn expand_album_fetched(
         next_nodes: [],
         unresolved: [
           core.ListNode(
-            "album|" <> feed_kind <> "|" <> album_url <> "|" <> album_id,
+            "album|" <> feed_kind <> "|" <> album_url <> "|" <> album_id <> "|" <> album_added_at,
           ),
         ],
         cache_hits: hits,
         cache_fetches: fetches,
       )
     False -> {
-      let tracks = parse_album_tracks(html, album_id)
+      let tracks = parse_album_tracks(html, album_id, album_added_at)
       let album_title = extract_album_title_from_html(html)
       let lists = case feed_kind == "collection" {
         True -> {
           let track_ids =
             list.map(tracks, fn(t) {
-              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = t
+              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = t
               id
             })
           let list_source_id = "bandcamp:collection:" <> album_id
@@ -455,6 +491,9 @@ fn parse_item_parts_with_album_nodes(
               ),
               "",
             )
+          let duration_s =
+            float.parse(string.trim(extract_between(part, "\"featured_track_duration\":", ",")))
+            |> option.from_result
           let maybe_item =
             core.track_item_with_added_at(
               "bandcamp",
@@ -465,12 +504,13 @@ fn parse_item_parts_with_album_nodes(
               fan_item_cover(part),
               added_at,
               [],
+              duration_s,
             )
           let is_album = item_type == "album"
           let nodes_acc = case is_album && item_url != "" {
             True -> [
               core.ListNode(
-                "album|" <> feed_kind <> "|" <> page_url <> "|" <> id,
+                "album|" <> feed_kind <> "|" <> page_url <> "|" <> id <> "|" <> added_at,
               ),
               ..nodes_acc
             ]
@@ -533,6 +573,9 @@ fn parse_track_id_parts(
           ),
           "",
         )
+      let duration_s =
+        float.parse(string.trim(extract_between(part, "\"duration\":", ",")))
+        |> option.from_result
       case track_id == "" || title == "" {
         True -> parse_track_id_parts(rest, acc)
         False -> {
@@ -546,6 +589,7 @@ fn parse_track_id_parts(
               tracklist_track_cover(part),
               added_at,
               [],
+              duration_s,
             )
           parse_track_id_parts(rest, case maybe_item {
             Ok(item) -> [item, ..acc]
@@ -574,16 +618,26 @@ fn extract_bc_tags(html: String) -> List(String) {
   }
 }
 
-fn parse_album_tracks(html: String, album_id: String) -> List(core.UnifiedItem) {
+fn extract_album_artist_from_html(html: String) -> String {
+  let decoded = string.replace(html, "&quot;", "\"")
+  let a = extract_between(decoded, "\"artist\":\"", "\"")
+  case a != "" {
+    True -> decode(a)
+    False -> decode(extract_between(html, "property=\"og:site_name\" content=\"", "\""))
+  }
+}
+
+fn parse_album_tracks(html: String, album_id: String, album_added_at: String) -> List(core.UnifiedItem) {
   let album_cover = album_thumb_from_html(html)
   let album_genres = extract_bc_tags(html)
+  let album_artist = extract_album_artist_from_html(html)
   let decoded = string.replace(html, "&quot;", "\"")
   let trackinfo_split = string.split(decoded, "\"trackinfo\":")
   case trackinfo_split {
     [_, tail, ..] ->
       tail
       |> first_segment("],")
-      |> parse_album_track_parts(album_id, album_cover, album_genres)
+      |> parse_album_track_parts(album_id, album_cover, album_genres, album_added_at, album_artist)
     _ -> []
   }
 }
@@ -593,12 +647,14 @@ fn parse_album_track_parts(
   album_id: String,
   album_cover: String,
   album_genres: List(String),
+  album_added_at: String,
+  album_artist: String,
 ) -> List(core.UnifiedItem) {
   let parts = string.split(segment, "\"title\":\"")
   case parts {
     [] -> []
     [_, ..rest] ->
-      parse_album_track_titles(rest, album_id, 0, [], album_cover, album_genres)
+      parse_album_track_titles(rest, album_id, 0, [], album_cover, album_genres, album_added_at, album_artist)
   }
 }
 
@@ -609,6 +665,8 @@ fn parse_album_track_titles(
   acc: List(core.UnifiedItem),
   album_cover: String,
   album_genres: List(String),
+  album_added_at: String,
+  album_artist: String,
 ) -> List(core.UnifiedItem) {
   case parts {
     [] -> list.reverse(acc)
@@ -616,27 +674,36 @@ fn parse_album_track_titles(
       let title = decode(first_segment(part, "\""))
       let track_id =
         first_segment(extract_between(part, "\"track_id\":", ","), ",")
+      let per_track_artist = decode(extract_between(part, "\"artist\":\"", "\""))
       let artist =
-        decode(default_if_empty(
-          extract_between(part, "\"artist\":\"", "\""),
+        default_if_empty(
+          default_if_empty(per_track_artist, album_artist),
           "unknown",
-        ))
+        )
       let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
       let track_thumb = tracklist_track_cover(part)
       let cover = case string.trim(track_thumb) != "" {
         True -> track_thumb
         False -> album_cover
       }
-      let added_at =
+      let per_track_added_at =
         option_unwrap(
           parse_bandcamp_added_at(
             decode(extract_between(part, "\"added\":\"", "\"")),
           ),
           "",
         )
+      // Fall back to the album entry's added_at when the track JSON has no date.
+      let added_at = case per_track_added_at {
+        "" -> album_added_at
+        t -> t
+      }
+      let duration_s =
+        float.parse(string.trim(extract_between(part, "\"duration\":", ",")))
+        |> option.from_result
       case title == "" {
         True ->
-          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres)
+          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres, album_added_at, album_artist)
         False -> {
           let raw_source_id = case track_id {
             "" -> album_id <> ":" <> int.to_string(index)
@@ -652,11 +719,12 @@ fn parse_album_track_titles(
               cover,
               added_at,
               album_genres,
+              duration_s,
             )
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc
-          }, album_cover, album_genres)
+          }, album_cover, album_genres, album_added_at, album_artist)
         }
       }
     }
