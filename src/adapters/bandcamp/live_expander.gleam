@@ -222,15 +222,6 @@ fn expand_profile(
           _ -> ""
         }
       }
-      let wishlist_token = case is_wishlist {
-        True -> ""
-        False ->
-          case string.split(html, "&quot;wishlist_data&quot;:") {
-            [_, section, ..] ->
-              extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
-            _ -> ""
-          }
-      }
       case fan_id == "" || token == "" {
         True ->
           core.ExpandResult(
@@ -242,16 +233,12 @@ fn expand_profile(
             cache_fetches: fetches,
           )
         False -> {
-          let wishlist_node = case wishlist_token != "" {
-            True -> [core.CategoryNode("wishlist|" <> fan_id <> "|" <> wishlist_token)]
-            False -> []
-          }
           core.ExpandResult(
             items: entry_items,
             lists: [],
             next_nodes: list.append(
               [core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token)],
-              list.append(wishlist_node, entry_album_nodes),
+              entry_album_nodes,
             ),
             unresolved: [],
             cache_hits: hits,
@@ -576,7 +563,7 @@ fn parse_track_id_parts(
       let duration_s =
         float.parse(string.trim(extract_between(part, "\"duration\":", ",")))
         |> option.from_result
-      case track_id == "" || title == "" {
+      case track_id == "" || track_id == "null" || title == "" {
         True -> parse_track_id_parts(rest, acc)
         False -> {
           let maybe_item =
@@ -706,7 +693,7 @@ fn parse_album_track_titles(
           parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres, album_added_at, album_artist)
         False -> {
           let raw_source_id = case track_id {
-            "" -> album_id <> ":" <> int.to_string(index)
+            "" | "null" -> album_id <> ":" <> int.to_string(index)
             _ -> track_id
           }
           let maybe_item =
