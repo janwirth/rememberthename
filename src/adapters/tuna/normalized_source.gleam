@@ -691,6 +691,7 @@ fn push_item_with_metadata(
           tuna_row_cover_url(cover_path),
           added_at,
           [],
+          None,
         )
       {
         Ok(item) -> {
@@ -709,6 +710,7 @@ fn push_item_with_metadata(
                 _,
                 added_at,
                 genres,
+                _,
               ) = item
               core.UnifiedItem(
                 id: id,
@@ -722,6 +724,7 @@ fn push_item_with_metadata(
                 file_path: Some(cleaned),
                 added_at: added_at,
                 genres: genres,
+                duration_s: None,
               )
             }
           }

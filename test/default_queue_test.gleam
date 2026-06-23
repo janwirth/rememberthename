@@ -107,6 +107,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
               file_path: None,
               added_at: timestamp.unix_epoch,
               genres: [],
+              duration_s: None,
             ),
           ],
           lists: [],

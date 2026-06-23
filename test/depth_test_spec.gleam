@@ -77,14 +77,14 @@ pub fn items(result: core.ResolveResult) -> List(core.UnifiedItem) {
 
 pub fn has_title(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _) = item
     title == wanted
   })
 }
 
 pub fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _) = item
     string_contains(title, wanted)
   })
 }
@@ -100,7 +100,7 @@ fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
     |> items
     |> list.take(count)
     |> list.map(fn(item) {
-      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
       id
     })
   ids
@@ -110,7 +110,7 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
   result
   |> items
   |> list.any(fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
     id == wanted
   })
 }
@@ -123,7 +123,7 @@ fn string_contains(haystack: String, needle: String) -> Bool {
 fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
   let wanted_lc = string.lowercase(wanted)
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _) = item
     string.contains(string.lowercase(title), wanted_lc)
   })
 }

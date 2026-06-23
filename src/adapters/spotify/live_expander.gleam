@@ -30,10 +30,17 @@ import adapters/api_keys.{
 }
 import adapters/cache
 import adapters/core
+import gleam/dict
+import gleam/dynamic/decode
+import gleam/hackney
+import gleam/http
+import gleam/http/request
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/set
 import gleam/string
 import gleam/time/duration
 import gleam/time/timestamp
@@ -329,13 +336,24 @@ fn emit_liked_tracks(
     cached_liked_tracks_page(client, cache_scope, offset, cache_mode)
   let #(tsv, ct) = cached_tracks_tsv(packed, cache_mode)
   let #(hits, fetches) = cache.merge_rollups(cj, ct)
-  let items = parse_track_items(tsv)
+  let pairs = parse_track_items_with_artist_ids(tsv)
+  let artist_ids =
+    list.fold(pairs, set.new(), fn(s, p) { set.insert(s, p.1) })
+    |> set.to_list
+    |> list.filter(fn(id) { id != "" })
+  let genres_by_artist = fetch_artist_genres(token, artist_ids)
+  let items =
+    list.map(pairs, fn(pair) {
+      let #(item, artist_id) = pair
+      let genres = result.unwrap(dict.get(genres_by_artist, artist_id), [])
+      core.UnifiedItem(..item, genres:)
+    })
   let collection =
     core.UnifiedCollection(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -343,6 +361,7 @@ fn emit_liked_tracks(
       source_type: "collection",
       source_id: "spotify:collection:likes",
     )
+  let genre_collections = build_genre_collections(items)
   let next_offset = page_next_offset_from_packed(packed)
   let next_nodes = case next_offset != "" {
     True -> [
@@ -354,7 +373,7 @@ fn emit_liked_tracks(
   }
   core.ExpandResult(
     items: items,
-    lists: [collection],
+    lists: [collection, ..genre_collections],
     next_nodes: next_nodes,
     unresolved: [],
     cache_hits: hits,
@@ -448,6 +467,10 @@ fn saved_library_items_to_tsv(items: List(SavedLibTrack)) -> String {
       [img, ..] -> img.url
       [] -> ""
     }
+    let artist_id = case t.artists {
+      [a, ..] -> a.id.id
+      [] -> ""
+    }
     track_id
     <> "\t"
     <> t.name
@@ -459,6 +482,10 @@ fn saved_library_items_to_tsv(items: List(SavedLibTrack)) -> String {
     <> cover_url
     <> "\t"
     <> added
+    <> "\t"
+    <> int.to_string(t.duration_ms)
+    <> "\t"
+    <> artist_id
   })
   |> string.join("\n")
 }
@@ -483,14 +510,19 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
       [_, _, _, u, ..] -> u
       _ -> ""
     }
-    let #(cover_url, added_at_raw) = case cols {
-      [_, _, _, _, cover, raw, ..] -> #(cover, normalize_spotify_added_at(raw))
-      [_, _, _, _, raw] -> #("", normalize_spotify_added_at(raw))
-      _ -> #("", None)
+    let #(cover_url, added_at_raw, duration_ms_str) = case cols {
+      [_, _, _, _, cover, raw, dur, ..] -> #(cover, normalize_spotify_added_at(raw), dur)
+      [_, _, _, _, cover, raw] -> #(cover, normalize_spotify_added_at(raw), "")
+      [_, _, _, _, raw] -> #("", normalize_spotify_added_at(raw), "")
+      _ -> #("", None, "")
     }
     let added_at_str = case added_at_raw {
       Some(s) -> s
       None -> ""
+    }
+    let duration_s = case int.parse(string.trim(duration_ms_str)) {
+      Ok(ms) if ms > 0 -> Some(int.to_float(ms) /. 1000.0)
+      _ -> None
     }
     case track_id == "" {
       True -> Error(Nil)
@@ -504,7 +536,144 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
           string.trim(cover_url),
           added_at_str,
           [],
+          duration_s,
         )
+    }
+  })
+}
+
+fn parse_track_items_with_artist_ids(
+  tsv: String,
+) -> List(#(core.UnifiedItem, String)) {
+  parse_lines(tsv)
+  |> list.filter_map(fn(chunk) {
+    let cols = string.split(chunk, "\t")
+    let track_id = case cols {
+      [id, ..] -> id
+      _ -> ""
+    }
+    let title = case cols {
+      [_, t, ..] -> t
+      _ -> ""
+    }
+    let artist_name = case cols {
+      [_, _, a, ..] -> a
+      _ -> "unknown"
+    }
+    let track_url = case cols {
+      [_, _, _, u, ..] -> u
+      _ -> ""
+    }
+    let #(cover_url, added_at_raw, duration_ms_str, artist_id) = case cols {
+      [_, _, _, _, cover, raw, dur, aid, ..] -> #(
+        cover,
+        normalize_spotify_added_at(raw),
+        dur,
+        aid,
+      )
+      [_, _, _, _, cover, raw, dur] -> #(
+        cover,
+        normalize_spotify_added_at(raw),
+        dur,
+        "",
+      )
+      [_, _, _, _, cover, raw] -> #(cover, normalize_spotify_added_at(raw), "", "")
+      _ -> #("", None, "", "")
+    }
+    let added_at_str = case added_at_raw {
+      Some(s) -> s
+      None -> ""
+    }
+    let duration_s = case int.parse(string.trim(duration_ms_str)) {
+      Ok(ms) if ms > 0 -> Some(int.to_float(ms) /. 1000.0)
+      _ -> None
+    }
+    case track_id == "" {
+      True -> Error(Nil)
+      False ->
+        case
+          core.track_item_with_added_at(
+            "spotify",
+            track_id,
+            normalize(title),
+            normalize(default_if_empty(artist_name, "unknown")),
+            string.trim(track_url),
+            string.trim(cover_url),
+            added_at_str,
+            [],
+            duration_s,
+          )
+        {
+          Ok(item) -> Ok(#(item, string.trim(artist_id)))
+          Error(e) -> Error(e)
+        }
+    }
+  })
+}
+
+fn build_genre_collections(
+  items: List(core.UnifiedItem),
+) -> List(core.UnifiedCollection) {
+  let genre_map =
+    list.fold(items, dict.new(), fn(acc, item) {
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, genres, _) = item
+      list.fold(genres, acc, fn(acc2, genre) {
+        let existing = result.unwrap(dict.get(acc2, genre), [])
+        dict.insert(acc2, genre, [id, ..existing])
+      })
+    })
+  dict.to_list(genre_map)
+  |> list.map(fn(pair) {
+    let #(genre, track_ids) = pair
+    let genre_id = "spotify:collection:genre:" <> genre
+    core.UnifiedCollection(
+      id: genre_id,
+      title: genre,
+      track_ids: list.reverse(track_ids),
+      list_ids: [],
+      service: "spotify",
+      source_type: "collection",
+      source_id: genre_id,
+    )
+  })
+}
+
+fn fetch_artist_genres(
+  token: String,
+  artist_ids: List(String),
+) -> dict.Dict(String, List(String)) {
+  let batches = list.sized_chunk(artist_ids, 50)
+  let artist_pair_decoder = {
+    use id <- decode.field("id", decode.string)
+    use genres <- decode.field("genres", decode.list(decode.string))
+    decode.success(#(id, genres))
+  }
+  let decoder = {
+    use artists <- decode.field("artists", decode.list(artist_pair_decoder))
+    decode.success(artists)
+  }
+  list.fold(batches, dict.new(), fn(acc, batch) {
+    let ids_param = string.join(batch, ",")
+    let req =
+      request.new()
+      |> request.set_scheme(http.Https)
+      |> request.set_host("api.spotify.com")
+      |> request.set_path("/v1/artists")
+      |> request.set_query([#("ids", ids_param)])
+      |> request.set_method(http.Get)
+      |> request.set_header("Authorization", "Bearer " <> token)
+      |> request.set_header("Accept", "application/json")
+    case hackney.send(req) {
+      Ok(resp) ->
+        case json.parse(resp.body, decoder) {
+          Ok(pairs) ->
+            list.fold(pairs, acc, fn(d, pair) {
+              let #(id, genres) = pair
+              dict.insert(d, id, genres)
+            })
+          Error(_) -> acc
+        }
+      Error(_) -> acc
     }
   })
 }

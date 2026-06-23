@@ -27,7 +27,7 @@ pub fn ordered_triple_bandcamp_assert_spec_test() {
   let ordered = source_root.ordered_selector_triples(source_specs.all())
   let assert Ok(#(_, _, spec)) =
     list.find_map(ordered, fn(t) {
-      case t.0 == "bandcamp" {
+      case t.0 == "bandcamp_purchases" {
         True -> Ok(t)
         False -> Error(Nil)
       }
@@ -65,7 +65,7 @@ pub fn artifact_json_path_tuna_test() {
 pub fn artifact_json_path_bandcamp_test() {
   let #(_, root, _) = source_specs.bandcamp()
   source_root.artifact_json_path(root)
-  |> should.equal("output/bandcamp_full.json")
+  |> should.equal("output/bandcamp_purchases_full.json")
 }
 
 pub fn artifact_json_path_spotify_test() {

@@ -100,6 +100,8 @@ pub type UnifiedItem {
     added_at: timestamp.Timestamp,
     /// Genre tags extracted from the source (e.g. SC tag_list, BC album tags).
     genres: List(String),
+    /// Track duration in seconds. None when the source does not expose it.
+    duration_s: Option(Float),
   )
 }
 
@@ -154,6 +156,7 @@ pub fn track_item(
     cover_url,
     "",
     [],
+    None,
   )
 }
 
@@ -180,6 +183,7 @@ pub fn track_item_with_added_at(
   cover_url: String,
   added_at: String,
   genres: List(String),
+  duration_s: Option(Float),
 ) -> Result(UnifiedItem, Nil) {
   let source_id = source_id_normalizer.normalize(service, raw_source_id)
   case source_id == "" {
@@ -201,6 +205,7 @@ pub fn track_item_with_added_at(
         file_path: None,
         added_at: added,
         genres: genres,
+        duration_s: duration_s,
       ))
     }
   }
@@ -1125,7 +1130,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

@@ -1,6 +1,12 @@
 //// YouTube Data API v3 via `gleetube`: playlist items and `added_at` from `snippet.publishedAt`.
+////
+//// Duration fetch uses pingpong paging: each PlaylistItems page (≤50 items) is immediately
+//// paired with one Videos.list call for those exact video IDs, so duration data arrives
+//// alongside items rather than in a separate second pass.
 
 import adapters/core
+import gleam/dict.{type Dict}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
@@ -17,6 +23,7 @@ import gleetube/model/playlist.{type Playlist}
 import gleetube/model/playlist_item.{type PlaylistItem}
 import gleetube/resource/playlist_items
 import gleetube/resource/playlists
+import gleetube/resource/videos
 
 pub fn glee_tube_error_message(error: GleeTubeError) -> String {
   case error {
@@ -46,22 +53,176 @@ pub fn normalize_youtube_published_at(raw: String) -> Option(String) {
   }
 }
 
+/// Pingpong fetch: each page of playlist items (≤50) is immediately paired with one
+/// Videos.list call for those video IDs, interleaving the two API endpoints.
 pub fn fetch_playlist_unified(
   api_key: String,
   playlist_id: String,
+  on_log: fn(String) -> Nil,
 ) -> Result(#(List(core.UnifiedItem), String), GleeTubeError) {
   let client = gleetube.new(api_key)
-  use items <- result.try(playlist_items.list_all(
+  use all_items <- result.try(fetch_all_pages_pingpong(
+    client,
+    playlist_id,
+    None,
+    [],
+    on_log,
+  ))
+  use title <- result.try(fetch_playlist_title(client, playlist_id))
+  Ok(#(all_items, title))
+}
+
+fn fetch_all_pages_pingpong(
+  client: Client,
+  playlist_id: String,
+  page_token: Option(String),
+  acc: List(core.UnifiedItem),
+  on_log: fn(String) -> Nil,
+) -> Result(List(core.UnifiedItem), GleeTubeError) {
+  on_log(
+    "youtube: fetching playlist items page"
+    <> case page_token {
+      None -> ""
+      Some(_) -> " (next page)"
+    },
+  )
+  use resp <- result.try(playlist_items.list(
     client,
     parts: [playlist_items.Snippet, playlist_items.ContentDetails],
     filter: playlist_items.ByPlaylistId(playlist_id),
+    max_results: Some(50),
     on_behalf_of_content_owner: None,
+    page_token: page_token,
     video_id: None,
   ))
-  use title <- result.try(fetch_playlist_title(client, playlist_id))
+  let page_items = resp.items
+  let video_ids =
+    list.filter_map(page_items, fn(item) {
+      option.to_result(playlist_item_video_id(item), Nil)
+    })
+  on_log(
+    "youtube: got "
+    <> int.to_string(list.length(page_items))
+    <> " items, fetching durations for "
+    <> int.to_string(list.length(video_ids))
+    <> " videos",
+  )
+  let durations = fetch_durations_for_ids(client, video_ids, on_log)
   let unified =
-    list.filter_map(items, fn(row) { playlist_item_to_unified_item(row) })
-  Ok(#(unified, title))
+    list.filter_map(page_items, fn(item) {
+      playlist_item_to_unified_item(item, durations)
+    })
+  on_log(
+    "youtube: page produced "
+    <> int.to_string(list.length(unified))
+    <> " unified items",
+  )
+  let new_acc = list.append(acc, unified)
+  case resp.next_page_token {
+    None -> Ok(new_acc)
+    Some(_) ->
+      fetch_all_pages_pingpong(
+        client,
+        playlist_id,
+        resp.next_page_token,
+        new_acc,
+        on_log,
+      )
+  }
+}
+
+/// Batch video IDs into chunks of 50 and call Videos.list for each chunk.
+fn fetch_durations_for_ids(
+  client: Client,
+  video_ids: List(String),
+  on_log: fn(String) -> Nil,
+) -> Dict(String, Float) {
+  list.sized_chunk(video_ids, 50)
+  |> list.flat_map(fn(chunk) {
+    on_log(
+      "youtube: calling Videos.list for "
+      <> int.to_string(list.length(chunk))
+      <> " IDs",
+    )
+    case
+      videos.list(
+        client,
+        parts: [videos.ContentDetails],
+        filter: videos.ById(chunk),
+        hl: None,
+        max_height: None,
+        max_results: None,
+        max_width: None,
+        on_behalf_of_content_owner: None,
+        page_token: None,
+        region_code: None,
+        video_category_id: None,
+      )
+    {
+      Error(_) -> []
+      Ok(resp) ->
+        list.filter_map(resp.items, fn(video) {
+          case video.id, video.content_details {
+            Some(vid_id), Some(cd) ->
+              case cd.duration {
+                None -> Error(Nil)
+                Some(iso) ->
+                  case parse_iso8601_duration(iso) {
+                    None -> Error(Nil)
+                    Some(s) -> Ok(#(vid_id, s))
+                  }
+              }
+            _, _ -> Error(Nil)
+          }
+        })
+    }
+  })
+  |> dict.from_list
+}
+
+/// Parse ISO 8601 duration string (e.g. "PT3M45S", "PT1H2M3S", "PT45.5S") → seconds.
+fn parse_iso8601_duration(iso: String) -> Option(Float) {
+  let s = string.trim(iso)
+  case string.starts_with(s, "PT") {
+    False -> None
+    True -> {
+      let body = string.drop_start(s, 2)
+      let #(hours, after_h) = case string.split_once(body, "H") {
+        Ok(#(h, rest)) ->
+          case int.parse(string.trim(h)) {
+            Ok(n) -> #(n, rest)
+            Error(_) -> #(0, body)
+          }
+        Error(_) -> #(0, body)
+      }
+      let #(minutes, after_m) = case string.split_once(after_h, "M") {
+        Ok(#(m, rest)) ->
+          case int.parse(string.trim(m)) {
+            Ok(n) -> #(n, rest)
+            Error(_) -> #(0, after_h)
+          }
+        Error(_) -> #(0, after_h)
+      }
+      let secs_f = case string.split_once(after_m, "S") {
+        Ok(#(sec_raw, _)) ->
+          case float.parse(string.trim(sec_raw)) {
+            Ok(f) -> f
+            Error(_) ->
+              case int.parse(string.trim(sec_raw)) {
+                Ok(n) -> int.to_float(n)
+                Error(_) -> 0.0
+              }
+          }
+        Error(_) -> 0.0
+      }
+      let total =
+        int.to_float(hours * 3600 + minutes * 60) +. secs_f
+      case total >. 0.0 {
+        True -> Some(total)
+        False -> None
+      }
+    }
+  }
 }
 
 fn fetch_playlist_title(client: Client, playlist_id: String) -> Result(
@@ -101,6 +262,7 @@ fn playlist_title_or_default(playlist: Playlist) -> String {
 
 fn playlist_item_to_unified_item(
   item: PlaylistItem,
+  durations: Dict(String, Float),
 ) -> Result(core.UnifiedItem, Nil) {
   let video_id = playlist_item_video_id(item)
   case video_id {
@@ -119,6 +281,7 @@ fn playlist_item_to_unified_item(
             None -> ""
             Some(sn) -> best_thumbnail_url(sn.thumbnails)
           }
+          let duration_s = dict.get(durations, vid) |> option.from_result
           core.track_item_with_added_at(
             "youtube",
             vid,
@@ -128,6 +291,7 @@ fn playlist_item_to_unified_item(
             thumb,
             added_at,
             [],
+            duration_s,
           )
         }
       }

@@ -109,7 +109,7 @@ pub fn resolve_profile_with_debug_limited_timed(
       )
     False -> {
       use pair <- result.try(
-        case data_api.fetch_playlist_unified(api_key, playlist_id) {
+        case data_api.fetch_playlist_unified(api_key, playlist_id, on_debug) {
           Ok(p) -> Ok(p)
           Error(ge) ->
             Error(
@@ -122,7 +122,6 @@ pub fn resolve_profile_with_debug_limited_timed(
       let title = default_if_empty(string.trim(title_raw), "YouTube Playlist")
       let lists = [make_collection(playlist_id, title, visible)]
       emit_youtube_progress(profile_url, visible, lists, on_progress)
-      let _ = on_debug
       let anchor_mode = core.update_anchor_mode(anchor_mode, visible)
       Ok(
         core.ResolveResultWithAnchor(
@@ -190,7 +189,7 @@ fn make_collection(
 ) -> core.UnifiedCollection {
   let track_ids =
     list.map(items, fn(item) {
-      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
       id
     })
   let source_id = "youtube:collection:" <> playlist_id

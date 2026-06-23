@@ -331,7 +331,17 @@ fn parse_tracks(
   #(
     list.index_map(lines, fn(line, idx) {
       let cols = string.split(line, "\t")
-      let #(raw_source_id, title, artist, perm_url, cover_url, added_at, tag_list) = case cols {
+      let #(raw_source_id, title, artist, perm_url, cover_url, added_at, tag_list, duration_ms_str) = case cols {
+        [id, title, artist, u, cover, added, tags, dur] -> #(
+          id,
+          title,
+          artist,
+          string.trim(u),
+          string.trim(cover),
+          option_unwrap(normalize_soundcloud_added_at(added), ""),
+          tags,
+          dur,
+        )
         [id, title, artist, u, cover, added, tags] -> #(
           id,
           title,
@@ -340,6 +350,7 @@ fn parse_tracks(
           string.trim(cover),
           option_unwrap(normalize_soundcloud_added_at(added), ""),
           tags,
+          "",
         )
         [id, title, artist, u, cover, added] -> #(
           id,
@@ -348,6 +359,7 @@ fn parse_tracks(
           string.trim(u),
           string.trim(cover),
           option_unwrap(normalize_soundcloud_added_at(added), ""),
+          "",
           "",
         )
         [id, title, artist, u, added] -> #(
@@ -358,11 +370,12 @@ fn parse_tracks(
           "",
           option_unwrap(normalize_soundcloud_added_at(added), ""),
           "",
+          "",
         )
-        [id, title, artist, u] -> #(id, title, artist, string.trim(u), "", "", "")
-        [id, title, artist] -> #(id, title, artist, "", "", "", "")
-        [id, title] -> #(id, title, "unknown", "", "", "", "")
-        [id] -> #(id, "untitled", "unknown", "", "", "", "")
+        [id, title, artist, u] -> #(id, title, artist, string.trim(u), "", "", "", "")
+        [id, title, artist] -> #(id, title, artist, "", "", "", "", "")
+        [id, title] -> #(id, title, "unknown", "", "", "", "", "")
+        [id] -> #(id, "untitled", "unknown", "", "", "", "", "")
         _ -> #(
           kind <> ":" <> int.to_string(idx + 1),
           "untitled",
@@ -371,10 +384,15 @@ fn parse_tracks(
           "",
           "",
           "",
+          "",
         )
       }
       // SC tag_list: space-separated, multi-word tags quoted: "hip hop" electronic
       let genres = parse_sc_tag_list(tag_list)
+      let duration_s = case int.parse(string.trim(duration_ms_str)) {
+        Ok(ms) if ms > 0 -> Some(int.to_float(ms) /. 1000.0)
+        _ -> None
+      }
       core.track_item_with_added_at(
         "soundcloud",
         raw_source_id,
@@ -384,6 +402,7 @@ fn parse_tracks(
         cover_url,
         added_at,
         genres,
+        duration_s,
       )
     })
       |> list.filter_map(fn(item) { item }),
@@ -545,7 +564,7 @@ fn soundcloud_track_permalink_url(
 fn track_tuple_from_dynamic(
   data: dynamic.Dynamic,
   path_prefix: List(String),
-) -> Option(#(String, String, String, String, String, String, String)) {
+) -> Option(#(String, String, String, String, String, String, String, String)) {
   let id_path = list.append(path_prefix, ["id"])
   let title_path = list.append(path_prefix, ["title"])
   let artist_path = list.append(path_prefix, ["user", "username"])
@@ -570,14 +589,20 @@ fn track_tuple_from_dynamic(
           "",
           decode.string,
         )
-      Some(#(id, title, artist, perm_url, artwork, "", tag_list))
+      let duration_ms =
+        decode_path_or(data, list.append(path_prefix, ["duration"]), 0, decode.int)
+      let duration_ms_str = case duration_ms > 0 {
+        True -> int.to_string(duration_ms)
+        False -> ""
+      }
+      Some(#(id, title, artist, perm_url, artwork, "", tag_list, duration_ms_str))
     }
   }
 }
 
 fn track_tuple_from_entry(
   entry: dynamic.Dynamic,
-) -> Option(#(String, String, String, String, String, String, String)) {
+) -> Option(#(String, String, String, String, String, String, String, String)) {
   let added_at =
     decode_path_or(entry, ["created_at"], "", decode.string)
     |> normalize_soundcloud_added_at
@@ -605,11 +630,11 @@ fn track_tuple_from_entry(
 }
 
 fn with_added_at(
-  track: #(String, String, String, String, String, String, String),
+  track: #(String, String, String, String, String, String, String, String),
   added_at: String,
-) -> #(String, String, String, String, String, String, String) {
-  let #(id, title, artist, perm_url, cover, _, tag_list) = track
-  #(id, title, artist, perm_url, cover, added_at, tag_list)
+) -> #(String, String, String, String, String, String, String, String) {
+  let #(id, title, artist, perm_url, cover, _, tag_list, duration_ms_str) = track
+  #(id, title, artist, perm_url, cover, added_at, tag_list, duration_ms_str)
 }
 
 fn collect_track_ids(
@@ -641,7 +666,7 @@ fn collect_track_rows(
     [entry, ..rest] ->
       case track_tuple_from_entry(entry) {
         Some(track) -> {
-          let #(id, title, artist, perm_url, cover, added_at, tag_list) = track
+          let #(id, title, artist, perm_url, cover, added_at, tag_list, duration_ms_str) = track
           collect_track_rows(rest, [
             id
             <> "\t"
@@ -655,7 +680,9 @@ fn collect_track_rows(
             <> "\t"
             <> added_at
             <> "\t"
-            <> tag_list,
+            <> tag_list
+            <> "\t"
+            <> duration_ms_str,
             ..acc
           ])
         }

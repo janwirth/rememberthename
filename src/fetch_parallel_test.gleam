@@ -22,8 +22,8 @@ const profile_dir = "/Users/janwirth/tuna/default"
 const cloud_sources_path = "/Users/janwirth/tuna/default/cloud_sources.json"
 
 const bc_timing = source_root.SourceTimingSpec(
-  max_concurrency: 5,
-  requests_per_second: 5,
+  max_concurrency: 2,
+  requests_per_second: 2,
 )
 
 const sc_timing = source_root.SourceTimingSpec(

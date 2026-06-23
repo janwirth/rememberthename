@@ -49,7 +49,15 @@ pub fn cloud_unified_item(
     file_path:,
     added_at:,
     genres: [],
+    duration_s: option.None,
   )
+}
+
+pub fn with_duration_s(
+  item: UnifiedItem,
+  duration_s: option.Option(Float),
+) -> UnifiedItem {
+  core.UnifiedItem(..item, duration_s:)
 }
 
 pub fn all_sources() {
@@ -174,7 +182,7 @@ pub fn imported_tags_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
@@ -202,18 +210,15 @@ pub fn imported_ratings_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
         let rating = rating_from_export_tags_list(tuna_tags.export_tags(tags_str))
-        case rating {
-          option.None -> acc
-          option.Some(r) if r > 0 -> {
-            let tag_id = imported_track_tag_id(id, file_path)
-            dict.insert(acc, tag_id, r)
-          }
-          _ -> acc
+        case rating, file_path {
+          option.Some(r), option.Some(p) if r > 0 ->
+            dict.insert(acc, string.trim(p), r)
+          _, _ -> acc
         }
       })
   }
@@ -256,10 +261,12 @@ pub fn imported_genres_from_fetch(
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _) =
       item
     case service, genres {
       "bandcamp", [_, ..] ->
+        dict.insert(acc, imported_track_tag_id(id, file_path), genres)
+      "spotify", [_, ..] ->
         dict.insert(acc, imported_track_tag_id(id, file_path), genres)
       _, _ -> acc
     }
@@ -272,7 +279,7 @@ pub fn imported_sc_tags_from_fetch(
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres) =
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _) =
       item
     case service, genres {
       "soundcloud", [_, ..] ->
