@@ -185,7 +185,25 @@ fn expand_profile(
           )
         Some(client) -> {
           let token = client.auth.access_token
-          emit_liked_tracks(client, token, "likes", 0, cache_mode)
+          let liked = emit_liked_tracks(client, token, "likes", 0, cache_mode)
+          let album_items = fetch_liked_album_tracks(token)
+          let current_user_id = fetch_me_user_id(token)
+          let playlist_lists = fetch_user_playlists(token)
+          let meta =
+            core.UnifiedCollection(
+              id: "spotify:meta:current_user",
+              title: current_user_id,
+              track_ids: [],
+              list_ids: [],
+              service: "spotify",
+              source_type: "meta",
+              source_id: "current_user|" <> current_user_id,
+            )
+          core.ExpandResult(
+            ..liked,
+            items: list.append(liked.items, album_items),
+            lists: list.append(liked.lists, [meta, ..playlist_lists]),
+          )
         }
       }
   }
@@ -762,5 +780,375 @@ fn is_ascii_digit(char: String) -> Bool {
   case char {
     "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
     _ -> False
+  }
+}
+
+fn fetch_me_user_id(token: String) -> String {
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("api.spotify.com")
+    |> request.set_path("/v1/me")
+    |> request.set_method(http.Get)
+    |> request.set_header("Authorization", "Bearer " <> token)
+    |> request.set_header("Accept", "application/json")
+  let decoder = {
+    use id <- decode.field("id", decode.string)
+    decode.success(id)
+  }
+  case hackney.send(req) {
+    Ok(resp) ->
+      case json.parse(resp.body, decoder) {
+        Ok(id) -> id
+        Error(_) -> ""
+      }
+    Error(_) -> ""
+  }
+}
+
+fn fetch_liked_album_tracks(token: String) -> List(core.UnifiedItem) {
+  do_fetch_liked_album_tracks(token, 0, [])
+}
+
+fn do_fetch_liked_album_tracks(
+  token: String,
+  offset: Int,
+  acc: List(core.UnifiedItem),
+) -> List(core.UnifiedItem) {
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("api.spotify.com")
+    |> request.set_path("/v1/me/albums")
+    |> request.set_query([
+      #("limit", "50"),
+      #("offset", int.to_string(offset)),
+    ])
+    |> request.set_method(http.Get)
+    |> request.set_header("Authorization", "Bearer " <> token)
+    |> request.set_header("Accept", "application/json")
+  let name_decoder = {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  }
+  let track_decoder = {
+    use id <- decode.field("id", decode.string)
+    use name <- decode.field("name", decode.string)
+    use artists <- decode.field("artists", decode.list(name_decoder))
+    use duration_ms <- decode.field("duration_ms", decode.int)
+    decode.success(#(id, name, artists, duration_ms))
+  }
+  let img_decoder = {
+    use url <- decode.field("url", decode.string)
+    decode.success(url)
+  }
+  let album_decoder = {
+    use artists <- decode.field("artists", decode.list(name_decoder))
+    use images <- decode.field("images", decode.list(img_decoder))
+    use tracks <- decode.field("tracks", {
+      use items <- decode.field("items", decode.list(track_decoder))
+      decode.success(items)
+    })
+    decode.success(#(artists, images, tracks))
+  }
+  let item_decoder = {
+    use added_at <- decode.field("added_at", decode.string)
+    use album <- decode.field("album", album_decoder)
+    decode.success(#(added_at, album))
+  }
+  let resp_decoder = {
+    use items <- decode.field("items", decode.list(item_decoder))
+    use next <- decode.field("next", decode.optional(decode.string))
+    decode.success(#(items, next))
+  }
+  case hackney.send(req) {
+    Error(_) -> acc
+    Ok(resp) ->
+      case json.parse(resp.body, resp_decoder) {
+        Error(_) -> acc
+        Ok(#(items, next)) -> {
+          let new_items =
+            list.flat_map(items, fn(entry) {
+              let #(added_at_str, #(album_artists, images, tracks)) = entry
+              let cover_url = case images {
+                [url, ..] -> url
+                [] -> ""
+              }
+              let album_artist = case album_artists {
+                [a, ..] -> a
+                [] -> "unknown"
+              }
+              let added = option.unwrap(normalize_spotify_added_at(added_at_str), "")
+              list.filter_map(tracks, fn(track) {
+                let #(track_id, track_name, track_artists, duration_ms) = track
+                let artist = case track_artists {
+                  [a, ..] -> a
+                  [] -> album_artist
+                }
+                core.track_item_with_added_at(
+                  "spotify",
+                  track_id,
+                  normalize(track_name),
+                  normalize(default_if_empty(artist, "unknown")),
+                  "https://open.spotify.com/track/" <> track_id,
+                  cover_url,
+                  added,
+                  [],
+                  case duration_ms > 0 {
+                    True -> Some(int.to_float(duration_ms) /. 1000.0)
+                    False -> None
+                  },
+                )
+              })
+            })
+          let acc2 = list.append(acc, new_items)
+          case next {
+            None -> acc2
+            Some(_) -> do_fetch_liked_album_tracks(token, offset + 50, acc2)
+          }
+        }
+      }
+  }
+}
+
+fn fetch_user_playlists(token: String) -> List(core.UnifiedCollection) {
+  do_fetch_user_playlists(token, 0, [])
+}
+
+fn do_fetch_user_playlists(
+  token: String,
+  offset: Int,
+  acc: List(core.UnifiedCollection),
+) -> List(core.UnifiedCollection) {
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("api.spotify.com")
+    |> request.set_path("/v1/me/playlists")
+    |> request.set_query([
+      #("limit", "50"),
+      #("offset", int.to_string(offset)),
+    ])
+    |> request.set_method(http.Get)
+    |> request.set_header("Authorization", "Bearer " <> token)
+    |> request.set_header("Accept", "application/json")
+  let playlist_decoder = {
+    use id <- decode.field("id", decode.string)
+    use name <- decode.field("name", decode.string)
+    use owner_id <- decode.field("owner", {
+      use id <- decode.field("id", decode.string)
+      decode.success(id)
+    })
+    decode.success(#(id, name, owner_id))
+  }
+  let resp_decoder = {
+    use items <- decode.field("items", decode.list(playlist_decoder))
+    use next <- decode.field("next", decode.optional(decode.string))
+    decode.success(#(items, next))
+  }
+  case hackney.send(req) {
+    Error(_) -> acc
+    Ok(resp) ->
+      case json.parse(resp.body, resp_decoder) {
+        Error(_) -> acc
+        Ok(#(items, next)) -> {
+          let new_cols =
+            list.map(items, fn(entry) {
+              let #(id, name, owner_id) = entry
+              core.UnifiedCollection(
+                id: "spotify:playlist:" <> id,
+                title: name,
+                track_ids: [],
+                list_ids: [],
+                service: "spotify",
+                source_type: "playlist",
+                source_id: id <> "|" <> owner_id,
+              )
+            })
+          let acc2 = list.append(acc, new_cols)
+          case next {
+            None -> acc2
+            Some(_) -> do_fetch_user_playlists(token, offset + 50, acc2)
+          }
+        }
+      }
+  }
+}
+
+pub fn fetch_playlist_tracks_with_anchor(
+  playlist_id: String,
+  config: SpotifyConfig,
+  fetch_newer_than: option.Option(String),
+) -> #(List(core.UnifiedItem), option.Option(String)) {
+  let SpotifyConfig(credentials) = config
+  case to_authed_client(credentials) {
+    None -> #([], option.None)
+    Some(client) ->
+      do_fetch_playlist_tracks(
+        client.auth.access_token,
+        playlist_id,
+        fetch_newer_than,
+        0,
+        [],
+        option.None,
+      )
+  }
+}
+
+fn do_fetch_playlist_tracks(
+  token: String,
+  playlist_id: String,
+  fetch_newer_than: option.Option(String),
+  offset: Int,
+  acc: List(core.UnifiedItem),
+  newest_added_at: option.Option(String),
+) -> #(List(core.UnifiedItem), option.Option(String)) {
+  let req =
+    request.new()
+    |> request.set_scheme(http.Https)
+    |> request.set_host("api.spotify.com")
+    |> request.set_path("/v1/playlists/" <> playlist_id <> "/tracks")
+    |> request.set_query([
+      #("limit", "100"),
+      #("offset", int.to_string(offset)),
+    ])
+    |> request.set_method(http.Get)
+    |> request.set_header("Authorization", "Bearer " <> token)
+    |> request.set_header("Accept", "application/json")
+  let name_decoder = {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  }
+  let img_decoder = {
+    use url <- decode.field("url", decode.string)
+    decode.success(url)
+  }
+  let track_decoder = {
+    use id <- decode.field("id", decode.string)
+    use name <- decode.field("name", decode.string)
+    use artists <- decode.field("artists", decode.list(name_decoder))
+    use images <- decode.field("album", {
+      use imgs <- decode.field("images", decode.list(img_decoder))
+      decode.success(imgs)
+    })
+    use duration_ms <- decode.field("duration_ms", decode.int)
+    decode.success(#(id, name, artists, images, duration_ms))
+  }
+  let item_decoder = {
+    use added_at <- decode.field("added_at", decode.string)
+    use track <- decode.field("track", decode.optional(track_decoder))
+    decode.success(#(added_at, track))
+  }
+  let resp_decoder = {
+    use items <- decode.field("items", decode.list(item_decoder))
+    use next <- decode.field("next", decode.optional(decode.string))
+    decode.success(#(items, next))
+  }
+  case hackney.send(req) {
+    Error(_) -> #(acc, newest_added_at)
+    Ok(resp) ->
+      case json.parse(resp.body, resp_decoder) {
+        Error(_) -> #(acc, newest_added_at)
+        Ok(#(items, next)) -> {
+          let valid = list.filter_map(items, fn(entry) {
+            let #(added_at, track_opt) = entry
+            option.to_result(option.map(track_opt, fn(t) { #(added_at, t) }), Nil)
+          })
+          let #(new_items, should_stop, new_newest) =
+            list.fold(valid, #([], False, newest_added_at), fn(state, entry) {
+              let #(acc_items, stop, newed) = state
+              case stop {
+                True -> state
+                False -> {
+                  let #(added_at_str, #(track_id, track_name, track_artists, images, duration_ms)) =
+                    entry
+                  let normalized_added = normalize_spotify_added_at(added_at_str)
+                  let added_unix = case normalized_added {
+                    None -> 0
+                    Some(s) -> {
+                      let #(sec, _) =
+                        timestamp.to_unix_seconds_and_nanoseconds(
+                          core.added_at_timestamp_from_raw(s),
+                        )
+                      sec
+                    }
+                  }
+                  let anchor_unix = case fetch_newer_than {
+                    None -> 0
+                    Some(s) -> {
+                      let #(sec, _) =
+                        timestamp.to_unix_seconds_and_nanoseconds(
+                          core.added_at_timestamp_from_raw(s),
+                        )
+                      sec
+                    }
+                  }
+                  let past_anchor =
+                    fetch_newer_than != option.None
+                    && added_unix <= anchor_unix
+                  case past_anchor {
+                    True -> #(acc_items, True, newed)
+                    False -> {
+                      let cover_url = case images {
+                        [url, ..] -> url
+                        [] -> ""
+                      }
+                      let artist = case track_artists {
+                        [a, ..] -> a
+                        [] -> "unknown"
+                      }
+                      let added_str = option.unwrap(normalized_added, "")
+                      let new_newest2 = case newed {
+                        None -> normalized_added
+                        Some(existing_str) -> {
+                          let #(existing_unix, _) =
+                            timestamp.to_unix_seconds_and_nanoseconds(
+                              core.added_at_timestamp_from_raw(existing_str),
+                            )
+                          case added_unix > existing_unix {
+                            True -> normalized_added
+                            False -> newed
+                          }
+                        }
+                      }
+                      case
+                        core.track_item_with_added_at(
+                          "spotify",
+                          track_id,
+                          normalize(track_name),
+                          normalize(default_if_empty(artist, "unknown")),
+                          "https://open.spotify.com/track/" <> track_id,
+                          cover_url,
+                          added_str,
+                          [],
+                          case duration_ms > 0 {
+                            True -> Some(int.to_float(duration_ms) /. 1000.0)
+                            False -> None
+                          },
+                        )
+                      {
+                        Ok(item) -> #([item, ..acc_items], False, new_newest2)
+                        Error(_) -> #(acc_items, False, new_newest2)
+                      }
+                    }
+                  }
+                }
+              }
+            })
+          let acc2 = list.append(acc, list.reverse(new_items))
+          case should_stop || next == option.None {
+            True -> #(acc2, new_newest)
+            False ->
+              do_fetch_playlist_tracks(
+                token,
+                playlist_id,
+                fetch_newer_than,
+                offset + 100,
+                acc2,
+                new_newest,
+              )
+          }
+        }
+      }
   }
 }

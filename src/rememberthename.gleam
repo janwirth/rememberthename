@@ -1,5 +1,6 @@
 import adapters/cache.{CacheIgnore, CacheOverride, CacheUpsert, type CacheMode}
 import adapters/core as core
+import adapters/spotify/live_expander as spotify_live_expander
 import adapters/tuna/tags_catalog_query
 import cli/tuna_tags
 import cli/track_view
@@ -17,6 +18,9 @@ import source_root
 
 pub type UnifiedItem =
   core.UnifiedItem
+
+pub type UnifiedCollection =
+  core.UnifiedCollection
 
 pub type FetchResult =
   fetch_ops.FetchResult
@@ -287,4 +291,22 @@ pub fn imported_sc_tags_from_fetch(
       _, _ -> acc
     }
   })
+}
+
+/// Fetch tracks from a Spotify playlist, optionally stopping at `fetch_newer_than` anchor.
+/// Returns (items, new_anchor) where new_anchor is the newest added_at seen (to store for next sync).
+pub fn fetch_spotify_playlist(
+  playlist_id: String,
+  root: source_root.SourceRoot,
+  fetch_newer_than: option.Option(String),
+) -> #(List(UnifiedItem), option.Option(String)) {
+  case root {
+    source_root.SpotifyRoot(credentials, _, _) ->
+      spotify_live_expander.fetch_playlist_tracks_with_anchor(
+        playlist_id,
+        spotify_live_expander.spotify_config(credentials),
+        fetch_newer_than,
+      )
+    _ -> #([], option.None)
+  }
 }
