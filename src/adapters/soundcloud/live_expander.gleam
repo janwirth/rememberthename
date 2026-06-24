@@ -393,7 +393,7 @@ fn parse_tracks(
         Ok(ms) if ms > 0 -> Some(int.to_float(ms) /. 1000.0)
         _ -> None
       }
-      core.track_item_with_added_at(
+      core.track_item_strict(
         "soundcloud",
         raw_source_id,
         title,

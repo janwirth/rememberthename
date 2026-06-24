@@ -102,6 +102,8 @@ pub type UnifiedItem {
     genres: List(String),
     /// Track duration in seconds. None when the source does not expose it.
     duration_s: Option(Float),
+    /// album_id:track_index fallback key, set when source_id was derived from album position.
+    albumid_trackindex: Option(String),
   )
 }
 
@@ -206,8 +208,39 @@ pub fn track_item_with_added_at(
         added_at: added,
         genres: genres,
         duration_s: duration_s,
+        albumid_trackindex: None,
       ))
     }
+  }
+}
+
+/// Strict variant: returns Error if duration_s is None or added_at is blank.
+/// Use for all adapters except the legacy tuna importer.
+pub fn track_item_strict(
+  service: String,
+  raw_source_id: String,
+  title: String,
+  artist: String,
+  explicit_external_source_url: String,
+  cover_url: String,
+  added_at: String,
+  genres: List(String),
+  duration_s: Option(Float),
+) -> Result(UnifiedItem, Nil) {
+  case duration_s == None || string.trim(added_at) == "" {
+    True -> Error(Nil)
+    False ->
+      track_item_with_added_at(
+        service,
+        raw_source_id,
+        title,
+        artist,
+        explicit_external_source_url,
+        cover_url,
+        added_at,
+        genres,
+        duration_s,
+      )
   }
 }
 
@@ -1130,7 +1163,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

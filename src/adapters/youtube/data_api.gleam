@@ -282,7 +282,7 @@ fn playlist_item_to_unified_item(
             Some(sn) -> best_thumbnail_url(sn.thumbnails)
           }
           let duration_s = dict.get(durations, vid) |> option.from_result
-          core.track_item_with_added_at(
+          core.track_item_strict(
             "youtube",
             vid,
             title,

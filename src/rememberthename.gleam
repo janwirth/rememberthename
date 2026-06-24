@@ -54,6 +54,7 @@ pub fn cloud_unified_item(
     added_at:,
     genres: [],
     duration_s: option.None,
+    albumid_trackindex: option.None,
   )
 }
 
@@ -62,6 +63,13 @@ pub fn with_duration_s(
   duration_s: option.Option(Float),
 ) -> UnifiedItem {
   core.UnifiedItem(..item, duration_s:)
+}
+
+pub fn with_albumid_trackindex(
+  item: UnifiedItem,
+  albumid_trackindex: option.Option(String),
+) -> UnifiedItem {
+  core.UnifiedItem(..item, albumid_trackindex:)
 }
 
 pub fn all_sources() {
@@ -186,7 +194,7 @@ pub fn imported_tags_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
@@ -214,7 +222,7 @@ pub fn imported_ratings_from_fetch(
     option.None -> dict.new()
     option.Some(meta) ->
       list.fold(items, dict.new(), fn(acc, item) {
-        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _) =
+        let core.UnifiedItem(id, _, _, service, _, source_id, _, _, file_path, _, _, _, _) =
           item
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
@@ -265,7 +273,7 @@ pub fn imported_genres_from_fetch(
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _) =
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _, _) =
       item
     case service, genres {
       "bandcamp", [_, ..] ->
@@ -283,7 +291,7 @@ pub fn imported_sc_tags_from_fetch(
 ) -> dict.Dict(String, List(String)) {
   let fetch_ops.FetchResult(items, _, _, _, _) = fetch
   list.fold(items, dict.new(), fn(acc, item) {
-    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _) =
+    let core.UnifiedItem(id, _, _, service, _, _, _, _, file_path, _, genres, _, _) =
       item
     case service, genres {
       "soundcloud", [_, ..] ->

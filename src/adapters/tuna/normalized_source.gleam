@@ -711,6 +711,7 @@ fn push_item_with_metadata(
                 added_at,
                 genres,
                 _,
+                _,
               ) = item
               core.UnifiedItem(
                 id: id,
@@ -725,6 +726,7 @@ fn push_item_with_metadata(
                 added_at: added_at,
                 genres: genres,
                 duration_s: None,
+                albumid_trackindex: None,
               )
             }
           }

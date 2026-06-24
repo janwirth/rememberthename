@@ -43,6 +43,7 @@ import gleam/http/request
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
+import gleam/result
 import gleam/string
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
@@ -376,7 +377,7 @@ fn expand_album_fetched(
         True -> {
           let track_ids =
             list.map(tracks, fn(t) {
-              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = t
+              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = t
               id
             })
           let list_source_id = "bandcamp:collection:" <> album_id
@@ -482,7 +483,7 @@ fn parse_item_parts_with_album_nodes(
             float.parse(string.trim(extract_between(part, "\"featured_track_duration\":", ",")))
             |> option.from_result
           let maybe_item =
-            core.track_item_with_added_at(
+            core.track_item_strict(
               "bandcamp",
               id,
               decode(title),
@@ -567,7 +568,7 @@ fn parse_track_id_parts(
         True -> parse_track_id_parts(rest, acc)
         False -> {
           let maybe_item =
-            core.track_item_with_added_at(
+            core.track_item_strict(
               "bandcamp",
               track_id,
               decode(title),
@@ -692,12 +693,13 @@ fn parse_album_track_titles(
         True ->
           parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres, album_added_at, album_artist)
         False -> {
+          let ati = album_id <> ":" <> int.to_string(index)
           let raw_source_id = case track_id {
-            "" | "null" -> album_id <> ":" <> int.to_string(index)
+            "" | "null" -> ati
             _ -> track_id
           }
           let maybe_item =
-            core.track_item_with_added_at(
+            core.track_item_strict(
               "bandcamp",
               raw_source_id,
               title,
@@ -708,6 +710,9 @@ fn parse_album_track_titles(
               album_genres,
               duration_s,
             )
+            |> result.map(fn(item) {
+              core.UnifiedItem(..item, albumid_trackindex: option.Some(ati))
+            })
           parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
             Ok(item) -> [item, ..acc]
             Error(_) -> acc

@@ -91,13 +91,14 @@ fn make_items(prefix: String, count: Int) -> List(core.UnifiedItem) {
       added_at: timestamp.unix_epoch,
       genres: [],
       duration_s: None,
+      albumid_trackindex: None,
     )
   })
 }
 
 fn item_ids(items: List(core.UnifiedItem)) -> List(String) {
   list.map(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
     id
   })
 }

@@ -17,6 +17,7 @@ fn test_item(id: String, title: String) -> core.UnifiedItem {
     added_at: timestamp.unix_epoch,
     genres: [],
     duration_s: None,
+    albumid_trackindex: None,
   )
 }
 

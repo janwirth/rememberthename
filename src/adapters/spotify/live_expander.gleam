@@ -371,7 +371,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -545,7 +545,7 @@ fn parse_track_items(tsv: String) -> List(core.UnifiedItem) {
     case track_id == "" {
       True -> Error(Nil)
       False ->
-        core.track_item_with_added_at(
+        core.track_item_strict(
           "spotify",
           track_id,
           normalize(title),
@@ -610,7 +610,7 @@ fn parse_track_items_with_artist_ids(
       True -> Error(Nil)
       False ->
         case
-          core.track_item_with_added_at(
+          core.track_item_strict(
             "spotify",
             track_id,
             normalize(title),
@@ -634,7 +634,7 @@ fn build_genre_collections(
 ) -> List(core.UnifiedCollection) {
   let genre_map =
     list.fold(items, dict.new(), fn(acc, item) {
-      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, genres, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, genres, _, _) = item
       list.fold(genres, acc, fn(acc2, genre) {
         let existing = result.unwrap(dict.get(acc2, genre), [])
         dict.insert(acc2, genre, [id, ..existing])
@@ -885,7 +885,7 @@ fn do_fetch_liked_album_tracks(
                   [a, ..] -> a
                   [] -> album_artist
                 }
-                core.track_item_with_added_at(
+                core.track_item_strict(
                   "spotify",
                   track_id,
                   normalize(track_name),
@@ -1112,7 +1112,7 @@ fn do_fetch_playlist_tracks(
                         }
                       }
                       case
-                        core.track_item_with_added_at(
+                        core.track_item_strict(
                           "spotify",
                           track_id,
                           normalize(track_name),
