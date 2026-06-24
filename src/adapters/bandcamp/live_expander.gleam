@@ -483,7 +483,7 @@ fn parse_item_parts_with_album_nodes(
             float.parse(string.trim(extract_between(part, "\"featured_track_duration\":", ",")))
             |> option.from_result
           let maybe_item =
-            core.track_item_strict(
+            core.track_item_with_added_at(
               "bandcamp",
               id,
               decode(title),
