@@ -371,7 +371,7 @@ fn emit_liked_tracks(
       id: "spotify:collection:likes",
       title: "Liked Songs",
       track_ids: list.map(items, fn(item) {
-        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
+        let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = item
         id
       }),
       list_ids: [],
@@ -634,7 +634,7 @@ fn build_genre_collections(
 ) -> List(core.UnifiedCollection) {
   let genre_map =
     list.fold(items, dict.new(), fn(acc, item) {
-      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, genres, _, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, genres, _, _, _) = item
       list.fold(genres, acc, fn(acc2, genre) {
         let existing = result.unwrap(dict.get(acc2, genre), [])
         dict.insert(acc2, genre, [id, ..existing])

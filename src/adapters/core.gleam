@@ -104,6 +104,8 @@ pub type UnifiedItem {
     duration_s: Option(Float),
     /// album_id:track_index fallback key, set when source_id was derived from album position.
     albumid_trackindex: Option(String),
+    /// True when added_at was inferred from a nearby item, not from the source record.
+    date_added_is_hypothetical: Bool,
   )
 }
 
@@ -209,6 +211,7 @@ pub fn track_item_with_added_at(
         genres: genres,
         duration_s: duration_s,
         albumid_trackindex: None,
+        date_added_is_hypothetical: False,
       ))
     }
   }
@@ -1163,7 +1166,7 @@ fn merge_lists(
 }
 
 fn item_key(item: UnifiedItem) -> String {
-  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _, _, _) = item
+  let UnifiedItem(_, _, _, service, source_type, source_id, _, _, _, _, _, _, _, _) = item
   service <> ":" <> source_type <> ":" <> source_id
 }
 

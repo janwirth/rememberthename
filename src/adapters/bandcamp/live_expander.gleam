@@ -45,6 +45,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
 import gleam/result
 import gleam/string
+import gleam/time/duration
+import gleam/time/timestamp
+import glentities
 
 // Service-specific expansion; recursion, dedupe, and ordering are handled in adapters/core.
 
@@ -187,11 +190,27 @@ pub fn expand(
   }
 }
 
+// Extract fan_id, first item's pagination token, and decoded JSON blob from
+// a Bandcamp profile HTML page.
+//
+// data-blob uses &quot; to encode internal quotes, so the first literal " after
+// data-blob=" is always the closing attribute delimiter — extract_between works.
+// data-token on item elements is a plain value with no entity encoding.
+fn scan_profile_html(html: String) -> #(String, String, String) {
+  let raw_blob = extract_between(html, "data-blob=\"", "\"")
+  let decoded_blob = case string.contains(raw_blob, "&") {
+    True -> glentities.decode(raw_blob)
+    False -> raw_blob
+  }
+  let fan_id = extract_between(decoded_blob, "\"fan_id\":", ",")
+  let first_data_token = extract_between(html, "data-token=\"", "\"")
+  #(fan_id, first_data_token, decoded_blob)
+}
+
 fn expand_profile(
   profile_url: String,
   cache_mode: cache.CacheMode,
 ) -> core.ExpandResult {
-  // Depth-1 should come from profile entry payload, then API starts at deeper levels.
   let #(html, #(hits, fetches)) = cached_fetch(profile_url, cache_mode)
   case html == "" {
     True ->
@@ -209,41 +228,116 @@ fn expand_profile(
         True -> "wishlist"
         False -> "collection"
       }
-      let #(entry_items, entry_album_nodes) =
-        parse_entry_items_with_nodes(html, feed_kind)
-      let fan_id = extract_between(html, "&quot;fan_id&quot;:", ",")
-      let token = {
-        let section_key = case is_wishlist {
-          True -> "&quot;wishlist_data&quot;:"
-          False -> "&quot;collection_data&quot;:"
-        }
-        case string.split(html, section_key) {
-          [_, section, ..] ->
-            extract_between(section, "&quot;last_token&quot;:&quot;", "&quot;")
-          _ -> ""
+      let #(fan_id, first_data_token, decoded_blob) =
+        scan_profile_html(html)
+      // first_data_token is e.g. "1763576106:2365071502:t::" — the proper
+      // older_than_token for the fancollection API to get items 2, 3, …
+      let #(api_json, #(a_hits, a_fetches)) = case
+        fan_id == "" || first_data_token == ""
+      {
+        True -> #("", #(0, 0))
+        False -> {
+          let endpoint = case is_wishlist {
+            True -> "https://bandcamp.com/api/fancollection/1/wishlist_items"
+            False ->
+              "https://bandcamp.com/api/fancollection/1/collection_items"
+          }
+          let body =
+            "{\"fan_id\":"
+            <> fan_id
+            <> ",\"older_than_token\":\""
+            <> first_data_token
+            <> "\",\"count\":50}"
+          cached_post_json(endpoint, body, cache_mode)
         }
       }
-      case fan_id == "" || token == "" {
+      // Items 2+ come from the API with real added_at dates.
+      let #(api_items, api_album_nodes) = case api_json {
+        "" -> #([], [])
+        json -> parse_category_payload(json, feed_kind)
+      }
+      let api_tracklist_items = case api_json {
+        "" -> []
+        json -> parse_tracklist_items(json, feed_kind)
+      }
+      let all_api_items = list.append(api_items, api_tracklist_items)
+      // Item 2's date is the best proxy for item 1's purchase date.
+      let first_api_ts = case all_api_items {
+        [first, ..] -> first.added_at
+        _ -> timestamp.unix_epoch
+      }
+      // Item 1 comes from the item_cache in the decoded blob.
+      let #(html_all_items, _html_album_nodes) =
+        parse_entry_items_with_nodes(decoded_blob, feed_kind)
+      let first_api_ts_bumped = case first_api_ts != timestamp.unix_epoch {
+        True -> timestamp.add(first_api_ts, duration.seconds(3600))
+        False -> first_api_ts
+      }
+      let html_first_item = case html_all_items {
+        [h_item, ..] -> [
+          core.UnifiedItem(
+            ..h_item,
+            added_at: first_api_ts_bumped,
+            date_added_is_hypothetical: first_api_ts_bumped != timestamp.unix_epoch,
+          ),
+        ]
+        [] -> []
+      }
+      // For item 1, build its album/probe node manually using the hypothetical
+      // timestamp. html_album_nodes is discarded: items 2-20 come from the API
+      // with proper dates (and their nodes carry those dates already).
+      let first_api_ts_str = core.added_at_display(first_api_ts_bumped)
+      let html_first_nodes = case html_first_item {
+        [item] -> {
+          let item_url =
+            option_unwrap(item.external_source_url, "")
+          case item.duration_s == None && item_url != "" {
+            False -> []
+            True -> [
+              core.ListNode(
+                "album|"
+                <> feed_kind
+                <> "|"
+                <> item_url
+                <> "|"
+                <> item.source_id
+                <> "|"
+                <> first_api_ts_str,
+              ),
+            ]
+          }
+        }
+        _ -> []
+      }
+      // Pagination: API covers items 2-51; if more remain, enqueue next page.
+      let api_more = string.contains(api_json, "\"more_available\":true")
+      let api_next = extract_between(api_json, "\"last_token\":\"", "\"")
+      case fan_id == "" {
         True ->
           core.ExpandResult(
-            items: entry_items,
+            items: list.append(html_first_item, all_api_items),
             lists: [],
-            next_nodes: entry_album_nodes,
+            next_nodes: list.append(html_first_nodes, api_album_nodes),
             unresolved: [core.ProfileEntry(profile_url)],
-            cache_hits: hits,
-            cache_fetches: fetches,
+            cache_hits: hits + a_hits,
+            cache_fetches: fetches + a_fetches,
           )
         False -> {
+          let cat_node = case api_more && api_next != "" {
+            True -> [core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> api_next)]
+            False -> []
+          }
           core.ExpandResult(
-            items: entry_items,
+            items: list.append(html_first_item, all_api_items),
             lists: [],
-            next_nodes: list.append(
-              [core.CategoryNode(feed_kind <> "|" <> fan_id <> "|" <> token)],
-              entry_album_nodes,
-            ),
+            next_nodes: list.flatten([
+              cat_node,
+              html_first_nodes,
+              api_album_nodes,
+            ]),
             unresolved: [],
-            cache_hits: hits,
-            cache_fetches: fetches,
+            cache_hits: hits + a_hits,
+            cache_fetches: fetches + a_fetches,
           )
         }
       }
@@ -418,7 +512,7 @@ fn expand_album_fetched(
         True -> {
           let track_ids =
             list.map(tracks, fn(t) {
-              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = t
+              let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = t
               id
             })
           let list_source_id = "bandcamp:collection:" <> album_id
@@ -513,11 +607,14 @@ fn parse_item_parts_with_album_nodes(
           )
         False -> {
           let page_url = decode(item_url)
+          let raw_added = decode(extract_between(part, "\"added\":\"", "\""))
+          let raw_purchased = decode(extract_between(part, "\"purchased\":\"", "\""))
           let added_at =
             option_unwrap(
-              parse_bandcamp_added_at(
-                decode(extract_between(part, "\"added\":\"", "\"")),
-              ),
+              parse_bandcamp_added_at(case raw_added {
+                "" -> raw_purchased
+                v -> v
+              }),
               "",
             )
           let duration_s =
@@ -771,11 +868,10 @@ fn parse_album_track_titles(
 }
 
 fn parse_entry_items_with_nodes(
-  html: String,
+  decoded_blob: String,
   feed_kind: String,
 ) -> #(List(core.UnifiedItem), List(core.AdapterNode)) {
-  let decoded = string.replace(html, "&quot;", "\"")
-  let segment = entry_items_segment(decoded, feed_kind)
+  let segment = entry_items_segment(decoded_blob, feed_kind)
   case segment {
     "" -> #([], [])
     s -> {

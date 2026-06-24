@@ -18,6 +18,7 @@ fn test_item(id: String, title: String) -> core.UnifiedItem {
     genres: [],
     duration_s: None,
     albumid_trackindex: None,
+    date_added_is_hypothetical: False,
   )
 }
 

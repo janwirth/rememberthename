@@ -109,6 +109,7 @@ pub fn depth_all_debug_logs_order_and_content_test() {
               genres: [],
               duration_s: None,
               albumid_trackindex: None,
+    date_added_is_hypothetical: False,
             ),
           ],
           lists: [],

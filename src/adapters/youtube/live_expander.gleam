@@ -189,7 +189,7 @@ fn make_collection(
 ) -> core.UnifiedCollection {
   let track_ids =
     list.map(items, fn(item) {
-      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
+      let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = item
       id
     })
   let source_id = "youtube:collection:" <> playlist_id

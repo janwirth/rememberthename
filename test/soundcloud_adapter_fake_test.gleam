@@ -173,6 +173,7 @@ fn make_item(id: String, title: String, artist: String) -> core.UnifiedItem {
     genres: [],
     duration_s: None,
     albumid_trackindex: None,
+    date_added_is_hypothetical: False,
   )
 }
 
@@ -202,14 +203,14 @@ fn list_ids(lists: List(core.UnifiedCollection)) -> List(String) {
 
 fn contains_item_id(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = item
     id == wanted
   })
 }
 
 fn items_have_https_covers(items: List(core.UnifiedItem)) -> Bool {
   list.all(items, fn(item) {
-    let core.UnifiedItem(_, _, _, _, _, _, _, cover, _, _, _, _, _) = item
+    let core.UnifiedItem(_, _, _, _, _, _, _, cover, _, _, _, _, _, _) = item
     case cover {
       option.Some(cover_url) -> string.starts_with(cover_url, "https://")
       option.None -> False

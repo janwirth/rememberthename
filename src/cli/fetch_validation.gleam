@@ -395,7 +395,7 @@ fn first_item_ids(result: core.ResolveResult, count: Int) -> List(String) {
   |> result_items
   |> list.take(count)
   |> list.map(fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = item
     id
   })
 }
@@ -405,7 +405,7 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
   result
   |> result_items
   |> list.any(fn(item) {
-    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(id, _, _, _, _, _, _, _, _, _, _, _, _, _) = item
     id == wanted
   })
 }
@@ -413,7 +413,7 @@ fn has_item_id(result: core.ResolveResult, wanted: String) -> Bool {
 /// Case-sensitive substring search in item titles.
 fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _, _, _) = item
     string.contains(title, wanted)
   })
 }
@@ -422,7 +422,7 @@ fn has_title_fragment(items: List(core.UnifiedItem), wanted: String) -> Bool {
 fn has_title_fragment_ci(items: List(core.UnifiedItem), wanted: String) -> Bool {
   let wanted_lc = string.lowercase(wanted)
   list.any(items, fn(item) {
-    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _, _) = item
+    let core.UnifiedItem(_, title, _, _, _, _, _, _, _, _, _, _, _, _) = item
     string.contains(string.lowercase(title), wanted_lc)
   })
 }
