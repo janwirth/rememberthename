@@ -267,47 +267,76 @@ fn expand_profile(
         _ -> timestamp.unix_epoch
       }
       // Item 1 comes from the item_cache in the decoded blob.
-      let #(html_all_items, _html_album_nodes) =
+      let #(html_all_items, html_album_nodes) =
         parse_entry_items_with_nodes(decoded_blob, feed_kind)
       let first_api_ts_bumped = case first_api_ts != timestamp.unix_epoch {
         True -> timestamp.add(first_api_ts, duration.seconds(3600))
         False -> first_api_ts
       }
-      let html_first_item = case html_all_items {
-        [h_item, ..] -> [
-          core.UnifiedItem(
-            ..h_item,
-            added_at: first_api_ts_bumped,
-            date_added_is_hypothetical: first_api_ts_bumped != timestamp.unix_epoch,
-          ),
-        ]
-        [] -> []
-      }
-      // For item 1, build its album/probe node manually using the hypothetical
-      // timestamp. html_album_nodes is discarded: items 2-20 come from the API
-      // with proper dates (and their nodes carry those dates already).
       let first_api_ts_str = core.added_at_display(first_api_ts_bumped)
-      let html_first_nodes = case html_first_item {
-        [item] -> {
-          let item_url =
-            option_unwrap(item.external_source_url, "")
-          case item.duration_s == None && item_url != "" {
-            False -> []
-            True -> [
-              core.ListNode(
-                "album|"
-                <> feed_kind
-                <> "|"
-                <> item_url
-                <> "|"
-                <> item.source_id
-                <> "|"
-                <> first_api_ts_str,
+      // Check whether item #1 in the cache is an album. If so, html_all_items[0]
+      // would be item #2 (album filtered out) — wrong item to treat as item #1.
+      let first_item_type =
+        extract_between(
+          entry_items_segment(decoded_blob, feed_kind),
+          "\"item_type\":\"",
+          "\"",
+        )
+      let first_item_is_album = first_item_type == "album"
+      let html_first_item = case first_item_is_album {
+        True -> []
+        False ->
+          case html_all_items {
+            [h_item, ..] -> [
+              core.UnifiedItem(
+                ..h_item,
+                added_at: first_api_ts_bumped,
+                date_added_is_hypothetical: first_api_ts_bumped
+                  != timestamp.unix_epoch,
               ),
             ]
+            [] -> []
           }
-        }
-        _ -> []
+      }
+      // For item 1, build its expansion node with the bumped timestamp.
+      // If item #1 is an album, reuse html_album_nodes[0] (which has empty date)
+      // and stamp it with first_api_ts_str. For items 2-20, the API nodes carry
+      // proper dates already, so html_album_nodes for those are discarded.
+      let html_first_nodes = case first_item_is_album {
+        True ->
+          case html_album_nodes {
+            [core.ListNode(node_data), ..] -> {
+              // node_data ends with "|" (empty added_at); append bumped date
+              let updated = case string.ends_with(node_data, "|") {
+                True -> node_data <> first_api_ts_str
+                False -> node_data
+              }
+              [core.ListNode(updated)]
+            }
+            _ -> []
+          }
+        False ->
+          case html_first_item {
+            [item] -> {
+              let item_url = option_unwrap(item.external_source_url, "")
+              case item.duration_s == None && item_url != "" {
+                False -> []
+                True -> [
+                  core.ListNode(
+                    "album|"
+                    <> feed_kind
+                    <> "|"
+                    <> item_url
+                    <> "|"
+                    <> item.source_id
+                    <> "|"
+                    <> first_api_ts_str,
+                  ),
+                ]
+              }
+            }
+            _ -> []
+          }
       }
       // Pagination: API covers items 2-51; if more remain, enqueue next page.
       let api_more = string.contains(api_json, "\"more_available\":true")
@@ -642,13 +671,13 @@ fn parse_item_parts_with_album_nodes(
             ]
             False -> nodes_acc
           }
-          // emit the item at collection level (duration may be None; probe will fill it in)
+          // Albums expand into tracks via ListNode; skip emitting album as item.
           let items_acc = case maybe_item {
-            Ok(item) -> [item, ..items_acc]
+            Ok(item) -> case is_album { True -> items_acc False -> [item, ..items_acc] }
             Error(_) -> items_acc
           }
-          // for items missing duration, schedule a page fetch to get it
-          let nodes_acc = case duration_s == None && item_url != "" {
+          // for items missing duration, schedule a page fetch to get it (tracks only)
+          let nodes_acc = case duration_s == None && item_url != "" && !is_album {
             True -> [
               core.ListNode(
                 "duration_probe|" <> page_url <> "|" <> id <> "|" <> added_at,
@@ -759,16 +788,44 @@ fn extract_album_artist_from_html(html: String) -> String {
   }
 }
 
+// Walk `s` (which starts just inside `[`) tracking bracket depth to find the
+// content of the outer array — stops before the closing `]`. Handles nested
+// `[...]` and `{...}` correctly so inner `],` does not cause early termination.
+fn outer_array_content(s: String) -> String {
+  outer_array_content_loop(string.to_graphemes(s), 1, [])
+}
+
+fn outer_array_content_loop(
+  chars: List(String),
+  depth: Int,
+  acc: List(String),
+) -> String {
+  case chars {
+    [] -> string.concat(list.reverse(acc))
+    [c, ..rest] ->
+      case c {
+        "[" | "{" ->
+          outer_array_content_loop(rest, depth + 1, [c, ..acc])
+        "]" | "}" ->
+          case depth <= 1 {
+            True -> string.concat(list.reverse(acc))
+            False -> outer_array_content_loop(rest, depth - 1, [c, ..acc])
+          }
+        _ -> outer_array_content_loop(rest, depth, [c, ..acc])
+      }
+  }
+}
+
 fn parse_album_tracks(html: String, album_id: String, album_added_at: String) -> List(core.UnifiedItem) {
   let album_cover = album_thumb_from_html(html)
   let album_genres = extract_bc_tags(html)
   let album_artist = extract_album_artist_from_html(html)
   let decoded = string.replace(html, "&quot;", "\"")
-  let trackinfo_split = string.split(decoded, "\"trackinfo\":")
+  let trackinfo_split = string.split(decoded, "\"trackinfo\":[")
   case trackinfo_split {
     [_, tail, ..] ->
       tail
-      |> first_segment("],")
+      |> outer_array_content
       |> parse_album_track_parts(album_id, album_cover, album_genres, album_added_at, album_artist)
     _ -> []
   }
@@ -782,89 +839,74 @@ fn parse_album_track_parts(
   album_added_at: String,
   album_artist: String,
 ) -> List(core.UnifiedItem) {
-  let parts = string.split(segment, "\"title\":\"")
-  case parts {
-    [] -> []
-    [_, ..rest] ->
-      parse_album_track_titles(rest, album_id, 0, [], album_cover, album_genres, album_added_at, album_artist)
-  }
-}
-
-fn parse_album_track_titles(
-  parts: List(String),
-  album_id: String,
-  index: Int,
-  acc: List(core.UnifiedItem),
-  album_cover: String,
-  album_genres: List(String),
-  album_added_at: String,
-  album_artist: String,
-) -> List(core.UnifiedItem) {
-  case parts {
-    [] -> list.reverse(acc)
-    [part, ..rest] -> {
-      let title = decode(first_segment(part, "\""))
-      let track_id =
-        first_segment(extract_between(part, "\"track_id\":", ","), ",")
-      let per_track_artist = decode(extract_between(part, "\"artist\":\"", "\""))
-      let artist =
-        default_if_empty(
-          default_if_empty(per_track_artist, album_artist),
-          "unknown",
-        )
-      let title_link = decode(extract_between(part, "\"title_link\":\"", "\""))
-      let track_thumb = tracklist_track_cover(part)
-      let cover = case string.trim(track_thumb) != "" {
-        True -> track_thumb
-        False -> album_cover
-      }
-      let per_track_added_at =
-        option_unwrap(
-          parse_bandcamp_added_at(
-            decode(extract_between(part, "\"added\":\"", "\"")),
-          ),
-          "",
-        )
-      // Fall back to the album entry's added_at when the track JSON has no date.
-      let added_at = case per_track_added_at {
-        "" -> album_added_at
-        t -> t
-      }
-      let duration_s =
-        float.parse(string.trim(extract_between(part, "\"duration\":", ",")))
-        |> option.from_result
-      case title == "" {
-        True ->
-          parse_album_track_titles(rest, album_id, index + 1, acc, album_cover, album_genres, album_added_at, album_artist)
-        False -> {
-          let ati = album_id <> ":" <> int.to_string(index)
-          let raw_source_id = case track_id {
-            "" | "null" -> ati
-            _ -> track_id
-          }
-          let maybe_item =
-            core.track_item_strict(
-              "bandcamp",
-              raw_source_id,
-              title,
-              artist,
-              title_link,
-              cover,
-              added_at,
-              album_genres,
-              duration_s,
-            )
-            |> result.map(fn(item) {
-              core.UnifiedItem(..item, albumid_trackindex: option.Some(ati))
-            })
-          parse_album_track_titles(rest, album_id, index + 1, case maybe_item {
-            Ok(item) -> [item, ..acc]
-            Error(_) -> acc
-          }, album_cover, album_genres, album_added_at, album_artist)
+  // Split on "},{" to bound each track object before extracting fields.
+  // Bandcamp JSON has "track_id" BEFORE "title", so splitting on "title" causes
+  // part N to see track N+1's track_id (off-by-one). Bounding by object fixes it.
+  string.split(segment, "},{")
+  |> list.index_fold([], fn(acc, track_json, index) {
+    let title = decode(extract_between(track_json, "\"title\":\"", "\""))
+    case title == "" {
+      True -> acc
+      False -> {
+        let track_id = extract_between(track_json, "\"track_id\":", ",")
+        let per_track_artist =
+          decode(extract_between(track_json, "\"artist\":\"", "\""))
+        let artist =
+          default_if_empty(
+            default_if_empty(per_track_artist, album_artist),
+            "unknown",
+          )
+        let title_link =
+          decode(extract_between(track_json, "\"title_link\":\"", "\""))
+        let track_thumb = tracklist_track_cover(track_json)
+        let cover = case string.trim(track_thumb) != "" {
+          True -> track_thumb
+          False -> album_cover
+        }
+        let per_track_added_at =
+          option_unwrap(
+            parse_bandcamp_added_at(
+              decode(extract_between(track_json, "\"added\":\"", "\"")),
+            ),
+            "",
+          )
+        let added_at = case per_track_added_at {
+          "" -> album_added_at
+          t -> t
+        }
+        let duration_s =
+          float.parse(
+            string.trim(extract_between(track_json, "\"duration\":", ",")),
+          )
+          |> option.from_result
+        let ati = album_id <> ":" <> int.to_string(index)
+        let raw_source_id = case track_id {
+          "" | "null" -> ati
+          _ -> track_id
+        }
+        case
+          core.track_item_strict(
+            "bandcamp",
+            raw_source_id,
+            title,
+            artist,
+            title_link,
+            cover,
+            added_at,
+            album_genres,
+            duration_s,
+          )
+          |> result.map(fn(item) {
+            core.UnifiedItem(..item, albumid_trackindex: option.Some(ati))
+          })
+        {
+          Ok(item) -> [item, ..acc]
+          Error(_) -> acc
         }
       }
     }
-  }
+  })
+  |> list.reverse
 }
 
 fn parse_entry_items_with_nodes(
