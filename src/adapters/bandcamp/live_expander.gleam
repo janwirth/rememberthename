@@ -336,6 +336,8 @@ fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
       expand_album_fetched(feed_kind, album_url, album_id, "", cache_mode)
     ["album", album_url, album_id] ->
       expand_album_fetched("wishlist", album_url, album_id, "", cache_mode)
+    ["duration_probe", item_url, source_id, added_at] ->
+      expand_duration_probe(item_url, source_id, added_at, cache_mode)
     _ ->
       core.ExpandResult(
         items: [],
@@ -346,6 +348,45 @@ fn expand_album(ctx: String, cache_mode: cache.CacheMode) -> core.ExpandResult {
         cache_fetches: 0,
       )
   }
+}
+
+fn expand_duration_probe(
+  item_url: String,
+  source_id: String,
+  added_at: String,
+  cache_mode: cache.CacheMode,
+) -> core.ExpandResult {
+  let #(html, #(hits, fetches)) = cached_fetch(item_url, cache_mode)
+  let items = case html == "" {
+    True -> []
+    False -> {
+      let decoded = string.replace(html, "&quot;", "\"")
+      let duration_s =
+        float.parse(string.trim(extract_between(decoded, "\"duration\":", ",")))
+        |> option.from_result
+      let title = extract_album_title_from_html(html)
+      let artist = extract_album_artist_from_html(html)
+      let cover = album_thumb_from_html(html)
+      case duration_s {
+        None -> []
+        Some(_) ->
+          case core.track_item_with_added_at(
+            "bandcamp", source_id, title, artist, item_url, cover, added_at, [], duration_s,
+          ) {
+            Ok(item) -> [item]
+            Error(_) -> []
+          }
+      }
+    }
+  }
+  core.ExpandResult(
+    items:,
+    lists: [],
+    next_nodes: [],
+    unresolved: [],
+    cache_hits: hits,
+    cache_fetches: fetches,
+  )
 }
 
 fn expand_album_fetched(
@@ -504,14 +545,20 @@ fn parse_item_parts_with_album_nodes(
             ]
             False -> nodes_acc
           }
-          // albums expand into tracks via ListNode; don't emit album as a single item
-          let items_acc = case is_album {
-            True -> items_acc
-            False ->
-              case maybe_item {
-                Ok(item) -> [item, ..items_acc]
-                Error(_) -> items_acc
-              }
+          // emit the item at collection level (duration may be None; probe will fill it in)
+          let items_acc = case maybe_item {
+            Ok(item) -> [item, ..items_acc]
+            Error(_) -> items_acc
+          }
+          // for items missing duration, schedule a page fetch to get it
+          let nodes_acc = case duration_s == None && item_url != "" {
+            True -> [
+              core.ListNode(
+                "duration_probe|" <> page_url <> "|" <> id <> "|" <> added_at,
+              ),
+              ..nodes_acc
+            ]
+            False -> nodes_acc
           }
           parse_item_parts_with_album_nodes(rest, feed_kind, items_acc, nodes_acc)
         }
