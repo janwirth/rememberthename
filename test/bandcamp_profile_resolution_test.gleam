@@ -31,12 +31,11 @@ fn seed_profile_html(fan_id: String, col_tok: String, wish_tok: String) -> Strin
 }
 
 fn seed_collection_items_json() -> String {
-  // Two album rows: purchased (Digi Spa EP) shape; wishlist JSON is separate seed.
-  "{\"last_token\":\"\",\"more_available\":false,\"item_id\":9001,\"item_type\":\"album\",\"item_title\":\"Digi Spa EP\",\"band_name\":\"Artist\",\"item_url\":\"https://digi.bandcamp.com/album/ep\",\"added\":\"\",\"item_id\":9100,\"item_type\":\"track\",\"item_title\":\"Loose track\",\"band_name\":\"X\",\"item_url\":\"https://x.bandcamp.com/track/t\",\"added\":\"\"}"
+  "{\"last_token\":\"\",\"more_available\":false,\"items\":[{\"item_id\":9001,\"item_type\":\"album\",\"item_title\":\"Digi Spa EP\",\"band_name\":\"Artist\",\"item_url\":\"https://digi.bandcamp.com/album/ep\",\"added\":\"\"},{\"item_id\":9100,\"item_type\":\"track\",\"item_title\":\"Loose track\",\"band_name\":\"X\",\"item_url\":\"https://x.bandcamp.com/track/t\",\"added\":\"\"}]}"
 }
 
 fn seed_wishlist_items_json() -> String {
-  "{\"last_token\":\"\",\"more_available\":false,\"item_id\":9002,\"item_type\":\"album\",\"item_title\":\"The Frightnrs - Nothing More To Say\",\"band_name\":\"The Frightnrs\",\"item_url\":\"https://frightnrs.bandcamp.com/album/nms\",\"added\":\"\"}"
+  "{\"last_token\":\"\",\"more_available\":false,\"items\":[{\"item_id\":9002,\"item_type\":\"album\",\"item_title\":\"The Frightnrs - Nothing More To Say\",\"band_name\":\"The Frightnrs\",\"item_url\":\"https://frightnrs.bandcamp.com/album/nms\",\"added\":\"\"}]}"
 }
 
 fn album_html_digi_spa() -> String {
@@ -240,7 +239,7 @@ pub fn bandcamp_collection_page_enqueues_every_album_not_capped_test() {
   let col_url = "https://bandcamp.com/api/fancollection/1/collection_items"
   let body = collection_post_body(fan, tok)
   let json =
-    "{\"last_token\":\"\",\"more_available\":false,\"item_id\":1,\"item_type\":\"album\",\"item_title\":\"A1\",\"band_name\":\"B\",\"item_url\":\"https://a1.bandcamp.com/album/a\",\"added\":\"\",\"item_id\":2,\"item_type\":\"album\",\"item_title\":\"A2\",\"band_name\":\"B\",\"item_url\":\"https://a2.bandcamp.com/album/a\",\"added\":\"\",\"item_id\":3,\"item_type\":\"album\",\"item_title\":\"A3\",\"band_name\":\"B\",\"item_url\":\"https://a3.bandcamp.com/album/a\",\"added\":\"\"}"
+    "{\"last_token\":\"\",\"more_available\":false,\"items\":[{\"item_id\":1,\"item_type\":\"album\",\"item_title\":\"A1\",\"band_name\":\"B\",\"item_url\":\"https://a1.bandcamp.com/album/a\",\"added\":\"\"},{\"item_id\":2,\"item_type\":\"album\",\"item_title\":\"A2\",\"band_name\":\"B\",\"item_url\":\"https://a2.bandcamp.com/album/a\",\"added\":\"\"},{\"item_id\":3,\"item_type\":\"album\",\"item_title\":\"A3\",\"band_name\":\"B\",\"item_url\":\"https://a3.bandcamp.com/album/a\",\"added\":\"\"}]}"
   cache.seed_adapter_cache("bandcamp_post_json", col_url <> "|" <> body, json)
   let r =
     bandcamp.expand(core.CategoryNode("collection|" <> fan <> "|" <> tok), cache.CacheReadOnly)
