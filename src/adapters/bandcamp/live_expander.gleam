@@ -934,10 +934,10 @@ fn parse_album_tracks(html: String, album_id: String, album_added_at: String) ->
                   Some(id) -> int.to_string(id)
                 }
                 let artist =
-                  default_if_empty(
+                  glentities.decode(default_if_empty(
                     default_if_empty(track.artist, album_artist),
                     "unknown",
-                  )
+                  ))
                 let per_added =
                   option_unwrap(parse_bandcamp_added_at(track.added), "")
                 let added_at = case per_added {
@@ -948,7 +948,7 @@ fn parse_album_tracks(html: String, album_id: String, album_added_at: String) ->
                   core.track_item_strict(
                     "bandcamp",
                     source_id,
-                    track.title,
+                    glentities.decode(track.title),
                     artist,
                     track.title_link,
                     album_cover,
