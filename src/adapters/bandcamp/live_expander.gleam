@@ -772,7 +772,8 @@ fn bc_category_items_to_result(
     list.fold(bc_items, #([], []), fn(acc, bc) {
       let #(items_acc, nodes_acc) = acc
       let id = int.to_string(bc.item_id)
-      let title = bc.item_title
+      let title = glentities.decode(bc.item_title)
+      let band_name = glentities.decode(bc.band_name)
       case bc.item_id == 0 || bc.item_type == "" || title == "" {
         True -> acc
         False -> {
@@ -805,7 +806,7 @@ fn bc_category_items_to_result(
               "bandcamp",
               id,
               title,
-              default_if_empty(bc.band_name, "unknown"),
+              default_if_empty(band_name, "unknown"),
               page_url,
               cover,
               added_at,
@@ -869,8 +870,8 @@ fn parse_tracklist_items(json_str: String, _kind: String) -> List(core.UnifiedIt
             core.track_item_strict(
               "bandcamp",
               int.to_string(track.id),
-              track.title,
-              default_if_empty(track.artist, "unknown"),
+              glentities.decode(track.title),
+              default_if_empty(glentities.decode(track.artist), "unknown"),
               track.title_link,
               cover,
               added_at,
