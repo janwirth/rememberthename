@@ -235,10 +235,16 @@ pub fn imported_ratings_from_fetch(
         let tags_str =
           track_view.tuna_metadata_for(meta, service, source_id).tags
         let rating = rating_from_export_tags_list(tuna_tags.export_tags(tags_str))
-        case rating, file_path {
-          option.Some(r), option.Some(p) if r > 0 ->
-            dict.insert(acc, string.trim(p), r)
-          _, _ -> acc
+        case rating {
+          option.Some(r) if r > 0 ->
+            case file_path {
+              // Prefer file_path (matches ci.file_path in curate JOIN)
+              option.Some(p) -> dict.insert(acc, string.trim(p), r)
+              // Fall back to item id (service:item:source_id, old format) so
+              // the curate JOIN can find it via ci.service || ':item:' || ci.source_id
+              option.None -> dict.insert(acc, id, r)
+            }
+          _ -> acc
         }
       })
   }
