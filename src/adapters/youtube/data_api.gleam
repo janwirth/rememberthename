@@ -376,11 +376,7 @@ fn snippet_fields(item: PlaylistItem) -> #(String, String, Option(String)) {
             v -> v
           }
       }
-      let artist =
-        first_non_empty([
-          sn.video_owner_channel_title,
-          sn.channel_title,
-        ])
+      let artist = first_non_empty([sn.video_owner_channel_title])
       #(title, artist, sn.published_at)
     }
   }

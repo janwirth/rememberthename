@@ -59,3 +59,14 @@ The module also has private helpers for internal flows:
 - all-sources export flow in internal modules (`fetch_ops`, CLI paths)
 
 Those are not public and cannot be imported from outside this package.
+
+## Known limitations
+
+### Spotify: no genre data
+
+The Spotify adapter does not fetch or populate genres. Spotify's genre data is unreliable at every level:
+- **Artist genres** are frequently wrong (e.g. BAUGRUPPE90 tagged as cumbia, Tame Impala tagged as techno).
+- **Album genres** are almost never populated by Spotify (returns `[]` for ~99% of albums).
+- Track-level genres do not exist in the Spotify API.
+
+Genre fields for Spotify items are always empty (`[]`). If you need genres, use a different source (Last.fm, MusicBrainz).

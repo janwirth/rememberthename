@@ -1,17 +1,19 @@
+import adapters/cache.{type CacheMode}
+import adapters/spotify/live_expander
+import cli/config_paths
+import cli/export_json
 import cli/fetch
 import cli/runtime
 import cli/spotify_oauth
 import cli/terminal
+import cli/tuna_perf
+import cli/tuna_tags
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{type Option}
 import output/visual_output.{type TrackView}
 import source_specs
-import adapters/cache.{type CacheMode}
-import cli/export_json
-import cli/tuna_perf
-import cli/tuna_tags
 
 /// CLI entry: normalizes argv and delegates to `run`.
 pub fn main() {
@@ -27,6 +29,11 @@ pub fn run(args: List(String)) {
     ["shallow", ..rest] -> fetch.fetch_source_shallow_simple(rest)
     ["fetch", source_selector, ..rest] ->
       fetch.fetch_source_simple(source_selector, rest)
+    ["spotify-debug-genre"] ->
+      case config_paths.get_spotify_credentials_from_env() {
+        Ok(creds) -> live_expander.debug_genre_last_track(creds, io.println)
+        Error(_) -> io.println("credentials not found")
+      }
     _ -> terminal.print_usage()
   }
   terminal.print_exit_signal()

@@ -28,7 +28,7 @@ pub fn to_track_view(
     cover_url,
     file_path,
     added_at,
-    _,
+    genres,
     _,
     _,
     _,
@@ -44,7 +44,7 @@ pub fn to_track_view(
     adapter_id,
     option.unwrap(file_path, ""),
     cover_url,
-    "",
+    string.join(genres, ", "),
   )
 }
 
